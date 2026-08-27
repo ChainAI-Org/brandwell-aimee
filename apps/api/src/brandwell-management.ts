@@ -4,12 +4,14 @@ import {
   BrandwellProvisioningError,
   type BrandwellProvisioningInput,
 } from "@brandwell/aimee";
+import { type JobPublisher, runContinueJob } from "@rakazo/adapter-kit";
 import type { PrismaClient } from "@rakazo/db";
 import type { Hono } from "hono";
 
 export interface BrandwellManagementDeps {
   prisma: PrismaClient;
   token: string;
+  jobs?: JobPublisher;
   provisionWorkspace?: (
     input: BrandwellProvisioningInput,
   ) => Promise<BrandwellProvisioningCheckpoint>;
@@ -20,6 +22,14 @@ export interface BrandwellManagementDeps {
 }
 
 type WorkspaceMapping = Awaited<ReturnType<typeof findWorkspaceMapping>>;
+type ClientNotificationRecord = {
+  id: string;
+  type: string;
+  title: string;
+  severity: string;
+  requiresAction: boolean;
+  createdAt: Date;
+};
 
 export function constantTimeBearerMatches(header: string | undefined, expected: string): boolean {
   if (!header?.startsWith("Bearer ")) return false;
@@ -221,6 +231,205 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     ]);
     return c.json({ ok: true, status: "active" });
   });
+
+  app.post("/internal/bots/:id/run", async (c) => {
+    if (!deps.jobs) return c.json({ error: "AIMEE job execution is not configured" }, 503);
+    const requestKey = managementIdempotencyKey(c.req.header("x-idempotency-key"));
+    if (!requestKey.ok) return c.json({ error: requestKey.error }, 400);
+    const bot = await deps.prisma.bot.findFirst({
+      where: {
+        id: c.req.param("id"),
+        managedByBrandWell: true,
+        managedStatus: "active",
+        archivedAt: null,
+        workspace: {
+          brandwellWorkspace: { subscriptionStatus: { in: ["trialing", "active"] } },
+        },
+      },
+      select: {
+        id: true,
+        workspaceId: true,
+        userId: true,
+        serviceIdentityId: true,
+        thread: { select: { id: true } },
+      },
+    });
+    if (!bot?.thread || !bot.serviceIdentityId) {
+      return c.json({ error: "Active AI employee not found" }, 404);
+    }
+    const threadId = bot.thread.id;
+    const routine = await deps.prisma.routine.findFirst({
+      where: { botId: bot.id, workspaceId: bot.workspaceId, active: true },
+      orderBy: [{ nextRunAt: "asc" }, { createdAt: "asc" }],
+    });
+    if (!routine) return c.json({ error: "No active routine is available to run" }, 409);
+    const clientNonce = `brandwell-support:${requestKey.value}`;
+    const existing = await deps.prisma.run.findFirst({
+      where: { workspaceId: bot.workspaceId, clientNonce },
+      select: { id: true, status: true },
+    });
+    if (existing) return c.json({ runId: existing.id, status: existing.status, replayed: true });
+    let run: { id: string; status: string; replayed: boolean };
+    try {
+      run = await deps.prisma.$transaction(async (tx) => {
+        const replay = await tx.run.findFirst({
+          where: { workspaceId: bot.workspaceId, clientNonce },
+          select: { id: true, status: true },
+        });
+        if (replay) return { ...replay, replayed: true };
+        const task = await tx.task.create({
+          data: {
+            workspaceId: bot.workspaceId,
+            botId: bot.id,
+            threadId,
+            userId: bot.userId,
+            prompt: routine.prompt,
+            status: "queued",
+          },
+        });
+        const created = await tx.run.create({
+          data: {
+            workspaceId: bot.workspaceId,
+            botId: bot.id,
+            threadId,
+            taskId: task.id,
+            userId: bot.userId,
+            serviceIdentityId: bot.serviceIdentityId,
+            routineId: routine.id,
+            status: "queued",
+            trigger: "brandwell_support",
+            clientNonce,
+          },
+          select: { id: true, status: true },
+        });
+        await tx.brandwellAuditLog.create({
+          data: {
+            workspaceId: bot.workspaceId,
+            actorType: "brandwell_service",
+            action: "employee.run_now",
+            resourceType: "run",
+            resourceId: created.id,
+            metadata: { routineId: routine.id },
+          },
+        });
+        return { ...created, replayed: false };
+      });
+    } catch (error) {
+      const replay = await deps.prisma.run.findFirst({
+        where: { workspaceId: bot.workspaceId, clientNonce },
+        select: { id: true, status: true },
+      });
+      if (!replay) throw error;
+      run = { ...replay, replayed: true };
+    }
+    await deps.jobs.enqueue(runContinueJob(run.id)).catch(() => undefined);
+    return c.json({ runId: run.id, status: run.status, replayed: run.replayed });
+  });
+
+  app.post("/internal/runs/:id/retry", async (c) => {
+    if (!deps.jobs) return c.json({ error: "AIMEE job execution is not configured" }, 503);
+    const run = await deps.prisma.run.findFirst({
+      where: {
+        id: c.req.param("id"),
+        status: "failed",
+        bot: {
+          managedByBrandWell: true,
+          managedStatus: "active",
+          archivedAt: null,
+          workspace: {
+            brandwellWorkspace: { subscriptionStatus: { in: ["trialing", "active"] } },
+          },
+        },
+      },
+      select: { id: true, workspaceId: true, taskId: true, botId: true },
+    });
+    if (!run) return c.json({ error: "Failed AIMEE run not found" }, 404);
+    const reset = await deps.prisma.$transaction(async (tx) => {
+      const updated = await tx.run.updateMany({
+        where: { id: run.id, status: "failed" },
+        data: {
+          status: "queued",
+          error: null,
+          startedAt: null,
+          completedAt: null,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          checkpoint: null,
+        },
+      });
+      if (updated.count !== 1) return false;
+      await tx.task.update({ where: { id: run.taskId }, data: { status: "queued" } });
+      await tx.brandwellAuditLog.create({
+        data: {
+          workspaceId: run.workspaceId,
+          actorType: "brandwell_service",
+          action: "run.retry",
+          resourceType: "run",
+          resourceId: run.id,
+          metadata: { botId: run.botId },
+        },
+      });
+      return true;
+    });
+    if (!reset) return c.json({ error: "Run is no longer retryable" }, 409);
+    await deps.jobs.enqueue(runContinueJob(run.id)).catch(() => undefined);
+    return c.json({ ok: true, runId: run.id, status: "queued" });
+  });
+
+  app.post("/internal/workspaces/:id/notify-client", async (c) => {
+    const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
+    if (!mapping) return c.json({ error: "Workspace not found" }, 404);
+    const requestKey = managementIdempotencyKey(c.req.header("x-idempotency-key"));
+    if (!requestKey.ok) return c.json({ error: requestKey.error }, 400);
+    const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+    const input = clientNotificationInput(body);
+    if (!input.ok) return c.json({ error: input.error }, 400);
+    const dedupeKey = `brandwell-notify:${requestKey.value}`;
+    const existing = await deps.prisma.brandwellClientNotification.findUnique({
+      where: {
+        workspaceId_dedupeKey: { workspaceId: mapping.rakazoWorkspaceId, dedupeKey },
+      },
+    });
+    if (existing) return c.json(clientNotificationResponse(existing, true));
+    let row: ClientNotificationRecord;
+    try {
+      row = await deps.prisma.$transaction(async (tx) => {
+        const notification = await tx.brandwellClientNotification.create({
+          data: {
+            workspaceId: mapping.rakazoWorkspaceId,
+            dedupeKey,
+            type: input.value.type,
+            title: input.value.title,
+            body: input.value.body,
+            severity: input.value.severity,
+            requiresAction: input.value.requiresAction,
+            actionType: input.value.actionType,
+            actionTarget: input.value.actionTarget,
+          },
+        });
+        await tx.brandwellAuditLog.create({
+          data: {
+            workspaceId: mapping.rakazoWorkspaceId,
+            actorType: "brandwell_service",
+            action: "client.notify",
+            resourceType: "notification",
+            resourceId: notification.id,
+            metadata: { type: notification.type, requiresAction: notification.requiresAction },
+          },
+        });
+        return notification;
+      });
+    } catch (error) {
+      const replay = await deps.prisma.brandwellClientNotification.findUnique({
+        where: {
+          workspaceId_dedupeKey: { workspaceId: mapping.rakazoWorkspaceId, dedupeKey },
+        },
+      });
+      if (!replay) throw error;
+      return c.json(clientNotificationResponse(replay, true));
+    }
+    return c.json(clientNotificationResponse(row, false));
+  });
 }
 
 async function findWorkspaceMapping(prisma: PrismaClient, id: string) {
@@ -395,6 +604,75 @@ function boundedLimit(value: string | undefined): number {
   const parsed = Number(value ?? 50);
   if (!Number.isFinite(parsed)) return 50;
   return Math.min(100, Math.max(1, Math.trunc(parsed)));
+}
+
+function managementIdempotencyKey(
+  value: string | undefined,
+): { ok: true; value: string } | { ok: false; error: string } {
+  const key = String(value ?? "").trim();
+  if (!/^[A-Za-z0-9._:-]{8,160}$/.test(key)) {
+    return { ok: false, error: "A valid x-idempotency-key header is required" };
+  }
+  return { ok: true, value: key };
+}
+
+function clientNotificationInput(body: Record<string, unknown> | null):
+  | {
+      ok: true;
+      value: {
+        type: string;
+        title: string;
+        body: string;
+        severity: string;
+        requiresAction: boolean;
+        actionType: string | null;
+        actionTarget: string | null;
+      };
+    }
+  | { ok: false; error: string } {
+  if (!body) return { ok: false, error: "A JSON request body is required" };
+  const title = typeof body.title === "string" ? body.title.trim() : "";
+  const message = typeof body.body === "string" ? body.body.trim() : "";
+  if (!title || title.length > 120) return { ok: false, error: "title is required" };
+  if (!message || message.length > 1_000) return { ok: false, error: "body is required" };
+  const type =
+    typeof body.type === "string" && body.type.trim() ? body.type.trim().slice(0, 80) : "INFO";
+  const severity =
+    typeof body.severity === "string" && body.severity.trim()
+      ? body.severity.trim().slice(0, 40)
+      : "info";
+  const actionType =
+    typeof body.actionType === "string" && body.actionType.trim()
+      ? body.actionType.trim().slice(0, 80)
+      : null;
+  const actionTarget =
+    typeof body.actionTarget === "string" && body.actionTarget.trim()
+      ? body.actionTarget.trim().slice(0, 500)
+      : null;
+  return {
+    ok: true,
+    value: {
+      type,
+      title,
+      body: message,
+      severity,
+      requiresAction: body.requiresAction === true,
+      actionType,
+      actionTarget,
+    },
+  };
+}
+
+function clientNotificationResponse(row: ClientNotificationRecord, replayed: boolean) {
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    severity: row.severity,
+    requiresAction: row.requiresAction,
+    createdAt: row.createdAt,
+    replayed,
+  };
 }
 
 function provisioningInput(

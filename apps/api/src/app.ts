@@ -303,6 +303,7 @@ export async function createApp(
     mountBrandwellManagementRoutes(app, {
       prisma,
       token: env.brandwellManagementApiToken,
+      jobs,
       ...(openRouterManagement
         ? {
             provisionWorkspace: (input) =>
