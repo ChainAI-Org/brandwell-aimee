@@ -32,7 +32,15 @@ test("titled sidebar section expands and collapses", async ({ page }, testInfo) 
   await sidebar.getByPlaceholder("Search").hover();
   await captureScreenshot(page, testInfo, "sidebar-section-expanded");
 
+  // Hover header with Chief selected underneath — outer edges must match.
+  await bot.click();
   await toggle.hover();
+  const headerBox = await toggle.boundingBox();
+  const botBox = await bot.boundingBox();
+  expect(headerBox).toBeTruthy();
+  expect(botBox).toBeTruthy();
+  expect(headerBox!.x).toBeCloseTo(botBox!.x, 0);
+  expect(headerBox!.x + headerBox!.width).toBeCloseTo(botBox!.x + botBox!.width, 0);
   await captureScreenshot(page, testInfo, "sidebar-section-hover");
 
   await toggle.click();
