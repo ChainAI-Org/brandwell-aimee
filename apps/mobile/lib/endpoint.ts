@@ -1,9 +1,15 @@
-const DEFAULT_API = process.env.EXPO_PUBLIC_API_URL ?? "http://127.0.0.1:3100";
+export const OFFICIAL_API_BASE = "https://ai.brandwell.ai";
+
+const DEFAULT_API = process.env.EXPO_PUBLIC_API_URL ?? OFFICIAL_API_BASE;
 
 export type EndpointResult = { ok: true; url: string } | { ok: false; error: string };
 
 export function defaultApiBase() {
   return originOnly(DEFAULT_API) ?? DEFAULT_API.replace(/\/+$/, "");
+}
+
+export function allowsCustomApiBase() {
+  return process.env.NODE_ENV !== "production";
 }
 
 export function normalizeApiBase(input: string): EndpointResult {
@@ -60,7 +66,7 @@ export async function probeApiBase(
   try {
     const res = await fetchImpl(`${parsed.url}/rpc/health`, {
       method: "POST",
-      headers: { "content-type": "application/json", origin: "rakazo://" },
+      headers: { "content-type": "application/json", origin: "aimee://" },
       body: JSON.stringify({ json: {} }),
       signal: controller.signal,
     });
@@ -69,7 +75,7 @@ export async function probeApiBase(
       error?: { message?: string };
     };
     if (!res.ok || body.error || body.json?.ok !== true) {
-      return { ok: false, error: "That URL did not look like a Rakazo server" };
+      return { ok: false, error: "That URL did not look like an AIMEE server" };
     }
     return parsed;
   } catch {

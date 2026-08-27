@@ -106,6 +106,7 @@ import {
   resolveBusyBotName,
   toComputerStatus,
 } from "./computer-status.js";
+import { connectionOwnerWhere, resolveConnectionOwner } from "./connection-owner.js";
 import { buildMcpUpdateMaterial } from "./mcp-material.js";
 import { chooseFocus, markAppConnected, startOnboarding } from "./onboarding.js";
 import { listWorkspaceRuns } from "./runs.js";
@@ -2475,11 +2476,8 @@ export function createRouter(deps: RouterDeps) {
     },
     connections: {
       catalog: authed.connections.catalog.handler(async ({ context, input }) => {
-        const adapterContext = connectionContext(
-          context.actor,
-          "connections.catalog",
-          context.signal,
-        );
+        const owner = await resolveConnectionOwner(deps.prisma, context.actor);
+        const adapterContext = connectionContext(owner, "connections.catalog", context.signal);
         const providers = input.connectorId
           ? [deps.connectors.managed(input.connectorId)].filter(
               (provider): provider is NonNullable<typeof provider> => Boolean(provider),
@@ -2493,7 +2491,7 @@ export function createRouter(deps: RouterDeps) {
               if (nowConnected.length > 0) {
                 await reconcilePendingConnections(
                   deps.prisma,
-                  context.actor,
+                  owner,
                   provider.describe().id,
                   nowConnected,
                 ).catch((error) => {
@@ -2512,8 +2510,9 @@ export function createRouter(deps: RouterDeps) {
         return catalogs.flat();
       }),
       list: authed.connections.list.handler(async ({ context }) => {
+        const owner = await resolveConnectionOwner(deps.prisma, context.actor);
         const rows = await deps.prisma.connection.findMany({
-          where: { workspaceId: context.actor.workspaceId, userId: context.actor.userId },
+          where: connectionOwnerWhere(owner),
         });
         return rows.map((row) => ({
           id: row.id,
@@ -2526,6 +2525,7 @@ export function createRouter(deps: RouterDeps) {
         }));
       }),
       begin: authed.connections.begin.handler(async ({ context, input }) => {
+        const owner = await resolveConnectionOwner(deps.prisma, context.actor);
         const connector = deps.connectors.managed(input.connectorId);
         if (!connector) {
           throw new ORPCError("BAD_REQUEST", {
@@ -2534,8 +2534,10 @@ export function createRouter(deps: RouterDeps) {
         }
         const row = await deps.prisma.connection.create({
           data: {
-            workspaceId: context.actor.workspaceId,
-            userId: context.actor.userId,
+            workspaceId: owner.workspaceId,
+            userId: owner.userId,
+            ownerType: owner.ownerType,
+            serviceIdentityId: owner.serviceIdentityId,
             connectorId: input.connectorId,
             provider: input.provider,
             displayName: input.displayName,
@@ -2545,7 +2547,7 @@ export function createRouter(deps: RouterDeps) {
         try {
           const auth = await connector.begin(
             { provider: input.provider, redirectUrl: `${deps.env.webOrigin}/app` },
-            connectionContext(context.actor, "connections.begin", context.signal),
+            connectionContext(owner, "connections.begin", context.signal),
           );
           await deps.prisma.connection.update({
             where: { id: row.id },
@@ -2565,11 +2567,11 @@ export function createRouter(deps: RouterDeps) {
         }
       }),
       complete: authed.connections.complete.handler(async ({ context, input }) => {
+        const owner = await resolveConnectionOwner(deps.prisma, context.actor);
         const existing = await deps.prisma.connection.findFirst({
           where: {
             id: input.connectionId,
-            workspaceId: context.actor.workspaceId,
-            userId: context.actor.userId,
+            ...connectionOwnerWhere(owner),
           },
         });
         if (!existing) throw new IsolationError();
@@ -2586,14 +2588,14 @@ export function createRouter(deps: RouterDeps) {
             try {
               await connector.complete(
                 { state, code: input.code },
-                connectionContext(context.actor, "connections.complete", context.signal),
+                connectionContext(owner, "connections.complete", context.signal),
               );
             } catch (error) {
               throw new ORPCError("BAD_REQUEST", { message: sanitizeComposioError(error) });
             }
           }
           const ready = await connector.connectionReady(
-            connectionContext(context.actor, "connections.complete", context.signal),
+            connectionContext(owner, "connections.complete", context.signal),
             existing.provider,
           );
           if (ready) {
@@ -2614,11 +2616,11 @@ export function createRouter(deps: RouterDeps) {
         };
       }),
       revoke: authed.connections.revoke.handler(async ({ context, input }) => {
+        const owner = await resolveConnectionOwner(deps.prisma, context.actor);
         const row = await deps.prisma.connection.findFirst({
           where: {
             id: input.connectionId,
-            workspaceId: context.actor.workspaceId,
-            userId: context.actor.userId,
+            ...connectionOwnerWhere(owner),
           },
         });
         if (row) {
@@ -2631,7 +2633,7 @@ export function createRouter(deps: RouterDeps) {
           try {
             await connector.revoke(
               row.provider,
-              connectionContext(context.actor, "connections.revoke", context.signal),
+              connectionContext(owner, "connections.revoke", context.signal),
             );
           } catch (error) {
             throw new ORPCError("BAD_REQUEST", { message: sanitizeComposioError(error) });
@@ -2640,8 +2642,7 @@ export function createRouter(deps: RouterDeps) {
         await deps.prisma.connection.updateMany({
           where: {
             id: input.connectionId,
-            workspaceId: context.actor.workspaceId,
-            userId: context.actor.userId,
+            ...connectionOwnerWhere(owner),
           },
           data: { status: "revoked" },
         });

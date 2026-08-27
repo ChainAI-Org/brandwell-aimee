@@ -520,6 +520,12 @@ export const ComputerStatusSchema = z.object({
   homeRevision: z.string().nullable(),
   busyBotName: z.string().nullable(),
   updateAvailable: z.boolean(),
+  controlUserId: Id.nullable(),
+  controlActorType: z.enum(["client", "brandwell_operator", "bot"]).nullable(),
+  controlActorName: z.string().nullable(),
+  controlStartedAt: z.string().nullable(),
+  lastScreenshotAt: z.string().nullable(),
+  lastComputerActivityAt: z.string().nullable(),
 });
 export type ComputerStatus = z.infer<typeof ComputerStatusSchema>;
 

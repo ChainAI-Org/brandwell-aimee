@@ -14,6 +14,7 @@
     "intl:compile": "lingui compile"
   },
   "dependencies": {
+    "@brandwell/aimee": "workspace:*",
     "@lingui/core": "5.9.5",
     "@lingui/react": "5.9.5",
     "@orpc/client": "^1.15.0",

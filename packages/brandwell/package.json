@@ -8,6 +8,11 @@
       "types": "./src/index.ts",
       "development": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./brand-config": {
+      "types": "./src/brand-config.ts",
+      "development": "./src/brand-config.ts",
+      "default": "./src/brand-config.ts"
     }
   },
   "scripts": {

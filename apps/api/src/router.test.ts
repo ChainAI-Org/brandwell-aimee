@@ -295,6 +295,9 @@ describe("connections.complete", () => {
       createdAt: new Date("2026-08-26T00:00:00.000Z"),
     });
     const prisma = {
+      brandwellAiWorkspace: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
       connection: {
         findFirst: vi.fn().mockResolvedValue({
           id: "conn-1",

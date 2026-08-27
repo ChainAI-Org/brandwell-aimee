@@ -63,7 +63,7 @@ describe("display and warnings", () => {
 });
 
 describe("probeApiBase", () => {
-  it("accepts a Rakazo /rpc/health response", async () => {
+  it("accepts an AIMEE /rpc/health response", async () => {
     const fetchImpl = vi.fn(
       async () =>
         new Response(JSON.stringify({ json: { ok: true, version: "0.1.0" } }), { status: 200 }),

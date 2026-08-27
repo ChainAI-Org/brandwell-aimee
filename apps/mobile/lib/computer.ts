@@ -65,7 +65,7 @@ export function previewPlaceholder(
 ): string {
   if (state === "booting" || booting) return "Booting live desktop…";
   if (state === "running") return computerLabel(mode, name);
-  if (state === "suspended") return "Computer is asleep — take control to wake it";
+  if (state === "suspended") return "Computer is asleep. Take control to wake it";
   if (state === "error") return "Computer failed to boot";
   return "Computer is stopped";
 }

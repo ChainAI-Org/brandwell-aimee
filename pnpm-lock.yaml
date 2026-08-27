@@ -104,6 +104,9 @@ importers:
 
   apps/mobile:
     dependencies:
+      '@brandwell/aimee':
+        specifier: workspace:*
+        version: link:../../packages/brandwell
       '@expo/metro-runtime':
         specifier: ~57.0.14
         version: 57.0.14(@expo/log-box@57.0.4)(expo@57.0.17)(react-dom@19.2.3(react@19.2.3))(react-native@0.86.3(@babel/core@7.29.7)(@react-native/metro-config@0.86.3(@babel/core@7.29.7))(@types/react@19.2.18)(react@19.2.3))(react@19.2.3)
@@ -222,6 +225,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@brandwell/aimee':
+        specifier: workspace:*
+        version: link:../../packages/brandwell
       '@lingui/core':
         specifier: 5.9.5
         version: 5.9.5(@lingui/babel-plugin-lingui-macro@5.9.5(typescript@5.9.3))
@@ -547,6 +553,9 @@ importers:
 
   packages/auth:
     dependencies:
+      '@brandwell/aimee':
+        specifier: workspace:*
+        version: link:../brandwell
       '@rakazo/core':
         specifier: workspace:*
         version: link:../core

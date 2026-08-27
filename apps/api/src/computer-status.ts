@@ -56,6 +56,12 @@ export function toComputerStatus(
     controlBotId?: string | null;
     controlRunId?: string | null;
     homeRevision: string;
+    controlUserId?: string | null;
+    controlActorType?: string | null;
+    controlActorName?: string | null;
+    controlStartedAt?: Date | null;
+    lastScreenshotAt?: Date | null;
+    lastComputerActivityAt?: Date | null;
   } | null,
   busyBotName: string | null = null,
 ): ComputerStatus {
@@ -85,5 +91,16 @@ export function toComputerStatus(
     homeRevision: computer?.homeRevision ?? null,
     busyBotName,
     updateAvailable: kind !== "desktop",
+    controlUserId: computer?.controlUserId ?? null,
+    controlActorType:
+      computer?.controlActorType === "client" ||
+      computer?.controlActorType === "brandwell_operator" ||
+      computer?.controlActorType === "bot"
+        ? computer.controlActorType
+        : null,
+    controlActorName: computer?.controlActorName ?? null,
+    controlStartedAt: computer?.controlStartedAt?.toISOString() ?? null,
+    lastScreenshotAt: computer?.lastScreenshotAt?.toISOString() ?? null,
+    lastComputerActivityAt: computer?.lastComputerActivityAt?.toISOString() ?? null,
   };
 }

@@ -173,6 +173,7 @@ export async function createApp(
     signupsEnabled: env.signupsEnabled,
     signupAllowlist: env.signupAllowlist,
     extraOrigins: [
+      "aimee://",
       "rakazo://",
       "exp://",
       "exp://*",
@@ -432,7 +433,13 @@ function brandwellComputerContext(computer: { id: string; workspaceId: string; u
 function isTrustedOrigin(origin: string, env: AppEnv) {
   if (!origin) return true;
   if (origin === env.webOrigin || origin === env.apiUrl || origin === env.authUrl) return true;
-  if (origin.startsWith("rakazo://") || origin.startsWith("exp://")) return true;
+  if (
+    origin.startsWith("aimee://") ||
+    origin.startsWith("rakazo://") ||
+    origin.startsWith("exp://")
+  ) {
+    return true;
+  }
   try {
     const host = new URL(origin).hostname;
     return host === "localhost" || host === "127.0.0.1";

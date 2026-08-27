@@ -1,18 +1,17 @@
 {
   "expo": {
-    "name": "Rakazo",
-    "slug": "rakazo",
-    "owner": "inbox-zero",
-    "scheme": "rakazo",
+    "name": "AIMEE",
+    "slug": "brandwell-aimee",
+    "scheme": "aimee",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/brandwell-aimee-icon.png",
     "plugins": [
       [
         "expo-splash-screen",
         {
-          "image": "./assets/splash-icon.png",
+          "image": "./assets/brandwell-wordmark.png",
           "resizeMode": "contain",
           "backgroundColor": "#050506"
         }
@@ -26,15 +25,15 @@
       [
         "expo-notifications",
         {
-          "icon": "./assets/notification-icon.png",
-          "color": "#2965EC"
+          "icon": "./assets/brandwell-notification-icon.png",
+          "color": "#ED168C"
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "Rakazo uses your photo library so you can attach images to a bot message.",
-          "cameraPermission": "Rakazo uses the camera so you can attach photos to a bot message.",
+          "photosPermission": "AIMEE uses your photo library so you can attach images to a conversation.",
+          "cameraPermission": "AIMEE uses the camera so you can attach photos to a conversation.",
           "microphonePermission": false
         }
       ],
@@ -42,40 +41,34 @@
       "./plugins/with-worklets-headers"
     ],
     "ios": {
-      "bundleIdentifier": "com.rakazo.app",
+      "bundleIdentifier": "com.brandwell.aimee",
       "buildNumber": "1",
       "supportsTablet": false,
-      "icon": "./assets/icon.png",
+      "icon": "./assets/brandwell-aimee-icon.png",
       "config": {
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "NSCameraUsageDescription": "Rakazo uses the camera so you can attach photos to a bot message.",
-        "NSPhotoLibraryUsageDescription": "Rakazo uses your photo library so you can attach images to a bot message.",
-        "NSLocalNetworkUsageDescription": "Rakazo connects to a self-hosted Rakazo server on your local network.",
-        "NSAppTransportSecurity": {
-          "NSAllowsLocalNetworking": true
-        }
+        "NSCameraUsageDescription": "AIMEE uses the camera so you can attach photos to a conversation.",
+        "NSPhotoLibraryUsageDescription": "AIMEE uses your photo library so you can attach images to a conversation."
       }
     },
     "android": {
-      "package": "com.rakazo.app",
-      "icon": "./assets/icon.png",
+      "package": "com.brandwell.aimee",
+      "icon": "./assets/brandwell-aimee-icon.png",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "monochromeImage": "./assets/monochrome-icon.png",
-        "backgroundColor": "#2965EC"
+        "foregroundImage": "./assets/brandwell-aimee-icon.png",
+        "monochromeImage": "./assets/brandwell-notification-icon.png",
+        "backgroundColor": "#101114"
       }
     },
     "web": {
-      "favicon": "./assets/favicon.png"
+      "favicon": "./assets/brandwell-aimee-icon.png"
     },
     "extra": {
       "router": {},
       "supportsRTL": true,
-      "eas": {
-        "projectId": "07f7eb04-45e3-47fe-9374-99a2f991131e"
-      }
+      "officialApiUrl": "https://ai.brandwell.ai"
     }
   }
 }

@@ -25,7 +25,8 @@ import {
   tokenFromAuthResponse,
 } from "./session";
 
-const ENDPOINT_KEY = "rakazo.api_base";
+const AIMEE_ORIGIN = "aimee://";
+const ENDPOINT_KEY = "brandwell.aimee.api_base";
 
 let cachedApiBase: string | undefined;
 
@@ -88,7 +89,7 @@ async function authHeaders(): Promise<Record<string, string>> {
 export async function signIn(email: string, password: string) {
   const res = await fetch(`${currentApiBase()}/api/auth/sign-in/email`, {
     method: "POST",
-    headers: { "content-type": "application/json", origin: "rakazo://" },
+    headers: { "content-type": "application/json", origin: AIMEE_ORIGIN },
     body: JSON.stringify({ email, password }),
   });
   const body = await res.json().catch(() => ({}));
@@ -104,7 +105,7 @@ export async function signOut() {
   const headers = await authHeaders();
   await fetch(`${currentApiBase()}/api/auth/sign-out`, {
     method: "POST",
-    headers: { "content-type": "application/json", origin: "rakazo://", ...headers },
+    headers: { "content-type": "application/json", origin: AIMEE_ORIGIN, ...headers },
   }).catch(() => undefined);
   await clearSessionToken();
 }
@@ -112,7 +113,7 @@ export async function signOut() {
 export async function deleteAccount(password: string) {
   const res = await fetch(`${currentApiBase()}/api/auth/delete-user`, {
     method: "POST",
-    headers: { "content-type": "application/json", origin: "rakazo://", ...(await authHeaders()) },
+    headers: { "content-type": "application/json", origin: AIMEE_ORIGIN, ...(await authHeaders()) },
     body: JSON.stringify({ password }),
   });
   const body = await res.json().catch(() => ({}));
@@ -131,7 +132,7 @@ export async function rpc<T>(
     method: "POST",
     headers: {
       "content-type": "application/json",
-      origin: "rakazo://",
+      origin: AIMEE_ORIGIN,
       ...(await authHeaders()),
     },
     body: JSON.stringify({ json: body }),
@@ -156,6 +157,10 @@ export type MobileBot = Pick<
   | "unread"
   | "updatedAt"
   | "computerMode"
+  | "ownerType"
+  | "visibility"
+  | "managedByBrandWell"
+  | "managedStatus"
 > &
   Partial<Pick<Bot, "parentBotId">>;
 
@@ -170,6 +175,8 @@ export type MobileMe = Pick<
   | "defaultModel"
   | "needsModel"
   | "avatarStyle"
+  | "workspaceRole"
+  | "brandwell"
 >;
 
 export type MobileModel = ModelCatalogEntry;
@@ -305,7 +312,7 @@ export async function subscribeThread(
     headers: {
       "content-type": "application/json",
       accept: "text/event-stream",
-      origin: "rakazo://",
+      origin: AIMEE_ORIGIN,
       ...(await authHeaders()),
     },
     body: JSON.stringify({ json: { ...target, cursor } }),
@@ -483,6 +490,7 @@ export function applyMobileThreadEvent(
 }
 
 export {
+  allowsCustomApiBase,
   apiBaseWarning,
   defaultApiBase,
   displayApiHost,

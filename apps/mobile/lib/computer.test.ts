@@ -25,6 +25,12 @@ function computer(overrides: Partial<ComputerStatus> = {}): ComputerStatus {
     homeRevision: null,
     busyBotName: null,
     updateAvailable: true,
+    controlUserId: null,
+    controlActorType: null,
+    controlActorName: null,
+    controlStartedAt: null,
+    lastScreenshotAt: null,
+    lastComputerActivityAt: null,
     ...overrides,
   };
 }
@@ -62,7 +68,7 @@ describe("computer copy", () => {
   it("matches the web pane while booting, asleep, or in control", () => {
     expect(previewPlaceholder("stopped", false, "Chief")).toBe("Computer is stopped");
     expect(previewPlaceholder("suspended", false, "Chief")).toBe(
-      "Computer is asleep — take control to wake it",
+      "Computer is asleep. Take control to wake it",
     );
     expect(previewPlaceholder("running", true, "Chief")).toBe("Booting live desktop…");
     expect(

@@ -1,3 +1,4 @@
+import { BRANDWELL_BRAND } from "@brandwell/aimee/brand-config";
 import { DarkTheme, Stack, ThemeProvider } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
@@ -24,14 +25,14 @@ export default function Layout() {
             <StatusBar style="light" />
             <Stack
               screenOptions={{
-                headerStyle: { backgroundColor: "#000" },
-                headerTintColor: "#ECECEE",
+                headerStyle: { backgroundColor: BRANDWELL_BRAND.colors.background },
+                headerTintColor: BRANDWELL_BRAND.colors.text,
                 headerShadowVisible: false,
                 headerBackButtonDisplayMode: "minimal",
-                contentStyle: { backgroundColor: "#000" },
+                contentStyle: { backgroundColor: BRANDWELL_BRAND.colors.background },
               }}
             >
-              <Stack.Screen name="index" options={{ headerShown: false, title: "Rakazo" }} />
+              <Stack.Screen name="index" options={{ headerShown: false, title: "AIMEE" }} />
               <Stack.Screen name="sign-in" options={{ headerShown: false }} />
               <Stack.Screen name="account" options={{ title: "Account" }} />
               <Stack.Screen name="models" options={{ title: "Models" }} />
@@ -40,7 +41,7 @@ export default function Layout() {
               <Stack.Screen
                 name="new"
                 options={{
-                  title: "New bot",
+                  title: "New AI employee",
                   presentation: "modal",
                   gestureEnabled: true,
                   headerBackVisible: false,
@@ -56,15 +57,15 @@ export default function Layout() {
               />
               <Stack.Screen name="group-thread" options={{ title: "Group" }} />
               <Stack.Screen name="group-settings" options={{ title: "Group settings" }} />
-              <Stack.Screen name="bot-settings" options={{ title: "Chat settings" }} />
-              <Stack.Screen name="thread" options={{ title: "Thread" }} />
+              <Stack.Screen name="bot-settings" options={{ title: "AIMEE settings" }} />
+              <Stack.Screen name="thread" options={{ title: "Chat" }} />
               <Stack.Screen name="routine" options={{ title: "Routine" }} />
               <Stack.Screen name="computer" options={{ title: "Computer" }} />
             </Stack>
           </ThemeProvider>
         </AvatarStyleProvider>
       ) : (
-        <View style={{ flex: 1, backgroundColor: "#000" }} />
+        <View style={{ flex: 1, backgroundColor: BRANDWELL_BRAND.colors.background }} />
       )}
     </GestureHandlerRootView>
   );

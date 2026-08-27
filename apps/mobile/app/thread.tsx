@@ -136,6 +136,9 @@ export default function Thread() {
   const [markdownPreview, setMarkdownPreview] = useState<MarkdownArtifactPreviewTarget | null>(
     null,
   );
+  const managedBot = Boolean(
+    !inGroup && mentionBots.find((candidate) => candidate.id === botId)?.managedByBrandWell,
+  );
   const activePendingAttachments = attachmentsForThread(pendingAttachments, threadKey);
   const composerMentionTargets = useMemo(
     () =>
@@ -285,13 +288,23 @@ export default function Thread() {
           >
             <NativeSymbol ios="gearshape" android="settings-outline" size={21} color="#ECECEE" />
           </Pressable>
+        ) : managedBot ? (
+          <Pressable
+            accessibilityLabel="AIMEE settings"
+            hitSlop={8}
+            onPress={() =>
+              router.push({ pathname: "/bot-settings", params: { botId: botId ?? "" } })
+            }
+          >
+            <NativeSymbol ios="gearshape" android="settings-outline" size={21} color="#ECECEE" />
+          </Pressable>
         ) : (
           <Pressable accessibilityLabel="Bot actions" hitSlop={8} onPress={showBotActions}>
             <NativeSymbol ios="ellipsis" android="ellipsis-horizontal" size={21} color="#ECECEE" />
           </Pressable>
         ),
     });
-  }, [botId, groupId, inGroup, name, navigation, router]);
+  }, [botId, groupId, inGroup, managedBot, name, navigation, router]);
 
   function leaveBot() {
     router.dismissAll();

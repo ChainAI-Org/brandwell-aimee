@@ -39,10 +39,10 @@ describe("mobile API authentication", () => {
     await signIn("ada@example.com", "correct horse");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:3100/api/auth/sign-in/email",
+      "https://ai.brandwell.ai/api/auth/sign-in/email",
       expect.objectContaining({
         method: "POST",
-        headers: { "content-type": "application/json", origin: "rakazo://" },
+        headers: { "content-type": "application/json", origin: "aimee://" },
         body: JSON.stringify({ email: "ada@example.com", password: "correct horse" }),
       }),
     );
@@ -85,7 +85,7 @@ describe("mobile API authentication", () => {
     });
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
-      "http://127.0.0.1:3100/rpc/bots/get",
+      "https://ai.brandwell.ai/rpc/bots/get",
       expect.objectContaining({
         headers: expect.objectContaining({ authorization: "Bearer session-token" }),
         body: JSON.stringify({ json: { botId: "bot-1" } }),
@@ -128,7 +128,7 @@ describe("mobile thread subscription", () => {
     await subscribeThread({ botId: "bot-1" }, 3, onEvent, new AbortController().signal);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:3100/rpc/threads/subscribe",
+      "https://ai.brandwell.ai/rpc/threads/subscribe",
       expect.objectContaining({
         headers: expect.objectContaining({ accept: "text/event-stream" }),
         body: JSON.stringify({ json: { botId: "bot-1", cursor: 3 } }),

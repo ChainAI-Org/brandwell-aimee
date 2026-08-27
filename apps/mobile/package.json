@@ -12,6 +12,7 @@
     "test:e2e": "maestro test .maestro/smoke.yaml"
   },
   "dependencies": {
+    "@brandwell/aimee": "workspace:*",
     "@expo/metro-runtime": "~57.0.14",
     "@rakazo/chat-ui": "workspace:*",
     "@rakazo/contracts": "workspace:*",

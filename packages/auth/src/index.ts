@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { BRANDWELL_BRAND } from "@brandwell/aimee/brand-config";
 import { emailAllowed, parseAllowlist, signupsOpen } from "@rakazo/core";
 import type { PrismaClient } from "@rakazo/db";
 import { betterAuth } from "better-auth";
@@ -22,7 +23,7 @@ function newId(): string {
 
 export function createAuth(prisma: PrismaClient, env: AuthEnv) {
   return betterAuth({
-    appName: "Rakazo",
+    appName: BRANDWELL_BRAND.fullProductName,
     secret: env.secret,
     baseURL: env.baseURL,
     trustedOrigins: [env.webOrigin, env.baseURL, ...(env.extraOrigins ?? [])],
@@ -86,6 +87,11 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
       user: {
         create: {
           after: async (user) => {
+            const claimedWorkspaceId = await claimBrandwellInvitation(prisma, {
+              id: user.id,
+              email: user.email,
+            });
+            if (claimedWorkspaceId) return;
             const orgId = newId();
             await prisma.organization.create({
               data: {
@@ -137,6 +143,84 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
       },
     },
   });
+}
+
+export async function claimBrandwellInvitation(
+  prisma: PrismaClient,
+  user: { id: string; email: string },
+  now = new Date(),
+): Promise<string | null> {
+  const invitations = await prisma.invitation.findMany({
+    where: {
+      email: user.email.trim().toLowerCase(),
+      status: "pending",
+      expiresAt: { gt: now },
+    },
+    include: {
+      organization: {
+        select: { brandwellWorkspace: { select: { id: true } } },
+      },
+    },
+    orderBy: [{ expiresAt: "desc" }, { id: "asc" }],
+  });
+  const invitation = invitations.find((candidate) => candidate.organization.brandwellWorkspace);
+  if (!invitation) return null;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.member.upsert({
+      where: {
+        organizationId_userId: {
+          organizationId: invitation.organizationId,
+          userId: user.id,
+        },
+      },
+      create: {
+        id: newId(),
+        organizationId: invitation.organizationId,
+        userId: user.id,
+        role: invitation.role || "owner",
+        createdAt: now,
+      },
+      update: { role: invitation.role || "owner" },
+    });
+    await tx.invitation.update({
+      where: { id: invitation.id },
+      data: { status: "accepted" },
+    });
+    const memory = await tx.memoryDocument.findFirst({
+      where: {
+        workspaceId: invitation.organizationId,
+        userId: user.id,
+        scope: "user",
+        botId: null,
+        path: "MEMORY.md",
+      },
+      select: { id: true },
+    });
+    if (!memory) {
+      await tx.memoryDocument.create({
+        data: {
+          workspaceId: invitation.organizationId,
+          userId: user.id,
+          scope: "user",
+          path: "MEMORY.md",
+          content: "# User memory\n\nAccount-wide preferences live here.\n",
+        },
+      });
+    }
+    await tx.notificationPreference.upsert({
+      where: {
+        workspaceId_userId: {
+          workspaceId: invitation.organizationId,
+          userId: user.id,
+        },
+      },
+      create: { workspaceId: invitation.organizationId, userId: user.id },
+      update: {},
+    });
+  });
+
+  return invitation.organizationId;
 }
 
 export type Auth = ReturnType<typeof createAuth>;
