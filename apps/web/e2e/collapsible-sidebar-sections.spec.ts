@@ -29,8 +29,15 @@ test("titled sidebar section expands and collapses", async ({ page }, testInfo) 
   await expect(toggle).toHaveAttribute("aria-expanded", "true");
   await captureScreenshot(page, testInfo, "sidebar-section-expanded");
 
+  await toggle.hover();
+  await captureScreenshot(page, testInfo, "sidebar-section-hover");
+
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-expanded", "false");
   await expect(projects.getByRole("button", { name: /^Chief/ })).toHaveCount(0);
   await captureScreenshot(page, testInfo, "sidebar-section-collapsed");
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(projects.getByRole("button", { name: /^Chief/ })).toHaveCount(1);
 });
