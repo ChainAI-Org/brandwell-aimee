@@ -26,6 +26,10 @@ model User {
   mcpServers       McpServer[]
   botSections      BotSection[]
   actionApprovalRules ActionApprovalRule[]
+  createdBrandwellServiceIdentities BrandwellServiceIdentity[] @relation("BrandwellServiceIdentityCreator")
+  brandwellOperatorAssignments BrandwellOperatorAssignment[] @relation("BrandwellOperatorUser")
+  brandwellSupportSessions BrandwellSupportSession[] @relation("BrandwellSupportOperator")
+  brandwellAuditLogs BrandwellAuditLog[] @relation("BrandwellAuditActor")
 
   @@unique([email])
   @@map("user")
@@ -114,6 +118,15 @@ model Organization {
   actionApprovalRules ActionApprovalRule[]
   workspaceMemoryConfig WorkspaceMemoryConfig?
   chatGroups  ChatGroup[]
+  brandwellWorkspace BrandwellAiWorkspace?
+  brandwellServiceIdentities BrandwellServiceIdentity[]
+  brandwellModelCredential BrandwellWorkspaceModelCredential?
+  brandwellOperatorAssignments BrandwellOperatorAssignment[]
+  brandwellAlerts BrandwellAlert[]
+  brandwellClientNotifications BrandwellClientNotification[]
+  brandwellSupportSessions BrandwellSupportSession[]
+  brandwellAuditLogs BrandwellAuditLog[]
+  brandwellCancellationEvents BrandwellCancellationEvent[]
 
   @@unique([slug])
   @@map("organization")
@@ -219,6 +232,13 @@ model Bot {
   workspaceId    String
   workspace      Organization @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   userId         String
+  createdByUserId String?
+  ownerType      String   @default("user")
+  visibility     String   @default("private")
+  managedByBrandWell Boolean @default(false)
+  managedStatus   String   @default("active")
+  serviceIdentityId String?
+  serviceIdentity BrandwellServiceIdentity? @relation(fields: [serviceIdentityId], references: [id], onDelete: SetNull)
   name           String
   title          String   @default("")
   description    String   @default("")
@@ -262,6 +282,8 @@ model Bot {
   @@index([sectionId])
   @@index([computerId])
   @@index([parentBotId])
+  @@index([workspaceId, ownerType, visibility, managedStatus, archivedAt])
+  @@index([serviceIdentityId])
   @@unique([workspaceId, spawnKey])
   @@map("bots")
 }
@@ -423,6 +445,8 @@ model Run {
   taskId        String
   task          Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
   userId        String
+  serviceIdentityId String?
+  serviceIdentity BrandwellServiceIdentity? @relation(fields: [serviceIdentityId], references: [id], onDelete: SetNull)
   status        String
   trigger       String
   modelProvider String?
@@ -452,6 +476,7 @@ model Run {
   @@index([sourceMessageId])
   @@index([threadId, status, createdAt])
   @@index([routineId])
+  @@index([serviceIdentityId, createdAt])
   @@map("runs")
 }
 
@@ -495,6 +520,8 @@ model Routine {
   botId       String
   bot         Bot       @relation(fields: [botId], references: [id], onDelete: Cascade)
   userId      String
+  serviceIdentityId String?
+  serviceIdentity BrandwellServiceIdentity? @relation(fields: [serviceIdentityId], references: [id], onDelete: SetNull)
   name        String
   prompt      String
   crons       String[]
@@ -509,6 +536,7 @@ model Routine {
 
   @@index([active, nextRunAt])
   @@index([workspaceId, botId])
+  @@index([serviceIdentityId, active, nextRunAt])
   @@map("routines")
 }
 
@@ -581,6 +609,9 @@ model Connection {
   workspaceId   String
   workspace     Organization @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   userId        String
+  ownerType     String   @default("user")
+  serviceIdentityId String?
+  serviceIdentity BrandwellServiceIdentity? @relation(fields: [serviceIdentityId], references: [id], onDelete: SetNull)
   connectorId   String   @default("composio")
   provider      String
   displayName   String
@@ -592,6 +623,7 @@ model Connection {
   updatedAt     DateTime @updatedAt
 
   @@index([workspaceId, userId, connectorId])
+  @@index([workspaceId, ownerType, serviceIdentityId, connectorId])
   @@map("connections")
 }
 
@@ -600,6 +632,9 @@ model CapabilityInstall {
   workspaceId String
   workspace   Organization @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   userId      String
+  ownerType   String   @default("user")
+  serviceIdentityId String?
+  serviceIdentity BrandwellServiceIdentity? @relation(fields: [serviceIdentityId], references: [id], onDelete: SetNull)
   kind        String
   name        String
   source      String
@@ -610,6 +645,7 @@ model CapabilityInstall {
   createdAt   DateTime @default(now())
 
   @@index([workspaceId, userId])
+  @@index([workspaceId, ownerType, serviceIdentityId])
   @@map("capability_installs")
 }
 
@@ -698,6 +734,13 @@ model Computer {
   executionLeaseExpiresAt  DateTime?
   executionFence           Int      @default(0)
   screenUrl                String?
+  lastScreenshotAt         DateTime?
+  lastComputerActivityAt   DateTime?
+  lastComputerState        String?
+  controlUserId            String?
+  controlActorType         String?
+  controlActorName         String?
+  controlStartedAt         DateTime?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
   bots                     Bot[]
@@ -753,15 +796,21 @@ model UsageRecord {
   botId        String?
   bot          Bot?     @relation(fields: [botId], references: [id], onDelete: Cascade)
   userId       String
+  serviceIdentityId String?
+  serviceIdentity BrandwellServiceIdentity? @relation(fields: [serviceIdentityId], references: [id], onDelete: SetNull)
   runId        String?
   run          Run?     @relation(fields: [runId], references: [id], onDelete: SetNull)
   provider     String
   model        String
   inputTokens  Int
   outputTokens Int
+  costMicros   BigInt   @default(0)
+  currency     String   @default("USD")
+  workloadType String   @default("general")
   createdAt    DateTime @default(now())
 
   @@index([workspaceId, userId, createdAt])
+  @@index([workspaceId, serviceIdentityId, createdAt])
   @@map("usage_records")
 }
 
@@ -799,13 +848,18 @@ model Secret {
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspaceId String
+  ownerType   String   @default("user")
+  serviceIdentityId String?
+  serviceIdentity BrandwellServiceIdentity? @relation(fields: [serviceIdentityId], references: [id], onDelete: SetNull)
   kind        String
   ciphertext  String
   createdAt   DateTime @default(now())
   mcpServers  McpServer[]
   workspaceMemoryConfig WorkspaceMemoryConfig?
+  brandwellModelCredential BrandwellWorkspaceModelCredential?
 
   @@index([userId, workspaceId])
+  @@index([workspaceId, ownerType, serviceIdentityId])
   @@map("secrets")
 }
 
@@ -869,4 +923,214 @@ model BotMcpServer {
   @@unique([botId, serverId])
   @@index([workspaceId, userId, botId])
   @@map("bot_mcp_servers")
+}
+
+/// BrandWell-specific management models are additive so the fork can continue
+/// to merge upstream Rakazo changes without replacing generic core behavior.
+model BrandwellAiWorkspace {
+  id                    String   @id @default(cuid())
+  brandwellCustomerId   String   @unique
+  rakazoWorkspaceId     String   @unique
+  rakazoWorkspace       Organization @relation(fields: [rakazoWorkspaceId], references: [id], onDelete: Cascade)
+  primaryBotId          String?
+  serviceIdentityId     String?
+  openRouterCredentialId String?
+  subscriptionStatus    String   @default("provisioning")
+  plan                  String   @default("aimee")
+  provisioningStatus    String   @default("pending")
+  provisioningError     String?
+  provisioningMetadata  Json     @default("{}")
+  timezone              String   @default("UTC")
+  primaryContactEmail   String
+  retentionEndsAt       DateTime?
+  canceledAt            DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([subscriptionStatus, provisioningStatus])
+  @@map("brandwell_ai_workspaces")
+}
+
+model BrandwellServiceIdentity {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  workspace       Organization @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name            String
+  status          String   @default("active")
+  createdByUserId String?
+  createdByUser   User?    @relation("BrandwellServiceIdentityCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  bots            Bot[]
+  runs            Run[]
+  routines        Routine[]
+  connections     Connection[]
+  capabilityInstalls CapabilityInstall[]
+  secrets         Secret[]
+  usageRecords    UsageRecord[]
+  modelCredential BrandwellWorkspaceModelCredential?
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId, status])
+  @@map("brandwell_service_identities")
+}
+
+model BrandwellWorkspaceModelCredential {
+  id                  String   @id @default(cuid())
+  workspaceId         String   @unique
+  workspace           Organization @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  serviceIdentityId   String   @unique
+  serviceIdentity     BrandwellServiceIdentity @relation(fields: [serviceIdentityId], references: [id], onDelete: Cascade)
+  provider            String   @default("openrouter")
+  secretId            String   @unique
+  secret              Secret   @relation(fields: [secretId], references: [id], onDelete: Cascade)
+  externalKeyHash     String?  @unique
+  externalWorkspaceId String?
+  limitReset          String   @default("monthly")
+  status              String   @default("active")
+  monthlyLimitMicros  BigInt   @default(0)
+  dailyLimitMicros    BigInt?
+  warningLimitMicros  BigInt   @default(0)
+  currentUsageMicros  BigInt   @default(0)
+  preferredModel      String
+  computerModel       String?
+  lightweightModel    String?
+  reasoningModel      String?
+  fallbackModels      Json     @default("[]")
+  maxTokens           Int?
+  thinkingLevel       String?
+  disabledAt          DateTime?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([status, disabledAt])
+  @@map("brandwell_workspace_model_credentials")
+}
+
+model BrandwellOperatorAssignment {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Organization @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User     @relation("BrandwellOperatorUser", fields: [userId], references: [id], onDelete: Cascade)
+  role        String   @default("brandwell_operator")
+  permissions String[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([workspaceId, userId])
+  @@index([userId, role])
+  @@map("brandwell_operator_assignments")
+}
+
+model BrandwellAlert {
+  id                      String   @id @default(cuid())
+  workspaceId             String
+  workspace               Organization @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  clientId                String
+  botId                   String?
+  runId                   String?
+  source                  String
+  severity                String
+  status                  String   @default("OPEN")
+  type                    String
+  dedupeKey               String
+  summary                 String
+  technicalDetails        Json     @default("{}")
+  clientActionRequired    Boolean  @default(false)
+  brandwellActionRequired Boolean  @default(false)
+  assignedOperatorId      String?
+  acknowledgedAt          DateTime?
+  resolvedAt              DateTime?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@unique([workspaceId, dedupeKey])
+  @@index([status, severity, createdAt])
+  @@index([workspaceId, status])
+  @@map("brandwell_alerts")
+}
+
+model BrandwellClientNotification {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  workspace      Organization @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  botId          String?
+  runId          String?
+  dedupeKey      String?
+  type           String
+  title          String
+  body           String
+  severity       String
+  requiresAction Boolean  @default(false)
+  actionType     String?
+  actionTarget   String?
+  createdAt      DateTime @default(now())
+  readAt         DateTime?
+  resolvedAt     DateTime?
+  resolvedBy     String?
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, resolvedAt, requiresAction])
+  @@unique([workspaceId, dedupeKey])
+  @@map("brandwell_client_notifications")
+}
+
+model BrandwellSupportSession {
+  id             String   @id @default(cuid())
+  workspaceId    String
+  workspace      Organization @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  computerId     String
+  botId          String?
+  operatorUserId String
+  operatorUser   User     @relation("BrandwellSupportOperator", fields: [operatorUserId], references: [id], onDelete: Restrict)
+  reason         String?
+  status         String   @default("active")
+  startedAt      DateTime @default(now())
+  releasedAt     DateTime?
+  durationMs     Int?
+  actionsMetadata Json    @default("{}")
+
+  @@index([workspaceId, startedAt])
+  @@index([operatorUserId, startedAt])
+  @@map("brandwell_support_sessions")
+}
+
+model BrandwellAuditLog {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  workspace     Organization @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  actorUserId   String?
+  actorUser     User?    @relation("BrandwellAuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  actorType     String
+  action        String
+  resourceType  String
+  resourceId    String?
+  metadata      Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@map("brandwell_audit_logs")
+}
+
+model BrandwellCancellationEvent {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Organization @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  stage       String
+  reason      String?
+  details     Json     @default("{}")
+  status      String   @default("pending")
+  leaseOwner  String?
+  leaseExpiresAt DateTime?
+  lastError   String?
+  scheduledAt DateTime?
+  executedAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId, createdAt])
+  @@index([stage, scheduledAt])
+  @@unique([workspaceId, stage])
+  @@map("brandwell_cancellation_events")
 }

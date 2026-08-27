@@ -33,24 +33,38 @@ const baseBot = {
 };
 
 function reposFor(memoryScope: string | null) {
+  const findMany = vi.fn(async () => [{ ...baseBot, memoryScope }]);
   const prisma = {
     bot: {
-      findMany: vi.fn(async () => [{ ...baseBot, memoryScope }]),
+      findMany,
     },
   };
-  return createRepos(prisma as unknown as PrismaClient);
+  return { repos: createRepos(prisma as unknown as PrismaClient), findMany };
 }
 
 describe("createRepos.listBots", () => {
   it("passes memoryScope through as null when unset", async () => {
-    await expect(reposFor(null).listBots(actor)).resolves.toEqual([
+    await expect(reposFor(null).repos.listBots(actor)).resolves.toEqual([
       expect.objectContaining({ memoryScope: null }),
     ]);
   });
 
   it("passes memoryScope through when set to shared", async () => {
-    await expect(reposFor("shared").listBots(actor)).resolves.toEqual([
+    await expect(reposFor("shared").repos.listBots(actor)).resolves.toEqual([
       expect.objectContaining({ memoryScope: "shared" }),
     ]);
+  });
+
+  it("lists workspace-owned managed employees for every workspace member", async () => {
+    const { repos, findMany } = reposFor(null);
+    await repos.listBots(actor);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          workspaceId: "ws-1",
+          OR: [{ userId: "user-1" }, { ownerType: "workspace", visibility: "workspace" }],
+        }),
+      }),
+    );
   });
 });

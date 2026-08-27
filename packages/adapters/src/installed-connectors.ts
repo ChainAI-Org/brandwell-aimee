@@ -32,6 +32,12 @@ const ModelHeaderName = HeaderName.refine(
   (name) => !isSensitiveHeader(name),
   "Sensitive headers cannot be model-controlled",
 );
+
+function installOwner(context: AdapterContext) {
+  return context.serviceIdentityId
+    ? { ownerType: "service", serviceIdentityId: context.serviceIdentityId }
+    : { ownerType: "user", userId: context.userId };
+}
 const AuthSchema = z
   .object({
     type: z.enum(["none", "bearer", "header", "query"]).default("none"),
@@ -123,7 +129,7 @@ export class InstalledConnectorProvider implements ConnectorProvider {
     const installs = await this.prisma.capabilityInstall.findMany({
       where: {
         workspaceId: context.workspaceId,
-        userId: context.userId,
+        ...installOwner(context),
         kind: { in: ["mcp", "api"] },
       },
       orderBy: { createdAt: "asc" },
@@ -192,7 +198,7 @@ export class InstalledConnectorProvider implements ConnectorProvider {
       where: {
         id: installId,
         workspaceId: context.workspaceId,
-        userId: context.userId,
+        ...installOwner(context),
         kind: { in: ["mcp", "api"] },
       },
     });
@@ -257,7 +263,12 @@ export class InstalledConnectorProvider implements ConnectorProvider {
       where: {
         id: install.secretId,
         workspaceId: context.workspaceId,
-        userId: context.userId,
+        ...(context.serviceIdentityId
+          ? {
+              ownerType: "service",
+              serviceIdentityId: context.serviceIdentityId,
+            }
+          : { ownerType: "user", userId: context.userId }),
       },
     });
     return row ? this.secrets.load(row.ciphertext) : undefined;

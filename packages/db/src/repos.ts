@@ -137,7 +137,7 @@ export function createRepos(prisma: PrismaClient) {
       const bots = await prisma.bot.findMany({
         where: {
           workspaceId: actor.workspaceId,
-          userId: actor.userId,
+          OR: [{ userId: actor.userId }, { ownerType: "workspace", visibility: "workspace" }],
           archivedAt: options.archived ? { not: null } : null,
         },
         include: {

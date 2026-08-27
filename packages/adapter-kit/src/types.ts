@@ -5,6 +5,8 @@ export interface AdapterContext {
   traceId: string;
   workspaceId: string;
   userId: string;
+  /** Stable workspace-owned principal for managed background execution. */
+  serviceIdentityId?: string;
   botId?: string;
   runId?: string;
   /** Opaque fence for releasing a graphical screen without tearing down its replacement. */

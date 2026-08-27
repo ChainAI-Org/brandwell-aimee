@@ -35,11 +35,39 @@ export interface AppEnv {
   mcpStdioAllowedCommands: string[];
   port: number;
   gitSha: string | undefined;
+  brandwellManagementApiToken: string | undefined;
+  brandwellSystemUserId: string | undefined;
+  openRouterManagementKey: string | undefined;
+  brandwellOpenRouterMonthlyLimitUsd: number;
+  brandwellOpenRouterWarningLimitUsd: number;
+  brandwellOpenRouterDailyLimitUsd: number | undefined;
+  brandwellComputerModel: string | undefined;
+  brandwellLightweightModel: string | undefined;
+  brandwellReasoningModel: string | undefined;
+  brandwellFallbackModels: string[];
+  brandwellRetentionDays: number;
+  brandwellDeleteAfterRetention: boolean;
+  brandwellPlatformApiUrl: string | undefined;
+  brandwellPlatformServiceToken: string | undefined;
 }
 
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
   const authSecret = resolveAuthSecret(source);
   const deploymentModel = resolveDeploymentModel(source);
+  const brandwellManagementApiToken = optional(source.BRANDWELL_MANAGEMENT_API_TOKEN);
+  if (brandwellManagementApiToken && brandwellManagementApiToken.length < 32) {
+    throw new Error("BRANDWELL_MANAGEMENT_API_TOKEN must be at least 32 characters");
+  }
+  const brandwellPlatformApiUrl = optional(source.BRANDWELL_PLATFORM_API_URL);
+  const brandwellPlatformServiceToken = optional(source.BRANDWELL_PLATFORM_SERVICE_TOKEN);
+  if (Boolean(brandwellPlatformApiUrl) !== Boolean(brandwellPlatformServiceToken)) {
+    throw new Error(
+      "BRANDWELL_PLATFORM_API_URL and BRANDWELL_PLATFORM_SERVICE_TOKEN must be configured together",
+    );
+  }
+  if (brandwellPlatformServiceToken && brandwellPlatformServiceToken.length < 32) {
+    throw new Error("BRANDWELL_PLATFORM_SERVICE_TOKEN must be at least 32 characters");
+  }
   return {
     databaseUrl: required(source, "DATABASE_URL"),
     realtimeDatabaseUrl: source.REALTIME_DATABASE_URL ?? required(source, "DATABASE_URL"),
@@ -79,6 +107,38 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
       .filter(Boolean),
     port: Number(source.API_PORT ?? 3100),
     gitSha: optional(source.GIT_SHA) ?? optional(source.RAKAZO_GIT_SHA),
+    brandwellManagementApiToken,
+    brandwellSystemUserId: optional(source.BRANDWELL_SYSTEM_USER_ID),
+    openRouterManagementKey: optional(source.OPENROUTER_MANAGEMENT_KEY),
+    brandwellOpenRouterMonthlyLimitUsd: positiveNumber(
+      source.BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD,
+      250,
+      "BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD",
+    ),
+    brandwellOpenRouterWarningLimitUsd: positiveNumber(
+      source.BRANDWELL_OPENROUTER_WARNING_LIMIT_USD,
+      175,
+      "BRANDWELL_OPENROUTER_WARNING_LIMIT_USD",
+    ),
+    brandwellOpenRouterDailyLimitUsd: optionalPositiveNumber(
+      source.BRANDWELL_OPENROUTER_DAILY_LIMIT_USD,
+      "BRANDWELL_OPENROUTER_DAILY_LIMIT_USD",
+    ),
+    brandwellComputerModel: optional(source.BRANDWELL_COMPUTER_MODEL),
+    brandwellLightweightModel: optional(source.BRANDWELL_LIGHTWEIGHT_MODEL),
+    brandwellReasoningModel: optional(source.BRANDWELL_REASONING_MODEL),
+    brandwellFallbackModels: (source.BRANDWELL_FALLBACK_MODELS ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+    brandwellRetentionDays: nonNegativeInteger(
+      source.BRANDWELL_RETENTION_DAYS,
+      30,
+      "BRANDWELL_RETENTION_DAYS",
+    ),
+    brandwellDeleteAfterRetention: source.BRANDWELL_DELETE_AFTER_RETENTION !== "false",
+    brandwellPlatformApiUrl,
+    brandwellPlatformServiceToken,
   };
 }
 
@@ -91,4 +151,25 @@ function required(source: NodeJS.ProcessEnv, key: string): string {
 function optional(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
   return trimmed || undefined;
+}
+
+function positiveNumber(value: string | undefined, fallback: number, name: string): number {
+  if (value === undefined || !value.trim()) return fallback;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) throw new Error(`${name} must be positive`);
+  return parsed;
+}
+
+function optionalPositiveNumber(value: string | undefined, name: string): number | undefined {
+  if (value === undefined || !value.trim()) return undefined;
+  return positiveNumber(value, 1, name);
+}
+
+function nonNegativeInteger(value: string | undefined, fallback: number, name: string): number {
+  if (value === undefined || !value.trim()) return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`${name} must be a non-negative integer`);
+  }
+  return parsed;
 }

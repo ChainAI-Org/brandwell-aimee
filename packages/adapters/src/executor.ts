@@ -193,6 +193,24 @@ import { advanceToolCallLoopGuard } from "./tool-loop.js";
 import { textContentArg } from "./tool-text.js";
 
 const modelCredentialLocks = new Map<string, Promise<void>>();
+
+export interface ManagedModelResolution {
+  provider: string;
+  id: string;
+  secretId: string;
+  serviceIdentityId: string;
+  thinkingLevel?: string;
+  maxTokens?: number;
+  fallbackModels: string[];
+  warningExceeded: boolean;
+}
+
+export type ManagedModelResolver = (scope: {
+  userId: string;
+  workspaceId: string;
+  botId?: string;
+  workloadType?: "general" | "computer" | "lightweight" | "reasoning";
+}) => Promise<ManagedModelResolution | null>;
 const READ_ONLY_AGENT_TOOLS = new Set([
   "computer_observe",
   "list_files",
@@ -224,6 +242,7 @@ export interface ExecutorDeps {
   secrets: string[];
   secretStore: EncryptedSecretStore;
   deploymentModelKey?: string;
+  managedModelResolver?: ManagedModelResolver;
   dataDir?: string;
   notifications?: NotificationProvider;
   jobs: JobPublisher;
@@ -302,6 +321,30 @@ export function createRunExecutor(deps: ExecutorDeps) {
       workspaceId: string;
       botId?: string;
     }): Promise<AgentRunRequest["model"]> {
+      const managed = deps.managedModelResolver
+        ? await deps.managedModelResolver({ ...scope, workloadType: "general" })
+        : null;
+      if (managed) {
+        const resolved = await resolveModelKey(
+          deps,
+          scope.userId,
+          scope.workspaceId,
+          { secretId: managed.secretId, provider: managed.provider },
+          managed.provider,
+          undefined,
+          { required: true, serviceIdentityId: managed.serviceIdentityId },
+        );
+        return {
+          provider: managed.provider,
+          id: managed.id,
+          apiKey: resolved.oauth ? undefined : resolved.apiKey,
+          baseUrl: resolved.baseUrl,
+          thinkingLevel: managedThinkingLevel(managed.thinkingLevel),
+          oauth: resolved.oauth
+            ? { credential: resolved.oauth, persist: resolved.persistOAuth }
+            : undefined,
+        };
+      }
       const override = scope.botId
         ? await deps.prisma.bot.findFirst({
             where: {
@@ -373,6 +416,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
         include: { thread: true },
       });
       if (!bot?.thread) return;
+      if (bot.managedByBrandWell && bot.managedStatus !== "active") return;
       // A schedule with no valid parseable cron among its crons (e.g. a
       // legacy row accepted before cron validation was added) fires the
       // already-due run once, then nextRunAt stays null and the routine
@@ -420,6 +464,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
             status: "queued",
             trigger: "routine",
             routineId: routine.id,
+            serviceIdentityId: routine.serviceIdentityId,
           },
         });
       });
@@ -508,6 +553,24 @@ export function createRunExecutor(deps: ExecutorDeps) {
       if (leased.count !== 1) return;
 
       const current = await deps.prisma.run.findUniqueOrThrow({ where: { id: runId } });
+      let managedModel: ManagedModelResolution | null = null;
+      try {
+        managedModel = deps.managedModelResolver
+          ? await deps.managedModelResolver({
+              userId: run.userId,
+              workspaceId: run.workspaceId,
+              botId: run.botId,
+              workloadType: "general",
+            })
+          : null;
+      } catch (error) {
+        if (isManagedRunBlockedError(error)) {
+          await failBlockedManagedRun(deps, current, workerId, fence, error.message);
+          return;
+        }
+        await releaseManagedModelPreflightLease(deps, current, workerId, fence);
+        throw error;
+      }
       if (
         current.status === "queued" ||
         current.status === "leased" ||
@@ -602,7 +665,13 @@ export function createRunExecutor(deps: ExecutorDeps) {
           }),
           deps.prisma.task.findUniqueOrThrow({ where: { id: run.taskId } }),
           deps.prisma.connection.findMany({
-            where: { userId: run.userId, workspaceId: run.workspaceId },
+            where: managedModel
+              ? {
+                  workspaceId: run.workspaceId,
+                  ownerType: "service",
+                  serviceIdentityId: managedModel.serviceIdentityId,
+                }
+              : { userId: run.userId, workspaceId: run.workspaceId },
             select: {
               id: true,
               connectorId: true,
@@ -612,7 +681,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
               status: true,
             },
           }),
-          findDefaultModelCredential(deps.prisma, run),
+          managedModel ? Promise.resolve(null) : findDefaultModelCredential(deps.prisma, run),
           deps.prisma.deploymentSettings.findUnique({ where: { id: "default" } }),
           deps.memoryProviders.resolve(run.workspaceId),
           deps.prisma.taughtSkill.findMany({
@@ -623,7 +692,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
             userId: run.userId,
           }),
         ]);
-        const hasModelOverride = Boolean(bot.modelProvider && bot.modelId);
+        const hasModelOverride = !managedModel && Boolean(bot.modelProvider && bot.modelId);
         const overrideCredential =
           hasModelOverride && bot.modelProvider
             ? await findModelCredential(deps.prisma, run, bot.modelProvider)
@@ -631,7 +700,15 @@ export function createRunExecutor(deps: ExecutorDeps) {
         // Keep provider/model/credential as one unit — never use the workspace
         // default secret for a different override provider.
         const useModelOverride = Boolean(hasModelOverride && overrideCredential);
-        const credential = useModelOverride ? overrideCredential! : defaultCredential;
+        const credential: {
+          secretId: string;
+          provider: string;
+          defaultModel?: string | null;
+        } | null = managedModel
+          ? { secretId: managedModel.secretId, provider: managedModel.provider }
+          : useModelOverride
+            ? overrideCredential!
+            : defaultCredential;
         runAbortController = new AbortController();
         if (!leaseValid) runAbortController.abort();
         const composioRows = storedConnections.filter(
@@ -639,7 +716,10 @@ export function createRunExecutor(deps: ExecutorDeps) {
         );
         let liveSlugs: string[] = [];
         if (needsLivePluginSync(composioRows)) {
-          const listing = await loadLivePluginSlugs(deps.listConnectedPluginSlugs, run.userId);
+          const listing = await loadLivePluginSlugs(
+            deps.listConnectedPluginSlugs,
+            managedModel?.serviceIdentityId ?? run.userId,
+          );
           if (listing.ok) {
             liveSlugs = listing.slugs;
             await persistLivePluginConnections(deps.prisma, run, composioRows, listing.slugs).catch(
@@ -661,6 +741,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
           traceId: runId,
           workspaceId: run.workspaceId,
           userId: run.userId,
+          ...(managedModel ? { serviceIdentityId: managedModel.serviceIdentityId } : {}),
           botId: bot.id,
           runId,
           screenLeaseId: screenLeaseIdForRun(computerLease, runId, fence),
@@ -762,12 +843,14 @@ export function createRunExecutor(deps: ExecutorDeps) {
         }
         const runDeployment = deps.deploymentModelKey ? resolveDeploymentModel() : null;
         const runModelProvider =
+          managedModel?.provider ??
           (useModelOverride ? bot.modelProvider : null) ??
           credential?.provider ??
           settings?.defaultModelProvider ??
           runDeployment?.provider ??
           "scripted";
         const runModelId =
+          managedModel?.id ??
           (useModelOverride ? bot.modelId : null) ??
           credential?.defaultModel ??
           settings?.defaultModelId ??
@@ -780,11 +863,18 @@ export function createRunExecutor(deps: ExecutorDeps) {
           credential,
           runModelProvider,
           (values) => runSecrets.push(...values),
+          managedModel
+            ? { required: true, serviceIdentityId: managedModel.serviceIdentityId }
+            : undefined,
         );
         runSecrets.push(...resolved.redact);
         await deps.prisma.run.updateMany({
           where: { id: runId, status: "running", leaseOwner: workerId, leaseFence: fence },
-          data: { modelProvider: runModelProvider, modelId: runModelId },
+          data: {
+            modelProvider: runModelProvider,
+            modelId: runModelId,
+            serviceIdentityId: managedModel?.serviceIdentityId ?? run.serviceIdentityId,
+          },
         });
         if (!bot.computer) throw new Error("Bot has no computer");
         const storedComputer = bot.computer;
@@ -2089,8 +2179,9 @@ export function createRunExecutor(deps: ExecutorDeps) {
                 id: runModelId,
                 apiKey: resolved.oauth ? undefined : resolved.apiKey,
                 baseUrl: resolved.baseUrl,
-                thinkingLevel:
-                  hasModelOverride && !useModelOverride
+                thinkingLevel: managedModel
+                  ? managedThinkingLevel(managedModel.thinkingLevel)
+                  : hasModelOverride && !useModelOverride
                     ? null
                     : ((bot.thinkingLevel as AgentRunRequest["model"]["thinkingLevel"]) ?? null),
                 oauth: resolved.oauth
@@ -2764,6 +2855,105 @@ function deploymentKeyFor(deps: ExecutorDeps, provider: string): string | undefi
   return provider === resolveDeploymentModel().provider ? deps.deploymentModelKey : undefined;
 }
 
+function managedThinkingLevel(
+  value: string | undefined,
+): AgentRunRequest["model"]["thinkingLevel"] {
+  if (
+    value === "off" ||
+    value === "minimal" ||
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh" ||
+    value === "max"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function isManagedRunBlockedError(error: unknown): error is Error {
+  return (
+    error instanceof Error &&
+    "managedRunBlocked" in error &&
+    (error as Error & { managedRunBlocked?: unknown }).managedRunBlocked === true
+  );
+}
+
+async function failBlockedManagedRun(
+  deps: ExecutorDeps,
+  run: {
+    id: string;
+    workspaceId: string;
+    threadId: string;
+    botId: string;
+    taskId: string;
+  },
+  workerId: string,
+  fence: number,
+  error: string,
+): Promise<void> {
+  const committed = await deps.prisma.$transaction(async (tx) => {
+    const terminal = await tx.run.updateMany({
+      where: {
+        id: run.id,
+        workspaceId: run.workspaceId,
+        status: "leased",
+        leaseOwner: workerId,
+        leaseFence: fence,
+      },
+      data: {
+        status: "failed",
+        error,
+        completedAt: new Date(),
+        leaseOwner: null,
+        leaseExpiresAt: null,
+      },
+    });
+    if (terminal.count !== 1) return null;
+    await tx.task.updateMany({
+      where: {
+        id: run.taskId,
+        workspaceId: run.workspaceId,
+        threadId: run.threadId,
+        botId: run.botId,
+      },
+      data: { status: "failed" },
+    });
+    return appendEventInTransaction(tx, {
+      workspaceId: run.workspaceId,
+      threadId: run.threadId,
+      botId: run.botId,
+      type: "run.failed",
+      runId: run.id,
+      payload: { error },
+    });
+  });
+  if (committed) await deps.events.notify(run.threadId, committed.seq);
+}
+
+async function releaseManagedModelPreflightLease(
+  deps: ExecutorDeps,
+  run: { id: string },
+  workerId: string,
+  fence: number,
+): Promise<void> {
+  await deps.prisma.run.updateMany({
+    where: {
+      id: run.id,
+      status: "leased",
+      leaseOwner: workerId,
+      leaseFence: fence,
+    },
+    data: {
+      status: "queued",
+      error: "Managed model resolution failed; retrying",
+      leaseOwner: null,
+      leaseExpiresAt: null,
+    },
+  });
+}
+
 async function resolveModelKey(
   deps: ExecutorDeps,
   userId: string,
@@ -2771,6 +2961,7 @@ async function resolveModelKey(
   credential: { secretId: string; provider: string } | null,
   provider: string,
   registerSecrets?: (values: string[]) => void,
+  guard?: { required: boolean; serviceIdentityId: string },
 ): Promise<{
   apiKey?: string;
   baseUrl?: string;
@@ -2780,8 +2971,20 @@ async function resolveModelKey(
 }> {
   if (credential) {
     return withModelCredentialLock(credential.secretId, async () => {
-      const row = await deps.prisma.secret.findUnique({ where: { id: credential.secretId } });
-      if (!row) return { apiKey: deploymentKeyFor(deps, provider), redact: [] };
+      const row = await deps.prisma.secret.findFirst({
+        where: guard
+          ? {
+              id: credential.secretId,
+              workspaceId,
+              ownerType: "service",
+              serviceIdentityId: guard.serviceIdentityId,
+            }
+          : { id: credential.secretId, workspaceId, userId },
+      });
+      if (!row) {
+        if (guard?.required) throw new Error("Managed model credential is unavailable");
+        return { apiKey: deploymentKeyFor(deps, provider), redact: [] };
+      }
       const plaintext = deps.secretStore.load(row.ciphertext);
       registerSecrets?.(secretValuesToRedact(parseModelSecret(plaintext)));
       const persist = async (next: string) => {

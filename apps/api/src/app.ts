@@ -1,4 +1,10 @@
 import { rm } from "node:fs/promises";
+import {
+  cancelBrandwellWorkspaceWithPrisma,
+  createBrandwellManagedModelResolver,
+  OpenRouterManagementClient,
+  provisionBrandwellWorkspaceWithPrisma,
+} from "@brandwell/aimee";
 import { RPCHandler } from "@orpc/server/fetch";
 import type {
   JobPublisher,
@@ -7,6 +13,7 @@ import type {
   SandboxProvider,
 } from "@rakazo/adapter-kit";
 import {
+  BrandwellNativeConnector,
   type ComposioProvider,
   type ConnectorRegistry,
   createBackgroundJobHandlers,
@@ -37,6 +44,7 @@ import {
   pushTokenPath,
   type RemoteConnectorDependencies,
   ScriptedAgentRuntime,
+  toComputerRef,
   WorkspaceMemoryProviderResolver,
 } from "@rakazo/adapters";
 import { blockedAuthPaths, createAuth } from "@rakazo/auth";
@@ -44,6 +52,7 @@ import { createDb, createThreadEvents, type PrismaClient, requireMembership } fr
 import { MarkdownMemoryStore } from "@rakazo/memory";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import { mountBrandwellManagementRoutes } from "./brandwell-management.js";
 import { type AppEnv, loadEnv } from "./env.js";
 import { createRouter } from "./router.js";
 import { mountVoiceHttpRoutes } from "./voice.js";
@@ -137,9 +146,17 @@ export async function createApp(
     pipedreamOverride ??
     (isPipedreamEnabled(pipedreamConfig) ? new PipedreamConnector(pipedreamConfig) : undefined);
   const installed = new InstalledConnectorProvider(prisma, secrets, remoteConnectors);
+  const brandwellNative =
+    env.brandwellPlatformApiUrl && env.brandwellPlatformServiceToken
+      ? new BrandwellNativeConnector(prisma, {
+          apiBaseUrl: env.brandwellPlatformApiUrl,
+          serviceToken: env.brandwellPlatformServiceToken,
+        })
+      : undefined;
   const stack = createConnectorStack(isComposioEnabled(env.composioApiKey), composioOverride, [
     installed,
     ...(pipedream ? [pipedream] : []),
+    ...(brandwellNative ? [brandwellNative] : []),
     mcp,
   ]);
   const connector = stack.destination;
@@ -200,9 +217,14 @@ export async function createApp(
     connector: stack.connector,
     connectors: stack.connector,
     listConnectedPluginSlugs: stack.composio?.listConnectedSlugs.bind(stack.composio),
-    secrets: [env.deploymentModelKey ?? "", env.composioApiKey ?? ""].filter(Boolean),
+    secrets: [
+      env.deploymentModelKey ?? "",
+      env.composioApiKey ?? "",
+      env.brandwellPlatformServiceToken ?? "",
+    ].filter(Boolean),
     secretStore: secrets,
     deploymentModelKey: env.deploymentModelKey,
+    managedModelResolver: createBrandwellManagedModelResolver(prisma),
     dataDir: env.dataDir,
     notifications,
     jobs,
@@ -273,6 +295,74 @@ export async function createApp(
     }
     return auth.handler(c.req.raw);
   });
+  if (env.brandwellManagementApiToken) {
+    const openRouterManagement = env.openRouterManagementKey
+      ? new OpenRouterManagementClient(env.openRouterManagementKey)
+      : null;
+    mountBrandwellManagementRoutes(app, {
+      prisma,
+      token: env.brandwellManagementApiToken,
+      ...(openRouterManagement
+        ? {
+            provisionWorkspace: (input) =>
+              provisionBrandwellWorkspaceWithPrisma(input, {
+                prisma,
+                secretCipher: {
+                  encrypt: async (plaintext, context) => {
+                    const stored = await secrets.put(plaintext, {
+                      operationId: `brandwell-provision:${context.workspaceId}`,
+                      traceId: `brandwell-provision:${context.workspaceId}`,
+                      workspaceId: context.workspaceId,
+                      userId: context.userId,
+                      signal: new AbortController().signal,
+                    });
+                    return stored.ciphertext;
+                  },
+                },
+                openRouter: openRouterManagement,
+                systemUserId: env.brandwellSystemUserId,
+                sandboxKind: env.sandboxProvider,
+                defaultModel: env.defaultModel,
+                computerModel: env.brandwellComputerModel,
+                lightweightModel: env.brandwellLightweightModel,
+                reasoningModel: env.brandwellReasoningModel,
+                fallbackModels: env.brandwellFallbackModels,
+                monthlyLimitMicros: usdToMicros(env.brandwellOpenRouterMonthlyLimitUsd),
+                warningLimitMicros: usdToMicros(env.brandwellOpenRouterWarningLimitUsd),
+                ...(env.brandwellOpenRouterDailyLimitUsd
+                  ? { dailyLimitMicros: usdToMicros(env.brandwellOpenRouterDailyLimitUsd) }
+                  : {}),
+              }),
+            cancelWorkspace: (workspaceId, reason) =>
+              cancelBrandwellWorkspaceWithPrisma(
+                workspaceId,
+                reason,
+                {
+                  retentionDays: env.brandwellRetentionDays,
+                  deleteAfterRetention: env.brandwellDeleteAfterRetention,
+                },
+                {
+                  prisma,
+                  openRouter: openRouterManagement,
+                  computerLifecycle: {
+                    suspend: (computer) =>
+                      computer.providerRef
+                        ? sandbox.stop(toComputerRef(computer), brandwellComputerContext(computer))
+                        : Promise.resolve(),
+                    destroy: (computer) =>
+                      computer.providerRef
+                        ? sandbox.destroy(
+                            toComputerRef(computer),
+                            brandwellComputerContext(computer),
+                          )
+                        : Promise.resolve(),
+                  },
+                },
+              ),
+          }
+        : {}),
+    });
+  }
   app.use("/rpc/*", async (c, next) => {
     const session = await auth.api.getSession({ headers: sessionHeaders(c.req.raw) });
     const actor = session?.user
@@ -322,6 +412,20 @@ export async function createApp(
       await prisma.$disconnect().catch(() => undefined);
       await created.pool?.end().catch(() => undefined);
     },
+  };
+}
+
+function usdToMicros(usd: number): bigint {
+  return BigInt(Math.round(usd * 1_000_000));
+}
+
+function brandwellComputerContext(computer: { id: string; workspaceId: string; userId: string }) {
+  return {
+    operationId: `brandwell-cancellation:${computer.id}`,
+    traceId: `brandwell-cancellation:${computer.id}`,
+    workspaceId: computer.workspaceId,
+    userId: computer.userId,
+    signal: new AbortController().signal,
   };
 }
 

@@ -352,7 +352,7 @@ description: Prepare standup notes
       },
       userModelCredential: { findFirst },
       deploymentSettings: { findUnique: vi.fn(async () => null) },
-      secret: { findUnique: vi.fn(async () => null) },
+      secret: { findFirst: vi.fn(async () => null) },
     } as unknown as PrismaClient;
     const executor = createRunExecutor({
       prisma,
@@ -401,7 +401,7 @@ description: Prepare standup notes
       },
       userModelCredential: { findFirst },
       deploymentSettings: { findUnique: vi.fn(async () => null) },
-      secret: { findUnique: vi.fn(async () => null) },
+      secret: { findFirst: vi.fn(async () => null) },
     } as unknown as PrismaClient;
     const executor = createRunExecutor({
       prisma,
@@ -443,7 +443,7 @@ description: Prepare standup notes
           defaultModelId: "claude-sonnet-5",
         })),
       },
-      secret: { findUnique: vi.fn(async () => null) },
+      secret: { findFirst: vi.fn(async () => null) },
     } as unknown as PrismaClient;
     const executor = createRunExecutor({
       prisma,
@@ -481,7 +481,7 @@ description: Prepare standup notes
       },
       userModelCredential: { findFirst },
       deploymentSettings: { findUnique: vi.fn(async () => null) },
-      secret: { findUnique: vi.fn(async () => null) },
+      secret: { findFirst: vi.fn(async () => null) },
     } as unknown as PrismaClient;
     const executor = createRunExecutor({
       prisma,
@@ -499,5 +499,73 @@ description: Prepare standup notes
       id: "deepseek/deepseek-v4-flash-0731",
       thinkingLevel: "high",
     });
+  });
+
+  it("uses a workspace service credential for a managed BrandWell bot", async () => {
+    const findFirst = vi.fn(async () => ({ id: "secret-acme", ciphertext: "encrypted" }));
+    const managedModelResolver = vi.fn(async () => ({
+      provider: "openrouter",
+      id: "openai/gpt-5.4-mini",
+      secretId: "secret-acme",
+      serviceIdentityId: "svc-acme",
+      thinkingLevel: "medium",
+      fallbackModels: [],
+      warningExceeded: false,
+    }));
+    const prisma = { secret: { findFirst } } as unknown as PrismaClient;
+    const executor = createRunExecutor({
+      prisma,
+      managedModelResolver,
+      secretStore: { load: vi.fn(() => "sk-managed-acme"), put: vi.fn() },
+      deploymentModelKey: "deployment-key-must-not-win",
+    } as unknown as Parameters<typeof createRunExecutor>[0]);
+
+    const model = await executor.resolveModel({
+      userId: "client-admin",
+      workspaceId: "workspace-acme",
+      botId: "bot-acme",
+    });
+
+    expect(model).toMatchObject({
+      provider: "openrouter",
+      id: "openai/gpt-5.4-mini",
+      apiKey: "sk-managed-acme",
+      thinkingLevel: "medium",
+    });
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        id: "secret-acme",
+        workspaceId: "workspace-acme",
+        ownerType: "service",
+        serviceIdentityId: "svc-acme",
+      },
+    });
+  });
+
+  it("does not fall back to a deployment key when a managed secret is missing", async () => {
+    const prisma = {
+      secret: { findFirst: vi.fn(async () => null) },
+    } as unknown as PrismaClient;
+    const executor = createRunExecutor({
+      prisma,
+      managedModelResolver: vi.fn(async () => ({
+        provider: "openrouter",
+        id: "openai/gpt-5.4-mini",
+        secretId: "secret-other-workspace",
+        serviceIdentityId: "svc-acme",
+        fallbackModels: [],
+        warningExceeded: false,
+      })),
+      secretStore: { load: vi.fn(), put: vi.fn() },
+      deploymentModelKey: "deployment-key-must-not-win",
+    } as unknown as Parameters<typeof createRunExecutor>[0]);
+
+    await expect(
+      executor.resolveModel({
+        userId: "client-admin",
+        workspaceId: "workspace-acme",
+        botId: "bot-acme",
+      }),
+    ).rejects.toThrow("Managed model credential is unavailable");
   });
 });

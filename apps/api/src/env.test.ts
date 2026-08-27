@@ -92,4 +92,45 @@ describe("loadEnv", () => {
     expect(loadEnv({ ...base, GIT_SHA: "  3c6e209  " }).gitSha).toBe("3c6e209");
     expect(loadEnv({ ...base, RAKAZO_GIT_SHA: "abc1234" }).gitSha).toBe("abc1234");
   });
+
+  it("requires both BrandWell platform connector settings", () => {
+    expect(() =>
+      loadEnv({
+        ...base,
+        BRANDWELL_PLATFORM_API_URL: "https://portal.example.test",
+      }),
+    ).toThrow(/configured together/);
+  });
+
+  it("loads the paired BrandWell platform connector settings", () => {
+    expect(
+      loadEnv({
+        ...base,
+        BRANDWELL_PLATFORM_API_URL: "https://portal.example.test",
+        BRANDWELL_PLATFORM_SERVICE_TOKEN: "test-service-token-0123456789abcdef",
+      }),
+    ).toMatchObject({
+      brandwellPlatformApiUrl: "https://portal.example.test",
+      brandwellPlatformServiceToken: "test-service-token-0123456789abcdef",
+    });
+  });
+
+  it("rejects weak BrandWell platform service tokens in every environment", () => {
+    expect(() =>
+      loadEnv({
+        ...base,
+        BRANDWELL_PLATFORM_API_URL: "https://portal.example.test",
+        BRANDWELL_PLATFORM_SERVICE_TOKEN: "too-short",
+      }),
+    ).toThrow(/at least 32 characters/);
+  });
+
+  it("rejects weak BrandWell management API tokens in every environment", () => {
+    expect(() =>
+      loadEnv({
+        ...base,
+        BRANDWELL_MANAGEMENT_API_TOKEN: "too-short",
+      }),
+    ).toThrow(/BRANDWELL_MANAGEMENT_API_TOKEN must be at least 32 characters/);
+  });
 });

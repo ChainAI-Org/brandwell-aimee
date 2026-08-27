@@ -10,6 +10,7 @@
     "test": "vitest run --root ../.. apps/api/src"
   },
   "dependencies": {
+    "@brandwell/aimee": "workspace:*",
     "@hono/node-server": "^1.19.1",
     "@orpc/server": "^1.15.0",
     "@rakazo/adapter-kit": "workspace:*",
