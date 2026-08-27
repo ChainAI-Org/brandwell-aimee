@@ -58,7 +58,7 @@ import {
   speechFromBlocks,
   truncateSlashDescription,
 } from "@rakazo/core";
-import { BotAvatar, Button, GroupAvatar } from "@rakazo/ui-web";
+import { AvatarStyleProvider, BotAvatar, Button, GroupAvatar } from "@rakazo/ui-web";
 import {
   ArrowUp,
   Bell,
@@ -1741,7 +1741,7 @@ export function ShellPage() {
     .slice(0, 2)
     .toUpperCase();
 
-  return (
+  const shell = (
     <div
       data-testid="shell-root"
       data-ready={shellReady}
@@ -1894,7 +1894,12 @@ export function ShellPage() {
                               !inGroup && active?.id === bot.id ? "#161618" : "transparent",
                           }}
                         >
-                          <BotAvatar color={bot.color} size={38} status={bot.status} />
+                          <BotAvatar
+                            color={bot.color}
+                            identity={bot.id}
+                            size={38}
+                            status={bot.status}
+                          />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-baseline justify-between gap-2">
                               <span
@@ -1998,7 +2003,12 @@ export function ShellPage() {
               {archivedOpen
                 ? archivedBots.map((bot) => (
                     <div key={bot.id} className="flex items-center gap-2 rounded-lg px-2.5 py-2">
-                      <BotAvatar color={bot.color} size={28} status={bot.status} />
+                      <BotAvatar
+                        color={bot.color}
+                        identity={bot.id}
+                        size={28}
+                        status={bot.status}
+                      />
                       <span
                         className="min-w-0 flex-1 truncate text-[14px] text-[#A8A8AD]"
                         dir="auto"
@@ -2165,7 +2175,12 @@ export function ShellPage() {
                   size={26}
                 />
               ) : active ? (
-                <BotAvatar color={active.color} size={26} status={active.status} />
+                <BotAvatar
+                  color={active.color}
+                  identity={active.id}
+                  size={26}
+                  status={active.status}
+                />
               ) : null}
               <span className="min-w-0">
                 <span className="block truncate text-[16px] font-medium text-[#ECECEE]" dir="auto">
@@ -2872,6 +2887,11 @@ export function ShellPage() {
             email={session.data?.user.email}
             usage={usage}
             focusUsage={accountSettingsFocusUsage}
+            avatarStyle={bootstrapMe?.avatarStyle ?? "robot"}
+            onAvatarStyleChange={async (avatarStyle) => {
+              const nextMe = await rpc.preferences.update({ avatarStyle });
+              setBootstrapMe(nextMe);
+            }}
             onClose={() => {
               setAccountSettingsOpen(false);
               setAccountSettingsFocusUsage(false);
@@ -2943,7 +2963,12 @@ export function ShellPage() {
         <div className="absolute inset-0 z-30 flex flex-col bg-[#050506]">
           <div className="flex items-center justify-between gap-4 border-b border-[#171719] px-[18px] py-3.5">
             <div className="flex min-w-0 flex-1 items-center gap-3">
-              <BotAvatar color={active.color} size={28} status={active.status} />
+              <BotAvatar
+                color={active.color}
+                identity={active.id}
+                size={28}
+                status={active.status}
+              />
               {recordingSkill ? (
                 <TeachRecordingChrome
                   recording={recordingSkill}
@@ -3055,6 +3080,10 @@ export function ShellPage() {
         </div>
       ) : null}
     </div>
+  );
+
+  return (
+    <AvatarStyleProvider value={bootstrapMe?.avatarStyle ?? "robot"}>{shell}</AvatarStyleProvider>
   );
 }
 
@@ -3663,7 +3692,7 @@ function MentionOptionIcon({ mention }: { mention: ComposerMention }) {
       </span>
     );
   }
-  return <BotAvatar color={mention.color ?? "#85858A"} size={16} />;
+  return <BotAvatar color={mention.color ?? "#85858A"} identity={mention.id} size={16} />;
 }
 
 function MentionChipIcon({ mention }: { mention: ComposerMention }) {
@@ -3680,7 +3709,7 @@ function MentionChipIcon({ mention }: { mention: ComposerMention }) {
       </span>
     );
   }
-  return <BotAvatar color={mention.color ?? "#85858A"} size={16} />;
+  return <BotAvatar color={mention.color ?? "#85858A"} identity={mention.id} size={16} />;
 }
 
 function previewMessageText(message: ThreadMessage): string {
@@ -4510,7 +4539,7 @@ function BotSettings({
   return (
     <div data-testid="bot-settings">
       <div className="flex justify-center">
-        <BotAvatar color={bot.color} size={64} status={bot.status} />
+        <BotAvatar color={bot.color} identity={bot.id} size={64} status={bot.status} />
       </div>
       <label className="mt-6 block text-[14px] text-[#85858A]">
         <Trans>Name</Trans>
