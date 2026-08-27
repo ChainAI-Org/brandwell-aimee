@@ -1,0 +1,95 @@
+name: deploy-brandwell-staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      git_ref:
+        description: Full commit SHA, branch, or tag to deploy
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: brandwell-staging
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate requested revision
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      sha: ${{ steps.revision.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.git_ref }}
+          persist-credentials: false
+      - name: Resolve immutable revision
+        id: revision
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @rakazo/db exec prisma generate
+        env:
+          DATABASE_URL: postgres://rakazo:rakazo@127.0.0.1:5433/rakazo
+      - run: pnpm lint
+      - run: pnpm check
+      - run: pnpm test
+
+  deploy:
+    name: Deploy BrandWell staging
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: brandwell-staging
+      url: https://staging-ai.brandwell.ai
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.validate.outputs.sha }}
+          persist-credentials: false
+      - name: Configure BrandWell staging SSH identity
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.BRANDWELL_STAGING_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.BRANDWELL_STAGING_SSH_KNOWN_HOSTS }}
+        run: |
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_PRIVATE_KEY" > "$HOME/.ssh/brandwell-staging"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/brandwell-staging" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/brandwell-staging" >/dev/null
+      - name: Deploy validated revision
+        env:
+          DEPLOY_SHA: ${{ needs.validate.outputs.sha }}
+          SSH_HOST: ${{ secrets.BRANDWELL_STAGING_SSH_HOST }}
+          SSH_USER: ${{ secrets.BRANDWELL_STAGING_SSH_USER }}
+        run: |
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          case "$DEPLOY_SHA" in
+            (*[!0-9a-f]*|'') echo "Deployment revision must be a full commit SHA" >&2; exit 1 ;;
+          esac
+          test "${#DEPLOY_SHA}" -eq 40
+          ssh -F /dev/null \
+            -i "$HOME/.ssh/brandwell-staging" \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            "$SSH_USER@$SSH_HOST" deploy-brandwell-staging "$DEPLOY_SHA"
+      - name: Verify BrandWell staging health
+        run: |
+          curl --fail --silent --show-error \
+            --retry 12 --retry-delay 5 --retry-all-errors \
+            https://staging-ai.brandwell.ai/health
