@@ -327,6 +327,13 @@ export async function reconcileBrandwellFleetHealth(
           readAt: null,
           resolvedAt: null,
           resolvedBy: null,
+          pushDeliveryStatus: "pending",
+          pushDeliveryAttempts: 0,
+          pushDeliveryNextAt: now,
+          pushDeliveryLeaseOwner: null,
+          pushDeliveryLeaseExpiresAt: null,
+          pushDeliveryLastError: null,
+          pushSentAt: null,
         },
       });
       notifications += 1;

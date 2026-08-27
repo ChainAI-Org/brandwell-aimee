@@ -2856,6 +2856,47 @@ export function createRouter(deps: RouterDeps) {
         await savePushToken(deps.dataDir, context.actor.userId, input.token);
         return { ok: true as const };
       }),
+      list: authed.notifications.list.handler(async ({ context, input }) => {
+        const rows = await deps.prisma.brandwellClientNotification.findMany({
+          where: {
+            workspaceId: context.actor.workspaceId,
+            ...(input.includeResolved ? {} : { resolvedAt: null }),
+          },
+          orderBy: [{ requiresAction: "desc" }, { readAt: "asc" }, { createdAt: "desc" }],
+          take: 50,
+        });
+        return rows.map(brandwellClientNotificationDto);
+      }),
+      markRead: authed.notifications.markRead.handler(async ({ context, input }) => {
+        const row = await deps.prisma.brandwellClientNotification.findFirst({
+          where: { id: input.notificationId, workspaceId: context.actor.workspaceId },
+        });
+        if (!row) throw new ORPCError("NOT_FOUND");
+        const updated = row.readAt
+          ? row
+          : await deps.prisma.brandwellClientNotification.update({
+              where: { id: row.id },
+              data: { readAt: new Date() },
+            });
+        return brandwellClientNotificationDto(updated);
+      }),
+      resolve: authed.notifications.resolve.handler(async ({ context, input }) => {
+        const row = await deps.prisma.brandwellClientNotification.findFirst({
+          where: { id: input.notificationId, workspaceId: context.actor.workspaceId },
+        });
+        if (!row) throw new ORPCError("NOT_FOUND");
+        const updated = row.resolvedAt
+          ? row
+          : await deps.prisma.brandwellClientNotification.update({
+              where: { id: row.id },
+              data: {
+                readAt: row.readAt ?? new Date(),
+                resolvedAt: new Date(),
+                resolvedBy: context.actor.userId,
+              },
+            });
+        return brandwellClientNotificationDto(updated);
+      }),
     },
     search: {
       query: authed.search.query.handler(async ({ context, input }) => ({
@@ -3364,6 +3405,38 @@ function serializeWorkspaceMemoryConfig(config: {
     settings: toStringRecord(config.settings),
     defaultMemoryScope: config.defaultMemoryScope as "isolated" | "shared",
     updatedAt: config.updatedAt.toISOString(),
+  };
+}
+
+function brandwellClientNotificationDto(row: {
+  id: string;
+  botId: string | null;
+  runId: string | null;
+  type: string;
+  title: string;
+  body: string;
+  severity: string;
+  requiresAction: boolean;
+  actionType: string | null;
+  actionTarget: string | null;
+  createdAt: Date;
+  readAt: Date | null;
+  resolvedAt: Date | null;
+}) {
+  return {
+    id: row.id,
+    botId: row.botId,
+    runId: row.runId,
+    type: row.type,
+    title: row.title,
+    body: row.body,
+    severity: row.severity,
+    requiresAction: row.requiresAction,
+    actionType: row.actionType,
+    actionTarget: row.actionTarget,
+    createdAt: row.createdAt.toISOString(),
+    readAt: row.readAt?.toISOString() ?? null,
+    resolvedAt: row.resolvedAt?.toISOString() ?? null,
   };
 }
 

@@ -6,6 +6,7 @@ export * from "./model-routing.js";
 export * from "./openrouter-management.js";
 export * from "./prisma-alerting.js";
 export * from "./prisma-cancellation.js";
+export * from "./prisma-notification-delivery.js";
 export * from "./prisma-provisioning.js";
 export * from "./provisioning.js";
 export * from "./runtime-model-resolver.js";

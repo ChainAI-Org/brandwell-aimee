@@ -1,5 +1,10 @@
 import { BRANDWELL_BRAND } from "@brandwell/aimee/brand-config";
-import type { ComputerStatus, Routine, RunActivityRow } from "@rakazo/contracts";
+import type {
+  BrandwellClientNotification,
+  ComputerStatus,
+  Routine,
+  RunActivityRow,
+} from "@rakazo/contracts";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useMemo, useState } from "react";
 import {
@@ -34,6 +39,7 @@ export function BrandwellHome({ me, bots }: { me: MobileMe; bots: MobileBot[] })
   const [panel, setPanel] = useState<ManagedPanel>("home");
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [computer, setComputer] = useState<ComputerStatus | null>(null);
+  const [notifications, setNotifications] = useState<BrandwellClientNotification[]>([]);
   const [activity, setActivity] = useState<{ active: RunActivityRow[]; recent: RunActivityRow[] }>({
     active: [],
     recent: [],
@@ -59,14 +65,16 @@ export function BrandwellHome({ me, bots }: { me: MobileMe; bots: MobileBot[] })
     }
     setError(null);
     try {
-      const [nextRoutines, nextComputer, nextActivity] = await Promise.all([
+      const [nextRoutines, nextComputer, nextActivity, nextNotifications] = await Promise.all([
         rpc<Routine[]>("routines/list", { botId: bot.id }),
         rpc<ComputerStatus>("computer/status", { botId: bot.id }).catch(() => null),
         fetchWorkspaceActivity(),
+        rpc<BrandwellClientNotification[]>("notifications/list", { includeResolved: false }),
       ]);
       setRoutines(nextRoutines);
       setComputer(nextComputer);
       setActivity(nextActivity);
+      setNotifications(nextNotifications);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "AIMEE could not refresh right now.");
     } finally {
@@ -92,9 +100,11 @@ export function BrandwellHome({ me, bots }: { me: MobileMe; bots: MobileBot[] })
   const nextRoutine = routines
     .filter((routine) => routine.active && routine.nextRunAt)
     .sort((left, right) => String(left.nextRunAt).localeCompare(String(right.nextRunAt)))[0];
-  const needsAttention = activity.active.filter((run) =>
+  const attentionRuns = activity.active.filter((run) =>
     ["waiting_input", "waiting_takeover", "failed"].includes(run.status),
   );
+  const attentionCount =
+    notifications.filter((notice) => notice.requiresAction).length + attentionRuns.length;
   const completedToday = activity.recent.filter(
     (run) => run.status === "completed" && isToday(run.updatedAt),
   ).length;
@@ -203,19 +213,26 @@ export function BrandwellHome({ me, bots }: { me: MobileMe; bots: MobileBot[] })
             <View style={styles.sectionCard}>
               <SectionHeader
                 title="Needs attention"
-                action={needsAttention.length ? `${needsAttention.length}` : "All clear"}
+                action={attentionCount ? `${attentionCount}` : "All clear"}
               />
-              {needsAttention.length ? (
-                needsAttention
+              {notifications.map((notice) => (
+                <ClientNotificationRow
+                  key={notice.id}
+                  notice={notice}
+                  onPress={() => void openClientNotification(router, notice, bot.id)}
+                />
+              ))}
+              {attentionRuns.length ? (
+                attentionRuns
                   .slice(0, 3)
                   .map((run) => (
                     <ActivityRow key={run.runId} run={run} onPress={() => openRun(router, run)} />
                   ))
-              ) : (
+              ) : notifications.length === 0 ? (
                 <Text style={styles.emptyCopy}>
                   AIMEE does not need anything from you right now.
                 </Text>
-              )}
+              ) : null}
             </View>
 
             <View style={styles.sectionCard}>
@@ -374,6 +391,31 @@ function ActivityRow({ run, onPress }: { run: RunActivityRow; onPress: () => voi
   );
 }
 
+function ClientNotificationRow({
+  notice,
+  onPress,
+}: {
+  notice: BrandwellClientNotification;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} style={styles.listRow}>
+      <View style={styles.notificationIcon}>
+        <NativeSymbol ios="exclamationmark" android="alert" size={17} color="#FFC46B" />
+      </View>
+      <View style={styles.grow}>
+        <Text numberOfLines={1} style={styles.rowTitle}>
+          {notice.title}
+        </Text>
+        <Text numberOfLines={2} style={styles.notificationCopy}>
+          {notice.body}
+        </Text>
+      </View>
+      <NativeSymbol ios="chevron.right" android="chevron-forward" size={18} color="#777985" />
+    </Pressable>
+  );
+}
+
 function MetricCard({ label, value, detail }: { label: string; value: string; detail: string }) {
   return (
     <View style={styles.metricCard}>
@@ -465,6 +507,29 @@ function TabButton({
 
 function openRun(router: ReturnType<typeof useRouter>, run: RunActivityRow) {
   router.push({ pathname: "/thread", params: { botId: run.botId, name: run.botName } });
+}
+
+async function openClientNotification(
+  router: ReturnType<typeof useRouter>,
+  notice: BrandwellClientNotification,
+  fallbackBotId: string,
+) {
+  if (!notice.readAt) {
+    await rpc<BrandwellClientNotification>("notifications/markRead", {
+      notificationId: notice.id,
+    }).catch(() => undefined);
+  }
+  const botId = notice.botId || fallbackBotId;
+  const target = notice.actionTarget || "";
+  if (target.startsWith("/computer")) {
+    router.push({ pathname: "/computer", params: { botId } });
+    return;
+  }
+  if (target.startsWith("/integrations")) {
+    router.push("/integrations");
+    return;
+  }
+  router.push({ pathname: "/thread", params: { botId } });
 }
 
 function employeeStatus(
@@ -678,8 +743,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  notificationIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: "#3A2B19",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   rowTitle: { color: BRANDWELL_BRAND.colors.text, fontSize: 14, fontWeight: "700" },
   rowMeta: { color: BRANDWELL_BRAND.colors.muted, fontSize: 12, marginTop: 4 },
+  notificationCopy: {
+    color: BRANDWELL_BRAND.colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 4,
+  },
   pageHeading: { padding: 4, gap: 8, marginBottom: 2 },
   pageTitle: { color: BRANDWELL_BRAND.colors.text, fontSize: 28, fontWeight: "800" },
   tabBar: {

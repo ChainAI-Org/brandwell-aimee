@@ -1,5 +1,12 @@
 import { BRANDWELL_BRAND } from "@brandwell/aimee/brand-config";
-import type { Bot, ComputerStatus, Me, Routine, RunActivityRow } from "@rakazo/contracts";
+import type {
+  Bot,
+  BrandwellClientNotification,
+  ComputerStatus,
+  Me,
+  Routine,
+  RunActivityRow,
+} from "@rakazo/contracts";
 import {
   Activity,
   AlertCircle,
@@ -24,6 +31,7 @@ type ManagedHomeState = {
   routines: Routine[];
   activeRuns: RunActivityRow[];
   recentRuns: RunActivityRow[];
+  notifications: BrandwellClientNotification[];
 };
 
 export function WorkspaceHomePage() {
@@ -68,11 +76,12 @@ function BrandwellHome({ me }: { me: Me }) {
         bots.find((candidate) => candidate.id === me.brandwell?.primaryBotId) ??
         bots.find((candidate) => candidate.managedByBrandWell);
       if (!bot) throw new Error("AIMEE is still being provisioned for this workspace.");
-      const [computer, routines, activeResult, recentResult] = await Promise.all([
+      const [computer, routines, activeResult, recentResult, notifications] = await Promise.all([
         rpc.computer.status({ botId: bot.id }).catch(() => null),
         rpc.routines.list({ botId: bot.id }),
         rpc.runs.list({ filter: "active" }),
         rpc.runs.list({ filter: "recent" }),
+        rpc.notifications.list({ includeResolved: false }),
       ]);
       if (!active) return;
       setState({
@@ -81,6 +90,7 @@ function BrandwellHome({ me }: { me: Me }) {
         routines,
         activeRuns: activeResult.runs.filter((run) => run.botId === bot.id),
         recentRuns: recentResult.runs.filter((run) => run.botId === bot.id),
+        notifications,
       });
       setError(null);
     }
@@ -101,14 +111,24 @@ function BrandwellHome({ me }: { me: Me }) {
     [state?.routines],
   );
   const needsAttention =
-    state?.activeRuns.some((run) =>
+    (state?.notifications.some((notice) => notice.requiresAction && !notice.resolvedAt) ?? false) ||
+    (state?.activeRuns.some((run) =>
       ["waiting_input", "waiting_takeover", "failed"].includes(run.status),
-    ) ?? false;
+    ) ??
+      false);
 
   const open = (view?: "computer" | "integrations" | "account" | "routines") => {
     if (!state) return;
     const query = view ? `?view=${view}` : "";
     navigate(`/app/${state.bot.id}${query}`);
+  };
+
+  const openNotice = async (notice: BrandwellClientNotification) => {
+    if (!state) return;
+    if (!notice.readAt) {
+      await rpc.notifications.markRead({ notificationId: notice.id }).catch(() => undefined);
+    }
+    navigate(brandwellNotificationDestination(notice, state.bot.id));
   };
 
   return (
@@ -216,6 +236,39 @@ function BrandwellHome({ me }: { me: Me }) {
                   icon={<Activity size={18} />}
                 />
               </section>
+
+              {state.notifications.length ? (
+                <BuiCard className="mt-6 border border-[#4d3b24] p-5 md:p-6">
+                  <SectionHeading
+                    title="Needs attention"
+                    detail="AIMEE will continue as soon as the requested login or approval is complete"
+                  />
+                  <div className="mt-4 grid gap-2 md:grid-cols-2">
+                    {state.notifications.slice(0, 6).map((notice) => (
+                      <button
+                        type="button"
+                        key={notice.id}
+                        onClick={() => void openNotice(notice)}
+                        className="rounded-xl border border-[#3a3530] bg-[#201d1a] px-4 py-3.5 text-start hover:border-[#6d5331]"
+                      >
+                        <span className="flex items-center justify-between gap-3">
+                          <strong className="text-[14px] font-medium text-[#fff4e2]">
+                            {notice.title}
+                          </strong>
+                          {notice.requiresAction ? (
+                            <span className="shrink-0 rounded-full bg-[#5b421f] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#ffc66f]">
+                              Action
+                            </span>
+                          ) : null}
+                        </span>
+                        <span className="mt-1.5 block text-[12.5px] leading-5 text-[#b9a990]">
+                          {notice.body}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </BuiCard>
+              ) : null}
 
               <div className="mt-6 grid gap-5 lg:grid-cols-[1.25fr_.75fr]">
                 <BuiCard id="aimee-activity" className="p-5 md:p-6">
@@ -419,4 +472,16 @@ function formatDate(value: string | Date) {
     hour: "numeric",
     minute: "2-digit",
   }).format(date);
+}
+
+function brandwellNotificationDestination(
+  notice: BrandwellClientNotification,
+  fallbackBotId: string,
+) {
+  const botId = notice.botId || fallbackBotId;
+  const target = notice.actionTarget || "";
+  if (target.startsWith("/computer")) return `/app/${botId}?view=computer`;
+  if (target.startsWith("/integrations")) return `/app/${botId}?view=integrations`;
+  if (target.startsWith("/settings")) return `/app/${botId}?view=account`;
+  return `/app/${botId}`;
 }

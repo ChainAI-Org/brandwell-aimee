@@ -453,4 +453,6 @@ export interface NotificationMessage {
   body: string;
   botId: string;
   threadId: string;
+  notificationId?: string;
+  actionTarget?: string;
 }

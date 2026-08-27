@@ -1,21 +1,38 @@
 import { BRANDWELL_BRAND } from "@brandwell/aimee/brand-config";
-import { DarkTheme, Stack, ThemeProvider } from "expo-router";
+import * as Notifications from "expo-notifications";
+import { DarkTheme, Stack, ThemeProvider, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AvatarStyleProvider } from "../components/avatar-style";
 import { loadApiBase } from "../lib/api";
+import { pushNotificationDestination } from "../lib/push-destination";
 import { applyMobileUiDirection } from "../lib/ui-direction";
 
 applyMobileUiDirection();
 
 export default function Layout() {
+  const router = useRouter();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     void loadApiBase().finally(() => setReady(true));
   }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    const open = (response: Notifications.NotificationResponse) => {
+      const data = response.notification.request.content.data ?? {};
+      router.push(pushNotificationDestination(data) as never);
+      void Notifications.clearLastNotificationResponseAsync();
+    };
+    const subscription = Notifications.addNotificationResponseReceivedListener(open);
+    void Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (response) open(response);
+    });
+    return () => subscription.remove();
+  }, [ready, router]);
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>

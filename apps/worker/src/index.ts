@@ -1,5 +1,6 @@
 import {
   createBrandwellManagedModelResolver,
+  deliverPendingBrandwellClientNotifications,
   OpenRouterManagementClient,
   reconcileBrandwellFleetHealth,
   reconcileBrandwellRetentionCleanupWithPrisma,
@@ -109,6 +110,7 @@ async function main() {
   const memoryProviders = new WorkspaceMemoryProviderResolver(prisma, secrets);
   const home = new LocalAgentHomeStore(dataDir);
   const artifacts = new LocalArtifactStore(dataDir);
+  const notifications = new ExpoPushProvider(dataDir);
   const inMemoryJobs = process.env.WAKEUP_DRIVER === "memory" ? new InMemoryJobQueue() : undefined;
   const jobs: JobPublisher = inMemoryJobs ?? new GraphileJobPublisher(databaseUrl);
   const jobHost: JobWorkerHost = inMemoryJobs ?? new GraphileJobWorkerHost(databaseUrl);
@@ -132,7 +134,7 @@ async function main() {
     deploymentModelKey,
     managedModelResolver: createBrandwellManagedModelResolver(prisma),
     dataDir,
-    notifications: new ExpoPushProvider(dataDir),
+    notifications,
     jobs,
     events,
   });
@@ -193,6 +195,30 @@ async function main() {
         );
       }
       await reconcileBrandwellFleetHealth(prisma);
+      await deliverPendingBrandwellClientNotifications(
+        prisma,
+        (message) =>
+          notifications.send(
+            {
+              kind: message.kind,
+              title: message.title,
+              body: message.body,
+              botId: message.botId,
+              threadId: message.threadId,
+              notificationId: message.notificationId,
+              actionTarget: message.actionTarget ?? undefined,
+            },
+            {
+              operationId: `brandwell-notification:${message.notificationId}`,
+              traceId: message.notificationId,
+              workspaceId: message.workspaceId,
+              userId: message.userId,
+              botId: message.botId,
+              signal: new AbortController().signal,
+            },
+          ),
+        { workerId: `brandwell-worker:${process.pid}` },
+      );
     } finally {
       brandwellMaintenanceRunning = false;
     }

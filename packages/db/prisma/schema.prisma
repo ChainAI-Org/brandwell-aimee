@@ -1069,9 +1069,17 @@ model BrandwellClientNotification {
   readAt         DateTime?
   resolvedAt     DateTime?
   resolvedBy     String?
+  pushDeliveryStatus String @default("pending")
+  pushDeliveryAttempts Int @default(0)
+  pushDeliveryNextAt DateTime @default(now())
+  pushDeliveryLeaseOwner String?
+  pushDeliveryLeaseExpiresAt DateTime?
+  pushDeliveryLastError String?
+  pushSentAt     DateTime?
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, resolvedAt, requiresAction])
+  @@index([pushDeliveryStatus, pushDeliveryNextAt])
   @@unique([workspaceId, dedupeKey])
   @@map("brandwell_client_notifications")
 }

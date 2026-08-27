@@ -161,6 +161,107 @@ describe("account preferences", () => {
   });
 });
 
+describe("BrandWell client notifications", () => {
+  const actor = {
+    workspaceId: "workspace-1",
+    userId: "client-user-1",
+    email: "client@example.com",
+    isDeploymentOwner: false,
+  } satisfies Actor;
+  const row = {
+    id: "notice-1",
+    workspaceId: "workspace-1",
+    botId: "bot-1",
+    runId: "run-1",
+    dedupeKey: "alert:login",
+    type: "LOGIN_REQUIRED",
+    title: "AIMEE needs your help",
+    body: "Complete the login so AIMEE can continue.",
+    severity: "WARNING",
+    requiresAction: true,
+    actionType: "OPEN_COMPUTER",
+    actionTarget: "/computer?botId=bot-1",
+    createdAt: new Date("2026-08-27T18:00:00.000Z"),
+    readAt: null,
+    resolvedAt: null,
+    resolvedBy: null,
+  };
+
+  function notificationHandler(prisma: object) {
+    const deps = {
+      prisma,
+      env: {
+        defaultProvider: "fake",
+        defaultModel: "fake-model",
+        webOrigin: "http://127.0.0.1:5173",
+        screenProxySecret: "fake-test-secret",
+        sandboxProvider: "fake",
+      },
+      dataDir: "/tmp/rakazo-router-test",
+    } as unknown as RouterDeps;
+    return new RPCHandler(createRouter(deps));
+  }
+
+  it("lists only the signed-in workspace notifications", async () => {
+    const findMany = vi.fn().mockResolvedValue([row]);
+    const handler = notificationHandler({ brandwellClientNotification: { findMany } });
+    const { response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/notifications/list", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: { includeResolved: false } }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+    expect(response.status).toBe(200);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { workspaceId: "workspace-1", resolvedAt: null },
+      }),
+    );
+    await expect(response.json()).resolves.toEqual({
+      json: [
+        expect.objectContaining({
+          id: "notice-1",
+          actionTarget: "/computer?botId=bot-1",
+          createdAt: "2026-08-27T18:00:00.000Z",
+        }),
+      ],
+    });
+  });
+
+  it("resolves a notification only after a workspace-scoped lookup", async () => {
+    const update = vi.fn().mockResolvedValue({
+      ...row,
+      readAt: new Date("2026-08-27T18:05:00.000Z"),
+      resolvedAt: new Date("2026-08-27T18:05:00.000Z"),
+      resolvedBy: "client-user-1",
+    });
+    const findFirst = vi.fn().mockResolvedValue(row);
+    const handler = notificationHandler({
+      brandwellClientNotification: { findFirst, update },
+    });
+    const { response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/notifications/resolve", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: { notificationId: "notice-1" } }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+    expect(response.status).toBe(200);
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { id: "notice-1", workspaceId: "workspace-1" },
+    });
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "notice-1" },
+        data: expect.objectContaining({ resolvedBy: "client-user-1" }),
+      }),
+    );
+  });
+});
+
 describe("thread answer delivery", () => {
   it("accepts a durable answer when the immediate worker wake fails", async () => {
     const answerRunInput = vi.fn().mockResolvedValue(true);

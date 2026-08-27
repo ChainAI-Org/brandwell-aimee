@@ -106,4 +106,44 @@ describe("BrandWell fleet health reconciliation", () => {
     expect(result.notifications).toBe(0);
     expect(notificationUpsert).not.toHaveBeenCalled();
   });
+
+  it("reopens a resolved client notice and schedules a fresh push", async () => {
+    const now = new Date("2026-08-27T12:00:00.000Z");
+    const { prisma, notificationUpsert } = fleetPrisma({
+      runs: [
+        {
+          id: "run-login",
+          workspaceId: "workspace-acme",
+          botId: "bot-aimee",
+          status: "waiting_takeover",
+          error: null,
+          createdAt: new Date("2026-08-27T11:55:00.000Z"),
+          updatedAt: new Date("2026-08-27T11:59:00.000Z"),
+        },
+      ],
+      existingAlerts: [
+        {
+          id: "alert-login",
+          workspaceId: "workspace-acme",
+          dedupeKey: "workspace-acme:LOGIN_REQUIRED:run-login",
+          status: "RESOLVED",
+        },
+      ],
+    });
+
+    const result = await reconcileBrandwellFleetHealth(prisma, now);
+
+    expect(result.notifications).toBe(1);
+    expect(notificationUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: expect.objectContaining({
+          resolvedAt: null,
+          pushDeliveryStatus: "pending",
+          pushDeliveryAttempts: 0,
+          pushDeliveryNextAt: now,
+          pushSentAt: null,
+        }),
+      }),
+    );
+  });
 });

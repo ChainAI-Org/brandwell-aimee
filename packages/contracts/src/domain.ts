@@ -818,6 +818,23 @@ export const MeSchema = z.object({
 });
 export type Me = z.infer<typeof MeSchema>;
 
+export const BrandwellClientNotificationSchema = z.object({
+  id: Id,
+  botId: Id.nullable(),
+  runId: Id.nullable(),
+  type: z.string(),
+  title: z.string(),
+  body: z.string(),
+  severity: z.string(),
+  requiresAction: z.boolean(),
+  actionType: z.string().nullable(),
+  actionTarget: z.string().nullable(),
+  createdAt: z.string(),
+  readAt: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+});
+export type BrandwellClientNotification = z.infer<typeof BrandwellClientNotificationSchema>;
+
 export const AppBootstrapSchema = z.object({
   me: MeSchema,
   bots: z.array(BotSchema),
