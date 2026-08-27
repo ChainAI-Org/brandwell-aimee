@@ -196,11 +196,17 @@ type PendingAttachment = {
 };
 
 const ATTACHMENT_ACCEPT = ATTACHMENT_ALLOWED_MIME_TYPES.join(",");
-const COLLAPSED_SIDEBAR_SECTIONS_KEY = "rakazo:collapsed-sidebar-sections";
 
-function readCollapsedSidebarSections(): Set<string> {
+function collapsedSidebarSectionsStorageKey(userId: string | null | undefined): string | null {
+  if (!userId) return null;
+  return `rakazo:collapsed-sidebar-sections:${userId}`;
+}
+
+function readCollapsedSidebarSections(userId: string | null | undefined): Set<string> {
+  const storageKey = collapsedSidebarSectionsStorageKey(userId);
+  if (!storageKey) return new Set();
   try {
-    const value = window.localStorage.getItem(COLLAPSED_SIDEBAR_SECTIONS_KEY);
+    const value = window.localStorage.getItem(storageKey);
     const keys: unknown = value ? JSON.parse(value) : [];
     return new Set(
       Array.isArray(keys) ? keys.filter((key): key is string => typeof key === "string") : [],
@@ -221,14 +227,17 @@ export function ShellPage() {
   const searchParamsRef = useRef(searchParams);
   searchParamsRef.current = searchParams;
   const session = authClient.useSession();
+  const userId = session.data?.user.id;
   const [groups, setGroups] = useState<Group[]>([]);
   const [bots, setBots] = useState<Bot[]>([]);
   const [botSections, setBotSections] = useState<BotSection[]>([]);
   const [archivedBots, setArchivedBots] = useState<Bot[]>([]);
   const [archivedOpen, setArchivedOpen] = useState(false);
-  const [collapsedSidebarSections, setCollapsedSidebarSections] = useState(
-    readCollapsedSidebarSections,
-  );
+  const [collapsedSidebarSections, setCollapsedSidebarSections] = useState(() => new Set<string>());
+
+  useEffect(() => {
+    setCollapsedSidebarSections(readCollapsedSidebarSections(userId));
+  }, [userId]);
   const [query, setQuery] = useState("");
   const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -954,19 +963,25 @@ export function ShellPage() {
     () => groupBotsForSidebar<Bot>(filtered, botSections),
     [botSections, filtered],
   );
-  const toggleSidebarSection = useCallback((key: string) => {
-    setCollapsedSidebarSections((previous) => {
-      const next = new Set(previous);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      try {
-        window.localStorage.setItem(COLLAPSED_SIDEBAR_SECTIONS_KEY, JSON.stringify([...next]));
-      } catch {
-        // Keep the UI usable when storage is unavailable.
-      }
-      return next;
-    });
-  }, []);
+  const toggleSidebarSection = useCallback(
+    (key: string) => {
+      setCollapsedSidebarSections((previous) => {
+        const next = new Set(previous);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        const storageKey = collapsedSidebarSectionsStorageKey(userId);
+        if (storageKey) {
+          try {
+            window.localStorage.setItem(storageKey, JSON.stringify([...next]));
+          } catch {
+            // Keep the UI usable when storage is unavailable.
+          }
+        }
+        return next;
+      });
+    },
+    [userId],
+  );
   const workspaceQuery = query.trim();
   const showWorkspaceSearch = workspaceQuery.length > 0;
 
