@@ -8,5 +8,6 @@ export * from "./prisma-alerting.js";
 export * from "./prisma-cancellation.js";
 export * from "./prisma-notification-delivery.js";
 export * from "./prisma-provisioning.js";
+export * from "./prisma-support-sessions.js";
 export * from "./provisioning.js";
 export * from "./runtime-model-resolver.js";

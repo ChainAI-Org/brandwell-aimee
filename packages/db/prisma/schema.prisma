@@ -1092,6 +1092,11 @@ model BrandwellSupportSession {
   botId          String?
   operatorUserId String
   operatorUser   User     @relation("BrandwellSupportOperator", fields: [operatorUserId], references: [id], onDelete: Restrict)
+  operatorReference String
+  operatorName   String
+  operatorEmail  String?
+  controlLeaseId String?
+  controlLeaseExpiresAt DateTime?
   reason         String?
   status         String   @default("active")
   startedAt      DateTime @default(now())
@@ -1101,6 +1106,8 @@ model BrandwellSupportSession {
 
   @@index([workspaceId, startedAt])
   @@index([operatorUserId, startedAt])
+  @@index([operatorReference, startedAt])
+  @@index([controlLeaseId])
   @@map("brandwell_support_sessions")
 }
 

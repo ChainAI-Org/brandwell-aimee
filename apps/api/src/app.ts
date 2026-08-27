@@ -53,6 +53,12 @@ import { MarkdownMemoryStore } from "@rakazo/memory";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { mountBrandwellManagementRoutes } from "./brandwell-management.js";
+import {
+  bootBrandwellSupportComputer,
+  getBrandwellSupportScreen,
+  releaseBrandwellSupportControl,
+  takeBrandwellSupportControl,
+} from "./brandwell-support.js";
 import { type AppEnv, loadEnv } from "./env.js";
 import { createRouter } from "./router.js";
 import { mountVoiceHttpRoutes } from "./voice.js";
@@ -300,10 +306,33 @@ export async function createApp(
     const openRouterManagement = env.openRouterManagementKey
       ? new OpenRouterManagementClient(env.openRouterManagementKey)
       : null;
+    const supportComputerDeps = env.brandwellSystemUserId
+      ? {
+          prisma,
+          sandbox,
+          home,
+          jobs,
+          events,
+          dataDir: env.dataDir,
+          systemUserId: env.brandwellSystemUserId,
+          screenProxySecret: env.authSecret,
+          webOrigin: env.webOrigin,
+        }
+      : null;
     mountBrandwellManagementRoutes(app, {
       prisma,
       token: env.brandwellManagementApiToken,
       jobs,
+      ...(supportComputerDeps
+        ? {
+            computerSupport: {
+              boot: (input) => bootBrandwellSupportComputer(supportComputerDeps, input),
+              takeControl: (input) => takeBrandwellSupportControl(supportComputerDeps, input),
+              screen: (input) => getBrandwellSupportScreen(supportComputerDeps, input),
+              release: (input) => releaseBrandwellSupportControl(supportComputerDeps, input),
+            },
+          }
+        : {}),
       ...(openRouterManagement
         ? {
             provisionWorkspace: (input) =>

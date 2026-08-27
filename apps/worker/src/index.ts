@@ -4,6 +4,7 @@ import {
   OpenRouterManagementClient,
   reconcileBrandwellFleetHealth,
   reconcileBrandwellRetentionCleanupWithPrisma,
+  reconcileBrandwellSupportSessions,
 } from "@brandwell/aimee";
 import type { JobPublisher, JobWorkerHost } from "@rakazo/adapter-kit";
 import { loadRootEnv } from "@rakazo/core/node/load-root-env";
@@ -219,6 +220,7 @@ async function main() {
           ),
         { workerId: `brandwell-worker:${process.pid}` },
       );
+      await reconcileBrandwellSupportSessions(prisma);
     } finally {
       brandwellMaintenanceRunning = false;
     }

@@ -1243,6 +1243,10 @@ export function createRouter(deps: RouterDeps) {
             controlLeaseExpiresAt: expiresAt,
             controlBotId: bot.id,
             controlRunId: waitingForTakeover ? executionLease?.runId : null,
+            controlUserId: context.actor.userId,
+            controlActorType: "client",
+            controlActorName: context.actor.email,
+            controlStartedAt: new Date(),
             state: "running",
           },
         });

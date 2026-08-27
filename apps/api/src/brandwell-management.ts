@@ -6,7 +6,9 @@ import {
 } from "@brandwell/aimee";
 import { type JobPublisher, runContinueJob } from "@rakazo/adapter-kit";
 import type { PrismaClient } from "@rakazo/db";
-import type { Hono } from "hono";
+import type { Context, Hono } from "hono";
+import type { BrandwellSupportActor } from "./brandwell-support.js";
+import { BrandwellSupportComputerError } from "./brandwell-support.js";
 
 export interface BrandwellManagementDeps {
   prisma: PrismaClient;
@@ -19,7 +21,20 @@ export interface BrandwellManagementDeps {
     workspaceId: string,
     reason: string | undefined,
   ) => Promise<{ retentionEndsAt: Date; executed: string[] }>;
+  computerSupport?: {
+    boot(input: BrandwellSupportRequest): Promise<unknown>;
+    takeControl(input: BrandwellSupportRequest): Promise<unknown>;
+    screen(input: BrandwellSupportRequest): Promise<unknown>;
+    release(input: BrandwellSupportRequest): Promise<unknown>;
+  };
 }
+
+type BrandwellSupportRequest = {
+  workspaceId: string;
+  botId?: string | null;
+  actor: BrandwellSupportActor;
+  reason?: string;
+};
 
 type WorkspaceMapping = Awaited<ReturnType<typeof findWorkspaceMapping>>;
 type ClientNotificationRecord = {
@@ -149,6 +164,46 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
       orderBy: [{ updatedAt: "desc" }],
     });
     return c.json({ computer: computer ? computerDto(computer) : null });
+  });
+
+  app.post("/internal/workspaces/:id/computer/boot", async (c) => {
+    const request = await supportComputerRequest(c, deps);
+    if (!request.ok) return c.json({ error: request.error }, request.status);
+    try {
+      return c.json(await deps.computerSupport!.boot(request.value));
+    } catch (error) {
+      return supportComputerError(c, error);
+    }
+  });
+
+  app.post("/internal/workspaces/:id/computer/takeover", async (c) => {
+    const request = await supportComputerRequest(c, deps);
+    if (!request.ok) return c.json({ error: request.error }, request.status);
+    try {
+      return c.json(await deps.computerSupport!.takeControl(request.value));
+    } catch (error) {
+      return supportComputerError(c, error);
+    }
+  });
+
+  app.get("/internal/workspaces/:id/computer/screen", async (c) => {
+    const request = await supportComputerRequest(c, deps, c.req.query("reason"));
+    if (!request.ok) return c.json({ error: request.error }, request.status);
+    try {
+      return c.json(await deps.computerSupport!.screen(request.value));
+    } catch (error) {
+      return supportComputerError(c, error);
+    }
+  });
+
+  app.post("/internal/workspaces/:id/computer/release", async (c) => {
+    const request = await supportComputerRequest(c, deps);
+    if (!request.ok) return c.json({ error: request.error }, request.status);
+    try {
+      return c.json(await deps.computerSupport!.release(request.value));
+    } catch (error) {
+      return supportComputerError(c, error);
+    }
   });
 
   app.get("/internal/workspaces/:id/runs", async (c) => {
@@ -673,6 +728,69 @@ function clientNotificationResponse(row: ClientNotificationRecord, replayed: boo
     createdAt: row.createdAt,
     replayed,
   };
+}
+
+async function supportComputerRequest(
+  c: Context,
+  deps: BrandwellManagementDeps,
+  queryReason?: string,
+): Promise<
+  | { ok: true; value: BrandwellSupportRequest }
+  | { ok: false; error: string; status: 400 | 404 | 409 | 503 }
+> {
+  if (!deps.computerSupport) {
+    return { ok: false, error: "AIMEE computer support is not configured", status: 503 };
+  }
+  const mappingId = c.req.param("id");
+  if (!mappingId) return { ok: false, error: "Workspace not found", status: 404 };
+  const mapping = await findWorkspaceMapping(deps.prisma, mappingId);
+  if (!mapping) return { ok: false, error: "Workspace not found", status: 404 };
+  if (!["active", "trialing"].includes(mapping.subscriptionStatus)) {
+    return { ok: false, error: "The AIMEE subscription is not active", status: 409 };
+  }
+  const actor = supportActor(c.req.header());
+  if (!actor.ok) return { ok: false, error: actor.error, status: 400 };
+  const body: Record<string, unknown> | null =
+    c.req.method === "GET" ? null : await c.req.json<Record<string, unknown>>().catch(() => ({}));
+  const rawReason = queryReason ?? (typeof body?.reason === "string" ? body.reason : "");
+  const reason = rawReason.trim().slice(0, 500) || undefined;
+  return {
+    ok: true,
+    value: {
+      workspaceId: mapping.rakazoWorkspaceId,
+      botId: mapping.primaryBotId,
+      actor: actor.value,
+      reason,
+    },
+  };
+}
+
+export function supportActor(
+  headers: Record<string, string>,
+): { ok: true; value: BrandwellSupportActor } | { ok: false; error: string } {
+  const reference = String(headers["x-brandwell-operator-ref"] ?? "").trim();
+  const name = String(headers["x-brandwell-operator-name"] ?? "").trim();
+  const email = String(headers["x-brandwell-operator-email"] ?? "")
+    .trim()
+    .toLowerCase();
+  if (!/^[A-Za-z0-9._:@-]{1,160}$/.test(reference)) {
+    return { ok: false, error: "A valid BrandWell operator reference is required" };
+  }
+  if (!name || name.length > 120) {
+    return { ok: false, error: "A valid BrandWell operator name is required" };
+  }
+  if (email && (!email.includes("@") || email.length > 254)) {
+    return { ok: false, error: "The BrandWell operator email is invalid" };
+  }
+  return { ok: true, value: { reference, name, ...(email ? { email } : {}) } };
+}
+
+function supportComputerError(c: Context, error: unknown) {
+  if (error instanceof BrandwellSupportComputerError) {
+    return c.json({ error: error.message }, error.status);
+  }
+  console.error("BrandWell support computer operation", error);
+  return c.json({ error: "AIMEE could not complete the computer support request" }, 503);
 }
 
 function provisioningInput(

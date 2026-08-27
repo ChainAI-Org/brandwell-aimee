@@ -655,6 +655,10 @@ export async function finalizeComputerControlRelease(
         controlLeaseExpiresAt: null,
         controlBotId: null,
         controlRunId: null,
+        controlUserId: null,
+        controlActorType: null,
+        controlActorName: null,
+        controlStartedAt: null,
       },
     });
     if (cleared.count !== 1) return null;

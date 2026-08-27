@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   constantTimeBearerMatches,
   mountBrandwellManagementRoutes,
+  supportActor,
 } from "./brandwell-management.js";
 
 describe("BrandWell management API authentication", () => {
@@ -28,6 +29,27 @@ describe("BrandWell management API authentication", () => {
     const response = await app.request("/internal/workspaces/customer-acme");
     expect(response.status).toBe(401);
     expect(findFirst).not.toHaveBeenCalled();
+  });
+
+  it("requires a traceable BrandWell operator for computer support", async () => {
+    expect(
+      supportActor({
+        "x-brandwell-operator-ref": "user:42",
+        "x-brandwell-operator-name": "Test Operator",
+        "x-brandwell-operator-email": "operator@example.test",
+      }),
+    ).toEqual({
+      ok: true,
+      value: {
+        reference: "user:42",
+        name: "Test Operator",
+        email: "operator@example.test",
+      },
+    });
+    expect(supportActor({})).toEqual({
+      ok: false,
+      error: "A valid BrandWell operator reference is required",
+    });
   });
 
   it("returns a tenant-safe not-found response after authentication", async () => {
@@ -329,5 +351,57 @@ describe("BrandWell management API authentication", () => {
       }),
     );
     expect(auditCreate).toHaveBeenCalled();
+  });
+
+  it("forwards operator identity to the isolated computer support service", async () => {
+    const takeControl = vi.fn(async () => ({
+      sessionId: "support-1",
+      leaseId: "lease-1",
+      expiresAt: "2026-08-27T18:15:00.000Z",
+      replayed: false,
+    }));
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {
+        brandwellAiWorkspace: {
+          findFirst: vi.fn(async () => ({
+            id: "mapping-1",
+            rakazoWorkspaceId: "workspace-1",
+            primaryBotId: "bot-1",
+            subscriptionStatus: "active",
+            rakazoWorkspace: { name: "Acme", slug: "acme" },
+          })),
+        },
+      } as unknown as PrismaClient,
+      computerSupport: {
+        boot: vi.fn(),
+        takeControl,
+        screen: vi.fn(),
+        release: vi.fn(),
+      },
+    });
+    const response = await app.request("/internal/workspaces/mapping-1/computer/takeover", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer management-secret",
+        "content-type": "application/json",
+        "x-brandwell-operator-ref": "user:42",
+        "x-brandwell-operator-name": "Test Operator",
+        "x-brandwell-operator-email": "operator@example.test",
+      },
+      body: JSON.stringify({ reason: "Resolve the client login alert" }),
+    });
+    expect(response.status).toBe(200);
+    expect(takeControl).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      botId: "bot-1",
+      actor: {
+        reference: "user:42",
+        name: "Test Operator",
+        email: "operator@example.test",
+      },
+      reason: "Resolve the client login alert",
+    });
   });
 });
