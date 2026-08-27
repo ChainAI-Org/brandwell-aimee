@@ -49,6 +49,10 @@ export const BotSchema = z.object({
   modelProvider: z.string().nullable(),
   modelId: z.string().nullable(),
   thinkingLevel: ThinkingLevelSchema.nullable(),
+  ownerType: z.enum(["user", "workspace"]),
+  visibility: z.enum(["private", "workspace"]),
+  managedByBrandWell: z.boolean(),
+  managedStatus: z.string(),
 });
 export type Bot = z.infer<typeof BotSchema>;
 
@@ -796,6 +800,15 @@ export const MeSchema = z.object({
   computerHost: z.enum(["docker", "this-mac"]).nullable(),
   canChooseHostComputer: z.boolean(),
   avatarStyle: AvatarStyleSchema,
+  workspaceRole: z.string(),
+  brandwell: z
+    .object({
+      plan: z.string(),
+      subscriptionStatus: z.string(),
+      provisioningStatus: z.string(),
+      primaryBotId: Id.nullable(),
+    })
+    .nullable(),
 });
 export type Me = z.infer<typeof MeSchema>;
 

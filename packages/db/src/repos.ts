@@ -34,6 +34,10 @@ function mapBot(
     modelProvider?: string | null;
     modelId?: string | null;
     thinkingLevel?: string | null;
+    ownerType: string;
+    visibility: string;
+    managedByBrandWell: boolean;
+    managedStatus: string;
   },
   preview = "",
   status = "idle",
@@ -67,6 +71,10 @@ function mapBot(
     modelProvider: bot.modelProvider ?? null,
     modelId: bot.modelId ?? null,
     thinkingLevel: (bot.thinkingLevel as Bot["thinkingLevel"]) ?? null,
+    ownerType: bot.ownerType === "workspace" ? "workspace" : "user",
+    visibility: bot.visibility === "workspace" ? "workspace" : "private",
+    managedByBrandWell: bot.managedByBrandWell,
+    managedStatus: bot.managedStatus,
   };
 }
 
@@ -172,7 +180,7 @@ export function createRepos(prisma: PrismaClient) {
         where: {
           id: botId,
           workspaceId: actor.workspaceId,
-          userId: actor.userId,
+          OR: [{ userId: actor.userId }, { ownerType: "workspace", visibility: "workspace" }],
           ...(options.includeArchived ? {} : { archivedAt: null }),
         },
         include: { thread: true, computer: true },
@@ -307,7 +315,11 @@ export function createRepos(prisma: PrismaClient) {
 
     async setBotComputer(actor: Actor, botId: string, mode: ComputerMode): Promise<Bot> {
       const bot = await prisma.bot.findFirst({
-        where: { id: botId, workspaceId: actor.workspaceId, userId: actor.userId },
+        where: {
+          id: botId,
+          workspaceId: actor.workspaceId,
+          OR: [{ userId: actor.userId }, { ownerType: "workspace", visibility: "workspace" }],
+        },
         include: { computer: true },
       });
       if (!bot?.computer) throw new IsolationError();

@@ -547,6 +547,7 @@ export function createRouter(deps: RouterDeps) {
       ),
       duplicate: authed.bots.duplicate.handler(async ({ context, input }) => {
         const source = await repos.getBot(context.actor, input.botId);
+        rejectManagedBotLifecycleChange(source, "duplicate");
         const duplicate = await repos.createBot(context.actor, {
           name: duplicateBotName(source.name),
           title: source.title,
@@ -582,6 +583,14 @@ export function createRouter(deps: RouterDeps) {
       }),
       update: authed.bots.update.handler(async ({ context, input }) => {
         const existing = await repos.getBot(context.actor, input.botId);
+        if (existing.managedByBrandWell) {
+          await requireWorkspaceOwner(deps.prisma, context.actor);
+          if (input.modelProvider !== undefined || input.modelId !== undefined) {
+            throw new ORPCError("FORBIDDEN", {
+              message: "BrandWell manages the model for this AI employee.",
+            });
+          }
+        }
         if (input.sectionId) {
           const section = await deps.prisma.botSection.findFirst({
             where: {
@@ -660,6 +669,11 @@ export function createRouter(deps: RouterDeps) {
       }),
       setComputer: authed.bots.setComputer.handler(async ({ context, input }) => {
         const bot = await repos.getBot(context.actor, input.botId);
+        if (bot.managedByBrandWell) {
+          throw new ORPCError("FORBIDDEN", {
+            message: "BrandWell manages the computer assigned to this AI employee.",
+          });
+        }
         if (!bot.computer) throw new IsolationError();
         const currentMode = bot.computer.scope === "dedicated" ? "dedicated" : "team";
         if (currentMode === input.mode) {
@@ -716,6 +730,7 @@ export function createRouter(deps: RouterDeps) {
       }),
       archive: authed.bots.archive.handler(async ({ context, input }) => {
         const bot = await repos.getBot(context.actor, input.botId, { includeArchived: true });
+        rejectManagedBotLifecycleChange(bot, "archive");
         await archiveBot(
           {
             prisma: deps.prisma,
@@ -732,12 +747,14 @@ export function createRouter(deps: RouterDeps) {
       }),
       restore: authed.bots.restore.handler(async ({ context, input }) => {
         const bot = await repos.getBot(context.actor, input.botId, { includeArchived: true });
+        rejectManagedBotLifecycleChange(bot, "restore");
         if (!bot.archivedAt) return { ok: true as const };
         await deps.prisma.bot.update({ where: { id: bot.id }, data: { archivedAt: null } });
         return { ok: true as const };
       }),
       remove: authed.bots.remove.handler(async ({ context, input }) => {
         const bot = await repos.getBot(context.actor, input.botId, { includeArchived: true });
+        rejectManagedBotLifecycleChange(bot, "remove");
         await destroyBot(
           {
             prisma: deps.prisma,
@@ -873,7 +890,7 @@ export function createRouter(deps: RouterDeps) {
         // generation also covers a compaction job that began just after the clear committed.
         if (configuredMemory) {
           // Best effort: the conversation rows are already deleted, so failing the clear here
-          // would help nothing — a failed purge only leaves stale summaries recallable.
+          // would help nothing. A failed purge only leaves stale summaries recallable.
           try {
             const purged = await configuredMemory.provider.purgeHistory(
               {
@@ -1590,6 +1607,9 @@ export function createRouter(deps: RouterDeps) {
           });
         }
         const bot = await repos.getBot(context.actor, input.botId);
+        const managedBot = bot.managedByBrandWell
+          ? await requireManagedBotOwner(deps.prisma, context.actor, bot.id)
+          : null;
         // Validate every recurring cron even when inactive; @once has no next date.
         let nextRunAt: Date | null = null;
         if (!isOneShotRoutineCrons(input.crons)) {
@@ -1601,6 +1621,7 @@ export function createRouter(deps: RouterDeps) {
             workspaceId: context.actor.workspaceId,
             botId: input.botId,
             userId: context.actor.userId,
+            serviceIdentityId: managedBot?.serviceIdentityId ?? null,
             name: input.name,
             prompt: input.prompt,
             crons: input.crons,
@@ -1629,10 +1650,15 @@ export function createRouter(deps: RouterDeps) {
           where: {
             id: input.routineId,
             workspaceId: context.actor.workspaceId,
-            userId: context.actor.userId,
           },
         });
         if (!existing) throw new IsolationError();
+        const existingBot = await repos.getBot(context.actor, existing.botId);
+        if (existingBot.managedByBrandWell) {
+          await requireManagedBotOwner(deps.prisma, context.actor, existingBot.id);
+        } else if (existing.userId !== context.actor.userId) {
+          throw new IsolationError();
+        }
         const active = input.active ?? existing.active;
         const crons = input.crons ?? existing.crons;
         const timezone = input.timezone ?? existing.timezone;
@@ -1707,6 +1733,12 @@ export function createRouter(deps: RouterDeps) {
           where: { id: input.routineId, workspaceId: context.actor.workspaceId },
         });
         if (!existing) throw new IsolationError();
+        const bot = await repos.getBot(context.actor, existing.botId);
+        if (bot.managedByBrandWell) {
+          await requireManagedBotOwner(deps.prisma, context.actor, bot.id);
+        } else if (existing.userId !== context.actor.userId) {
+          throw new IsolationError();
+        }
         await deps.prisma.routine.delete({ where: { id: existing.id } });
         await deps.jobs.cancel(routineJobKey(existing.id));
         return { ok: true as const };
@@ -1716,11 +1748,15 @@ export function createRouter(deps: RouterDeps) {
           where: {
             id: input.routineId,
             workspaceId: context.actor.workspaceId,
-            userId: context.actor.userId,
           },
         });
         if (!routine) throw new IsolationError();
         const bot = await repos.getBot(context.actor, routine.botId);
+        if (bot.managedByBrandWell) {
+          await requireManagedBotOwner(deps.prisma, context.actor, bot.id);
+        } else if (routine.userId !== context.actor.userId) {
+          throw new IsolationError();
+        }
         if (!bot.thread) throw new IsolationError();
         const threadId = bot.thread.id;
         const nonce = input.clientNonce ? `routine-test:${input.clientNonce}` : undefined;
@@ -1764,6 +1800,7 @@ export function createRouter(deps: RouterDeps) {
                 status: "queued",
                 trigger: "routine",
                 routineId: routine.id,
+                serviceIdentityId: routine.serviceIdentityId,
                 clientNonce: nonce,
               },
               select: { id: true },
@@ -1780,7 +1817,7 @@ export function createRouter(deps: RouterDeps) {
           throw error;
         }
         // Keep enqueue outside the nonce-collision catch. The queued run is durable;
-        // log enqueue failures and still return success — the reconciler repairs a missed wake.
+        // Log enqueue failures and still return success. The reconciler repairs a missed wake.
         await deps.jobs.enqueue(runContinueJob(run.id)).catch((error) => {
           console.error("routine testRun enqueue", error);
         });
@@ -2669,13 +2706,15 @@ export function createRouter(deps: RouterDeps) {
     },
     artifacts: {
       list: authed.artifacts.list.handler(async ({ context, input }) => {
-        await repos.getBot(context.actor, input.botId);
+        const bot = await repos.getBot(context.actor, input.botId);
         const rows = await deps.prisma.artifact.findMany({
           where: {
             botId: input.botId,
             groupId: null,
             workspaceId: context.actor.workspaceId,
-            userId: context.actor.userId,
+            ...(bot.ownerType === "workspace" && bot.visibility === "workspace"
+              ? {}
+              : { userId: context.actor.userId }),
           },
         });
         return rows.map((row) => ({
@@ -2714,11 +2753,13 @@ export function createRouter(deps: RouterDeps) {
             contextBotId,
           });
         }
-        await repos.getBot(context.actor, input.botId!);
+        const bot = await repos.getBot(context.actor, input.botId!);
         try {
           return await getOwnedArtifact(deps, context.actor, {
             botId: input.botId!,
             artifactId: input.artifactId,
+            allowWorkspaceBotAccess:
+              bot.ownerType === "workspace" && bot.visibility === "workspace",
           });
         } catch (error) {
           if (error instanceof IsolationError) throw error;
@@ -2912,26 +2953,64 @@ export function createRouter(deps: RouterDeps) {
 }
 
 async function meDto(deps: RouterDeps, actor: Actor): Promise<Me> {
-  const [user, cred, settings] = await Promise.all([
+  const [user, cred, settings, member, brandwell, managedCredential] = await Promise.all([
     deps.prisma.user.findUniqueOrThrow({ where: { id: actor.userId } }),
     findDefaultModelCredential(deps.prisma, actor),
     deps.prisma.deploymentSettings.findUnique({ where: { id: "default" } }),
+    deps.prisma.member.findFirst({
+      where: { organizationId: actor.workspaceId, userId: actor.userId },
+      select: { role: true },
+    }),
+    deps.prisma.brandwellAiWorkspace.findUnique({
+      where: { rakazoWorkspaceId: actor.workspaceId },
+      select: {
+        plan: true,
+        subscriptionStatus: true,
+        provisioningStatus: true,
+        primaryBotId: true,
+      },
+    }),
+    deps.prisma.brandwellWorkspaceModelCredential.findUnique({
+      where: { workspaceId: actor.workspaceId },
+      select: { provider: true, preferredModel: true, status: true, disabledAt: true },
+    }),
   ]);
   const hasDeployment = Boolean(
     settings?.deploymentModelCredentialCipher || deps.env.deploymentModelKey,
   );
+  const activeManagedCredential =
+    managedCredential?.status === "active" && !managedCredential.disabledAt
+      ? managedCredential
+      : null;
   return {
     userId: actor.userId,
     email: user.email,
     name: user.name,
     workspaceId: actor.workspaceId,
     isDeploymentOwner: actor.isDeploymentOwner,
-    needsModel: !cred && !hasDeployment,
-    defaultProvider: cred?.provider ?? settings?.defaultModelProvider ?? deps.env.defaultProvider,
-    defaultModel: cred?.defaultModel ?? settings?.defaultModelId ?? deps.env.defaultModel,
+    needsModel: brandwell ? false : !cred && !hasDeployment,
+    defaultProvider:
+      activeManagedCredential?.provider ??
+      cred?.provider ??
+      settings?.defaultModelProvider ??
+      deps.env.defaultProvider,
+    defaultModel:
+      activeManagedCredential?.preferredModel ??
+      cred?.defaultModel ??
+      settings?.defaultModelId ??
+      deps.env.defaultModel,
     computerHost: computerHostFor(settings?.computerHost, deps.env.sandboxProvider),
     canChooseHostComputer: actor.isDeploymentOwner && deps.env.sandboxProvider === "docker",
     avatarStyle: user.avatarStyle === "organic" ? "organic" : "robot",
+    workspaceRole: member?.role ?? "member",
+    brandwell: brandwell
+      ? {
+          plan: brandwell.plan,
+          subscriptionStatus: brandwell.subscriptionStatus,
+          provisioningStatus: brandwell.provisioningStatus,
+          primaryBotId: brandwell.primaryBotId,
+        }
+      : null,
   };
 }
 
@@ -3153,6 +3232,44 @@ async function requireWorkspaceOwner(prisma: PrismaClient, actor: Actor): Promis
   });
   const roles = member?.role.split(",").map((role) => role.trim());
   if (!roles?.includes("owner")) throw new ORPCError("FORBIDDEN");
+}
+
+async function requireManagedBotOwner(prisma: PrismaClient, actor: Actor, botId: string) {
+  await requireWorkspaceOwner(prisma, actor);
+  const bot = await prisma.bot.findFirst({
+    where: {
+      id: botId,
+      workspaceId: actor.workspaceId,
+      ownerType: "workspace",
+      visibility: "workspace",
+      managedByBrandWell: true,
+    },
+    select: { serviceIdentityId: true },
+  });
+  if (!bot) throw new IsolationError();
+  if (!bot.serviceIdentityId) {
+    throw new ORPCError("PRECONDITION_FAILED", {
+      message: "This AI employee is still being provisioned.",
+    });
+  }
+  return bot;
+}
+
+function rejectManagedBotLifecycleChange(
+  bot: { managedByBrandWell: boolean },
+  action: "duplicate" | "archive" | "restore" | "remove",
+) {
+  if (!bot.managedByBrandWell) return;
+  throw new ORPCError("FORBIDDEN", {
+    message: `BrandWell manages this AI employee. It cannot be ${managedBotActionLabel(action)} here.`,
+  });
+}
+
+function managedBotActionLabel(action: "duplicate" | "archive" | "restore" | "remove") {
+  if (action === "duplicate") return "duplicated";
+  if (action === "archive") return "archived";
+  if (action === "restore") return "restored";
+  return "removed";
 }
 
 export async function persistMemoryProviderConfig(

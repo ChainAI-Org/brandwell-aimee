@@ -30,6 +30,10 @@ const baseBot = {
   thread: { id: "thread-1", unread: false, messages: [] },
   runs: [],
   computer: null,
+  ownerType: "user",
+  visibility: "private",
+  managedByBrandWell: false,
+  managedStatus: "active",
 };
 
 function reposFor(memoryScope: string | null) {
@@ -64,6 +68,36 @@ describe("createRepos.listBots", () => {
           workspaceId: "ws-1",
           OR: [{ userId: "user-1" }, { ownerType: "workspace", visibility: "workspace" }],
         }),
+      }),
+    );
+  });
+});
+
+describe("createRepos.getBot", () => {
+  it("allows a workspace member to open a visible workspace-owned employee", async () => {
+    const findFirst = vi.fn(async () => ({
+      ...baseBot,
+      userId: "system-user",
+      ownerType: "workspace",
+      visibility: "workspace",
+      managedByBrandWell: true,
+      thread: { id: "thread-1", unread: false },
+    }));
+    const prisma = { bot: { findFirst } };
+    const repos = createRepos(prisma as unknown as PrismaClient);
+
+    await expect(repos.getBot(actor, "bot-1")).resolves.toMatchObject({
+      id: "bot-1",
+      managedByBrandWell: true,
+    });
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: "bot-1",
+          workspaceId: "ws-1",
+          OR: [{ userId: "user-1" }, { ownerType: "workspace", visibility: "workspace" }],
+          archivedAt: null,
+        },
       }),
     );
   });

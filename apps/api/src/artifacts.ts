@@ -80,7 +80,7 @@ export async function getOwnedArtifact(
     artifacts: ArtifactStore;
   },
   actor: Actor,
-  input: { botId: string; artifactId: string },
+  input: { botId: string; artifactId: string; allowWorkspaceBotAccess?: boolean },
 ) {
   const row = await deps.prisma.artifact.findFirst({
     where: {
@@ -88,7 +88,7 @@ export async function getOwnedArtifact(
       botId: input.botId,
       groupId: null,
       workspaceId: actor.workspaceId,
-      userId: actor.userId,
+      ...(input.allowWorkspaceBotAccess ? {} : { userId: actor.userId }),
     },
   });
   if (!row) throw new IsolationError();

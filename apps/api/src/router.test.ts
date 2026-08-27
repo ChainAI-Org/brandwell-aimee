@@ -5,7 +5,23 @@ import { describe, expect, it, vi } from "vitest";
 import { createRouter, type RouterDeps } from "./router.js";
 
 describe("account preferences", () => {
-  function preferencesDeps(avatarStyle: string) {
+  function preferencesDeps(
+    avatarStyle: string,
+    options: {
+      brandwell?: {
+        plan: string;
+        subscriptionStatus: string;
+        provisioningStatus: string;
+        primaryBotId: string | null;
+      } | null;
+      managedCredential?: {
+        provider: string;
+        preferredModel: string;
+        status: string;
+        disabledAt: Date | null;
+      } | null;
+    } = {},
+  ) {
     const update = vi.fn().mockResolvedValue({});
     const prisma = {
       user: {
@@ -18,6 +34,13 @@ describe("account preferences", () => {
       },
       userModelCredential: { findFirst: vi.fn().mockResolvedValue(null) },
       deploymentSettings: { findUnique: vi.fn().mockResolvedValue(null) },
+      member: { findFirst: vi.fn().mockResolvedValue({ role: "owner" }) },
+      brandwellAiWorkspace: {
+        findUnique: vi.fn().mockResolvedValue(options.brandwell ?? null),
+      },
+      brandwellWorkspaceModelCredential: {
+        findUnique: vi.fn().mockResolvedValue(options.managedCredential ?? null),
+      },
     } as unknown as PrismaClient;
     const deps = {
       prisma,
@@ -92,6 +115,48 @@ describe("account preferences", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       json: expect.objectContaining({ avatarStyle: "robot" }),
+    });
+  });
+
+  it("returns managed BrandWell workspace metadata without asking the client for a model key", async () => {
+    const { actor, handler } = preferencesDeps("robot", {
+      brandwell: {
+        plan: "aimee",
+        subscriptionStatus: "active",
+        provisioningStatus: "ready",
+        primaryBotId: "bot-aimee",
+      },
+      managedCredential: {
+        provider: "openrouter",
+        preferredModel: "anthropic/claude-sonnet-4.5",
+        status: "active",
+        disabledAt: null,
+      },
+    });
+
+    const { response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/me", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: null }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      json: expect.objectContaining({
+        needsModel: false,
+        defaultProvider: "openrouter",
+        defaultModel: "anthropic/claude-sonnet-4.5",
+        workspaceRole: "owner",
+        brandwell: {
+          plan: "aimee",
+          subscriptionStatus: "active",
+          provisioningStatus: "ready",
+          primaryBotId: "bot-aimee",
+        },
+      }),
     });
   });
 });
