@@ -8,6 +8,12 @@ import {
   supportActor,
 } from "./brandwell-management.js";
 
+const OPERATOR_HEADERS = {
+  "x-brandwell-operator-ref": "user:42",
+  "x-brandwell-operator-name": "Test Operator",
+  "x-brandwell-operator-email": "operator@example.test",
+} as const;
+
 describe("BrandWell management API authentication", () => {
   it("matches only an exact bearer token", () => {
     expect(constantTimeBearerMatches("Bearer management-secret", "management-secret")).toBe(true);
@@ -203,6 +209,7 @@ describe("BrandWell management API authentication", () => {
       headers: {
         authorization: "Bearer management-secret",
         "x-idempotency-key": "operator-run-0001",
+        ...OPERATOR_HEADERS,
       },
     });
     expect(response.status).toBe(200);
@@ -222,6 +229,17 @@ describe("BrandWell management API authentication", () => {
       }),
     );
     expect(auditCreate).toHaveBeenCalled();
+    expect(auditCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorType: "brandwell_operator",
+          metadata: expect.objectContaining({
+            operatorReference: "user:42",
+            operatorName: "Test Operator",
+          }),
+        }),
+      }),
+    );
     expect(enqueue).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "run.continue",
@@ -240,7 +258,7 @@ describe("BrandWell management API authentication", () => {
     });
     const response = await app.request("/internal/bots/bot-1/run", {
       method: "POST",
-      headers: { authorization: "Bearer management-secret" },
+      headers: { authorization: "Bearer management-secret", ...OPERATOR_HEADERS },
     });
     expect(response.status).toBe(400);
     expect(findFirst).not.toHaveBeenCalled();
@@ -275,7 +293,7 @@ describe("BrandWell management API authentication", () => {
     });
     const response = await app.request("/internal/runs/run-1/retry", {
       method: "POST",
-      headers: { authorization: "Bearer management-secret" },
+      headers: { authorization: "Bearer management-secret", ...OPERATOR_HEADERS },
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ ok: true, runId: "run-1", status: "queued" });
@@ -287,6 +305,14 @@ describe("BrandWell management API authentication", () => {
     );
     expect(taskUpdate).toHaveBeenCalled();
     expect(auditCreate).toHaveBeenCalled();
+    expect(auditCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorType: "brandwell_operator",
+          metadata: expect.objectContaining({ operatorReference: "user:42" }),
+        }),
+      }),
+    );
     expect(enqueue).toHaveBeenCalled();
   });
 
@@ -323,6 +349,7 @@ describe("BrandWell management API authentication", () => {
         authorization: "Bearer management-secret",
         "content-type": "application/json",
         "x-idempotency-key": "notify-client-0001",
+        ...OPERATOR_HEADERS,
       },
       body: JSON.stringify({
         type: "LOGIN_REQUIRED",
@@ -351,6 +378,65 @@ describe("BrandWell management API authentication", () => {
       }),
     );
     expect(auditCreate).toHaveBeenCalled();
+    expect(auditCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          actorType: "brandwell_operator",
+          metadata: expect.objectContaining({ operatorReference: "user:42" }),
+        }),
+      }),
+    );
+  });
+
+  it("rejects operator mutations that cannot be attributed to a person", async () => {
+    const findFirst = vi.fn();
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: { bot: { findFirst } } as unknown as PrismaClient,
+    });
+    const response = await app.request("/internal/bots/bot-1/pause", {
+      method: "POST",
+      headers: { authorization: "Bearer management-secret" },
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "A valid BrandWell operator reference is required",
+    });
+    expect(findFirst).not.toHaveBeenCalled();
+  });
+
+  it("records the operator when pausing a managed employee", async () => {
+    const auditCreate = vi.fn(async () => ({ id: "audit-1" }));
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {
+        bot: {
+          findFirst: vi.fn(async () => ({ id: "bot-1", workspaceId: "workspace-1" })),
+          update: vi.fn(async () => ({ id: "bot-1" })),
+        },
+        routine: { updateMany: vi.fn(async () => ({ count: 2 })) },
+        brandwellAuditLog: { create: auditCreate },
+        $transaction: vi.fn(async (operations) => Promise.all(operations)),
+      } as unknown as PrismaClient,
+    });
+    const response = await app.request("/internal/bots/bot-1/pause", {
+      method: "POST",
+      headers: { authorization: "Bearer management-secret", ...OPERATOR_HEADERS },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, status: "paused" });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorType: "brandwell_operator",
+        action: "employee.pause",
+        metadata: expect.objectContaining({
+          operatorReference: "user:42",
+          operatorEmail: "operator@example.test",
+        }),
+      }),
+    });
   });
 
   it("forwards operator identity to the isolated computer support service", async () => {
@@ -386,9 +472,7 @@ describe("BrandWell management API authentication", () => {
       headers: {
         authorization: "Bearer management-secret",
         "content-type": "application/json",
-        "x-brandwell-operator-ref": "user:42",
-        "x-brandwell-operator-name": "Test Operator",
-        "x-brandwell-operator-email": "operator@example.test",
+        ...OPERATOR_HEADERS,
       },
       body: JSON.stringify({ reason: "Resolve the client login alert" }),
     });

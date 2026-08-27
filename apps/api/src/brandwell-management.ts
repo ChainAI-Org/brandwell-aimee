@@ -245,6 +245,8 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
   });
 
   app.post("/internal/bots/:id/pause", async (c) => {
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
     const bot = await deps.prisma.bot.findFirst({
       where: { id: c.req.param("id"), managedByBrandWell: true, archivedAt: null },
       select: { id: true, workspaceId: true },
@@ -256,10 +258,11 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
       deps.prisma.brandwellAuditLog.create({
         data: {
           workspaceId: bot.workspaceId,
-          actorType: "brandwell_service",
+          actorType: "brandwell_operator",
           action: "employee.pause",
           resourceType: "bot",
           resourceId: bot.id,
+          metadata: operatorAuditMetadata(operator.value),
         },
       }),
     ]);
@@ -267,6 +270,8 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
   });
 
   app.post("/internal/bots/:id/resume", async (c) => {
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
     const bot = await deps.prisma.bot.findFirst({
       where: { id: c.req.param("id"), managedByBrandWell: true, archivedAt: null },
       select: { id: true, workspaceId: true },
@@ -277,10 +282,11 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
       deps.prisma.brandwellAuditLog.create({
         data: {
           workspaceId: bot.workspaceId,
-          actorType: "brandwell_service",
+          actorType: "brandwell_operator",
           action: "employee.resume",
           resourceType: "bot",
           resourceId: bot.id,
+          metadata: operatorAuditMetadata(operator.value),
         },
       }),
     ]);
@@ -289,6 +295,8 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
 
   app.post("/internal/bots/:id/run", async (c) => {
     if (!deps.jobs) return c.json({ error: "AIMEE job execution is not configured" }, 503);
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
     const requestKey = managementIdempotencyKey(c.req.header("x-idempotency-key"));
     if (!requestKey.ok) return c.json({ error: requestKey.error }, 400);
     const bot = await deps.prisma.bot.findFirst({
@@ -360,11 +368,11 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
         await tx.brandwellAuditLog.create({
           data: {
             workspaceId: bot.workspaceId,
-            actorType: "brandwell_service",
+            actorType: "brandwell_operator",
             action: "employee.run_now",
             resourceType: "run",
             resourceId: created.id,
-            metadata: { routineId: routine.id },
+            metadata: { routineId: routine.id, ...operatorAuditMetadata(operator.value) },
           },
         });
         return { ...created, replayed: false };
@@ -383,6 +391,8 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
 
   app.post("/internal/runs/:id/retry", async (c) => {
     if (!deps.jobs) return c.json({ error: "AIMEE job execution is not configured" }, 503);
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
     const run = await deps.prisma.run.findFirst({
       where: {
         id: c.req.param("id"),
@@ -417,11 +427,11 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
       await tx.brandwellAuditLog.create({
         data: {
           workspaceId: run.workspaceId,
-          actorType: "brandwell_service",
+          actorType: "brandwell_operator",
           action: "run.retry",
           resourceType: "run",
           resourceId: run.id,
-          metadata: { botId: run.botId },
+          metadata: { botId: run.botId, ...operatorAuditMetadata(operator.value) },
         },
       });
       return true;
@@ -432,6 +442,8 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
   });
 
   app.post("/internal/workspaces/:id/notify-client", async (c) => {
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
     const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
     if (!mapping) return c.json({ error: "Workspace not found" }, 404);
     const requestKey = managementIdempotencyKey(c.req.header("x-idempotency-key"));
@@ -465,11 +477,15 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
         await tx.brandwellAuditLog.create({
           data: {
             workspaceId: mapping.rakazoWorkspaceId,
-            actorType: "brandwell_service",
+            actorType: "brandwell_operator",
             action: "client.notify",
             resourceType: "notification",
             resourceId: notification.id,
-            metadata: { type: notification.type, requiresAction: notification.requiresAction },
+            metadata: {
+              type: notification.type,
+              requiresAction: notification.requiresAction,
+              ...operatorAuditMetadata(operator.value),
+            },
           },
         });
         return notification;
@@ -783,6 +799,14 @@ export function supportActor(
     return { ok: false, error: "The BrandWell operator email is invalid" };
   }
   return { ok: true, value: { reference, name, ...(email ? { email } : {}) } };
+}
+
+function operatorAuditMetadata(actor: BrandwellSupportActor) {
+  return {
+    operatorReference: actor.reference,
+    operatorName: actor.name,
+    ...(actor.email ? { operatorEmail: actor.email } : {}),
+  };
 }
 
 function supportComputerError(c: Context, error: unknown) {
