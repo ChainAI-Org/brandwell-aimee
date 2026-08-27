@@ -1850,10 +1850,10 @@ export function ShellPage() {
                 return (
                   <div key={group.key} data-sidebar-group={group.key}>
                     {group.title ? (
-                      <div className="px-2 pt-2">
+                      <div className="pt-2">
                         <button
                           type="button"
-                          className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-[12.5px] font-medium text-[#6C6C70] hover:bg-[#1A1A1D] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#8B5CF6]"
+                          className="flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-[12.5px] font-medium text-[#6C6C70] hover:bg-[#1A1A1D] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#8B5CF6]"
                           onClick={() => toggleSidebarSection(group.key)}
                           aria-expanded={!collapsed}
                           aria-label={
