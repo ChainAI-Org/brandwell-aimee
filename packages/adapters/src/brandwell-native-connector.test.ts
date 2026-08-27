@@ -65,6 +65,10 @@ describe("BrandWell native connector", () => {
     expect(await connector.discoverTools(context({ serviceIdentityId: undefined }))).toEqual([]);
 
     const tools = await connector.discoverTools(context());
+    expect(tools.map((tool) => tool.name)).toContain("brandwell_postcards_list_campaigns");
+    expect(tools.map((tool) => tool.name)).toContain(
+      "brandwell_postcards_update_campaign_settings",
+    );
     expect(tools.map((tool) => tool.name)).toContain("brandwell_postcards_queue_recipients");
     expect(tools.find((tool) => tool.name === "brandwell_trafficid_get_visitors")?.readOnly).toBe(
       true,
@@ -90,7 +94,7 @@ describe("BrandWell native connector", () => {
     });
 
     const events = await eventsFrom(connector, "brandwell_postcards_queue_recipients", {
-      campaign_id: "campaign/acme",
+      campaign_id: "campaign-acme",
       recipients: [
         {
           first_name: "Alex",
@@ -106,7 +110,7 @@ describe("BrandWell native connector", () => {
 
     expect(events).toEqual([{ type: "result", data: { ok: true, queued: 1 } }]);
     expect(requestUrl).toBe(
-      "https://portal.example.test/internal/aimee/postcards/campaigns/campaign%2Facme/recipients",
+      "https://portal.example.test/internal/aimee/postcards/campaigns/campaign-acme/recipients",
     );
     expect(requestInit?.headers).toMatchObject({
       authorization: `Bearer ${SERVICE_TOKEN}`,
@@ -146,6 +150,71 @@ describe("BrandWell native connector", () => {
       agent_intake_source: "aimee",
     });
     expect(body).not.toHaveProperty("cadence");
+  });
+
+  it("forwards a configured batch start for new campaign drafts", async () => {
+    let requestInit: RequestInit | undefined;
+    const fetchImpl: typeof fetch = async (_url, init) => {
+      requestInit = init;
+      return new Response(JSON.stringify({ id: "campaign-1" }));
+    };
+    const connector = new BrandwellNativeConnector(activePrisma(), {
+      apiBaseUrl: "https://portal.example.test",
+      serviceToken: SERVICE_TOKEN,
+      fetch: fetchImpl,
+    });
+
+    await eventsFrom(connector, "brandwell_postcards_create_campaign_draft", {
+      name: "Daily enriched prospects",
+      source: "manual",
+      scheduled_start_at: "2026-08-28T09:30:00-07:00",
+    });
+
+    expect(JSON.parse(String(requestInit?.body))).toMatchObject({
+      scheduled_start_at: "2026-08-28T09:30:00-07:00",
+      agent_intake_source: "aimee",
+    });
+  });
+
+  it("updates only a scoped draft schedule and never exposes activation", async () => {
+    let requestUrl: string | URL | Request | undefined;
+    let requestInit: RequestInit | undefined;
+    const fetchImpl: typeof fetch = async (url, init) => {
+      requestUrl = url;
+      requestInit = init;
+      return new Response(JSON.stringify({ schedule_updated: true, agent_can_activate: false }));
+    };
+    const connector = new BrandwellNativeConnector(activePrisma(), {
+      apiBaseUrl: "https://portal.example.test",
+      serviceToken: SERVICE_TOKEN,
+      fetch: fetchImpl,
+    });
+
+    const events = await eventsFrom(connector, "brandwell_postcards_update_campaign_settings", {
+      campaign_id: "campaign-acme",
+      cadence: "daily",
+      max_per_run: 125,
+      duplicate_policy: "days",
+      duplicate_window_days: 90,
+    });
+
+    expect(events).toEqual([
+      { type: "result", data: { schedule_updated: true, agent_can_activate: false } },
+    ]);
+    expect(requestUrl).toBe(
+      "https://portal.example.test/internal/aimee/postcards/campaigns/campaign-acme/settings",
+    );
+    expect(requestInit?.headers).toMatchObject({
+      "x-brandwell-idempotency-key": "workspace-acme:effect-1",
+    });
+    expect(JSON.parse(String(requestInit?.body))).toMatchObject({
+      cadence: "daily",
+      max_per_run: 125,
+      duplicate_policy: "days",
+      duplicate_window_days: 90,
+      agent_intake_source: "aimee",
+    });
+    expect(JSON.parse(String(requestInit?.body))).not.toHaveProperty("campaign_id");
   });
 
   it("never returns an upstream error body or service token", async () => {

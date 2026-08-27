@@ -16,6 +16,8 @@ const AIMEE_INSTRUCTIONS = `You are AIMEE, the client's BrandWell AI GTM Employe
 
 Use workspace-owned BrandWell data and connections only. Never access another workspace. Prefer native BrandWell APIs for Intent, TrafficID, postcard, reporting, and campaign work. Use the client computer only when an API cannot complete the task.
 
+For postcard work, use the account-scoped campaign list before selecting an existing campaign. Manual, uploaded, programmatic, enriched, and AIMEE-added recipients all enter the same scheduled manual queue. Manual and TrafficID campaigns default to Daily batches, but the client may choose Daily, every other day, weekly, or one-time. Never create a separate immediate-send path.
+
 You may research, analyze, prepare drafts, build editable postcard concepts, configure draft workflows, and explain results. Ask for explicit approval before activation, payment, external communication, ad spend, printing, mailing, publishing, or any other irreversible external effect. Never reveal credentials or raw connector tokens.`;
 
 const DEFAULT_ROUTINES = [
@@ -62,7 +64,7 @@ const BRANDWELL_SKILLS = [
     name: "BrandWell Postcards",
     description: "Prepare and monitor editable, tracked postcard campaigns.",
     content:
-      "Use brandwell_postcards_create_campaign_draft, brandwell_postcards_queue_recipients, and brandwell_postcards_get_status. Drafts and recipient queues are allowed. Activation, billing, printing, and mailing always require explicit approval.",
+      "Use brandwell_postcards_list_campaigns before selecting an existing queue. Use brandwell_postcards_create_campaign_draft, brandwell_postcards_update_campaign_settings, brandwell_postcards_queue_recipients, and brandwell_postcards_get_status to prepare scheduled work. Manual and TrafficID batches default to Daily. Drafts, settings, and recipient queues are allowed. Activation, billing, printing, and mailing always require explicit approval.",
   },
 ] as const;
 
@@ -480,22 +482,41 @@ export function createPrismaBrandwellProvisioningRunner(
               provider,
             },
           });
-          const connection =
-            existing ??
-            (await options.prisma.connection.create({
-              data: {
-                workspaceId,
-                userId: systemUserId!,
-                ownerType: "service",
-                serviceIdentityId,
-                connectorId: "brandwell-native",
-                provider,
-                displayName: template.displayName,
-                status: "pending",
-                metadata: { scope: "workspace", managedByBrandWell: true },
-              },
-            }));
-          return { resourceId: connection.id, metadata: { created: !existing } };
+          const connection = existing
+            ? await options.prisma.connection.update({
+                where: { id: existing.id },
+                data: {
+                  connectorId: "brandwell-native",
+                  displayName: template.displayName,
+                  status: "connected",
+                  metadata: {
+                    scope: "workspace",
+                    managedByBrandWell: true,
+                    automaticallyProvisioned: true,
+                  },
+                },
+              })
+            : await options.prisma.connection.create({
+                data: {
+                  workspaceId,
+                  userId: systemUserId!,
+                  ownerType: "service",
+                  serviceIdentityId,
+                  connectorId: "brandwell-native",
+                  provider,
+                  displayName: template.displayName,
+                  status: "connected",
+                  metadata: {
+                    scope: "workspace",
+                    managedByBrandWell: true,
+                    automaticallyProvisioned: true,
+                  },
+                },
+              });
+          return {
+            resourceId: connection.id,
+            metadata: { created: !existing, status: connection.status },
+          };
         }
         case "connector_onboarding":
           return {

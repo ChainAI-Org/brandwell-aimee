@@ -36,6 +36,9 @@ const PaginationSchema = {
   limit: z.number().int().min(1).max(100).default(25),
   cursor: z.string().max(500).optional(),
 };
+const CampaignReferenceSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{1,120}$/, "Campaign reference is invalid");
 
 const ToolDefinitions = [
   {
@@ -113,6 +116,7 @@ const ToolDefinitions = [
         icp: IcpsSchema,
         cadence: z.enum(["daily", "weekly", "every_other_day", "one_time"]).optional(),
         timezone: z.string().min(1).max(100).optional(),
+        scheduled_start_at: z.string().datetime({ offset: true }).optional(),
         max_per_run: z.number().int().min(1).max(50_000).optional(),
         monthly_budget_cents: z.number().int().min(100).max(100_000_000).optional(),
         duplicate_policy: z.enum(["days", "never"]).default("days"),
@@ -122,6 +126,45 @@ const ToolDefinitions = [
       .strict(),
   },
   {
+    name: "brandwell_postcards_list_campaigns",
+    description:
+      "List this client's postcard campaigns so an existing manual queue can be selected by name, status, source, and schedule. Open campaigns are returned by default.",
+    readOnly: true,
+    endpoint: "/internal/aimee/postcards/campaigns/list",
+    schema: z
+      .object({
+        status: z.enum(["draft", "active", "paused", "completed", "cancelled"]).optional(),
+        source: z.enum(["manual", "trafficid", "intent"]).optional(),
+        include_closed: z.boolean().default(false),
+        limit: z.number().int().min(1).max(100).default(25),
+      })
+      .strict(),
+  },
+  {
+    name: "brandwell_postcards_update_campaign_settings",
+    description:
+      "Configure the schedule and safety settings of this client's draft or paused postcard campaign. This cannot activate, charge, print, or mail the campaign.",
+    readOnly: false,
+    endpoint: "/internal/aimee/postcards/campaigns/:campaignId/settings",
+    schema: z
+      .object({
+        campaign_id: CampaignReferenceSchema,
+        name: z.string().min(1).max(200).optional(),
+        cadence: z.enum(["daily", "weekly", "every_other_day", "one_time"]).optional(),
+        timezone: z.string().min(1).max(100).optional(),
+        scheduled_start_at: z.string().datetime({ offset: true }).optional(),
+        max_per_run: z.number().int().min(1).max(50_000).optional(),
+        monthly_budget_cents: z.number().int().min(100).max(100_000_000).optional(),
+        duplicate_policy: z.enum(["days", "never"]).optional(),
+        duplicate_window_days: z.number().int().min(1).max(3_650).optional(),
+      })
+      .strict()
+      .refine(
+        (input) => Object.keys(input).some((key) => key !== "campaign_id"),
+        "At least one campaign setting is required",
+      ),
+  },
+  {
     name: "brandwell_postcards_queue_recipients",
     description:
       "Add manually supplied or enriched people to an open manual postcard campaign. Drafts still require human approval. Active campaigns process new recipients only in their next authorized scheduled batch, with account suppression, address, duplicate, and budget gates.",
@@ -129,7 +172,7 @@ const ToolDefinitions = [
     endpoint: "/internal/aimee/postcards/campaigns/:campaignId/recipients",
     schema: z
       .object({
-        campaign_id: z.string().min(1).max(200),
+        campaign_id: CampaignReferenceSchema,
         recipients: z
           .array(
             z
@@ -164,7 +207,7 @@ const ToolDefinitions = [
     endpoint: "/internal/aimee/postcards/campaigns/status",
     schema: z
       .object({
-        campaign_id: z.string().min(1).max(200),
+        campaign_id: CampaignReferenceSchema,
         include_recipients: z.boolean().default(false),
         ...PaginationSchema,
       })
@@ -330,6 +373,14 @@ function requestFor(
     return {
       endpoint: definition.endpoint.replace(":campaignId", encodeURIComponent(campaignId)),
       body: { ...body, intake_source: "agent" },
+    };
+  }
+  if (definition.name === "brandwell_postcards_update_campaign_settings") {
+    const campaignId = String(parsed.campaign_id);
+    const { campaign_id: _campaignId, ...body } = parsed;
+    return {
+      endpoint: definition.endpoint.replace(":campaignId", encodeURIComponent(campaignId)),
+      body,
     };
   }
   return { endpoint: definition.endpoint, body: parsed };
