@@ -2290,7 +2290,9 @@ export function ShellPage() {
           </div>
         ) : null}
         <Composer
-          key={inGroup ? `group:${groupId}` : `bot:${active?.id}`}
+          key={
+            inGroup ? `group:${groupId ?? "loading"}` : `bot:${botId ?? active?.id ?? "loading"}`
+          }
           activeName={inGroup ? (activeGroup?.name ?? activeSnapshot?.groupName) : active?.name}
           running={composerRunning}
           disabled={Boolean(recordingSkill)}
