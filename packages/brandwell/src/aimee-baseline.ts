@@ -67,6 +67,13 @@ export const BRANDWELL_AIMEE_SKILLS = [
       "Use brandwell_trafficid_get_visitors and brandwell_trafficid_qualify_visitor. Never request or reveal visitors from another workspace. Treat TrafficID as first-party website activity, not proof of another campaign unless BrandWell attribution supports it.",
   },
   {
+    name: "BrandWell Postcard Offer Hooks",
+    description:
+      "Turn a verified offer, audience, and intent signal into a focused postcard hook before artwork.",
+    content:
+      "Start from the client's real offer, ICP, intent topic, and supported proof. Never invent prices, discounts, guarantees, statistics, testimonials, scarcity, deadlines, or customer facts. Create the campaign draft with brandwell_postcards_create_campaign_draft, then use BrandWell Postcard Studio for the protected hook and artwork step. BrandWell's planner generates exactly three hook concepts with GLM 5.3 through OpenRouter and selects the strongest. The selected hook becomes strict scene JSON for GPT Image 2. Keep the company logo, headline, supporting copy, CTA, personalization, and tracked QR code in BrandWell-controlled editable layers. Keep PCM mailing, QR exclusion, safe-margin, and bleed geometry locked. Present the selected concept for review and ask for explicit approval before payment, printing, mailing, or activation.",
+  },
+  {
     name: "BrandWell Postcards",
     description: "Prepare and monitor editable, tracked postcard campaigns.",
     content:

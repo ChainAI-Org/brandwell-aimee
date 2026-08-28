@@ -29,8 +29,13 @@ describe("AIMEE managed workspace baseline", () => {
       "BrandWell GTM Operating System",
       "BrandWell Intent",
       "BrandWell TrafficID",
+      "BrandWell Postcard Offer Hooks",
       "BrandWell Postcards",
     ]);
+    expect(
+      BRANDWELL_AIMEE_SKILLS.find((skill) => skill.name === "BrandWell Postcard Offer Hooks")
+        ?.content,
+    ).toContain("exactly three hook concepts with GLM 5.3 through OpenRouter");
     expect(BRANDWELL_AIMEE_DEFAULT_ROUTINES).toHaveLength(4);
   });
 });
