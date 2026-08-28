@@ -313,7 +313,7 @@ export async function reconcileBrandwellFleetHealth(
             dedupeKey: `alert:${item.dedupeKey}`,
           },
         },
-        create: notificationData(item),
+        create: notificationData(item, now),
         update: {
           title: notificationTitle(item.type),
           body: item.summary,
@@ -388,6 +388,7 @@ function alertCreateData(
 
 function notificationData(
   item: BrandwellAlertCandidate & { dedupeKey: string; audience: BrandwellAlertAudience },
+  now: Date,
 ) {
   const botId = stringDetail(item.technicalDetails, "botId");
   return {
@@ -402,6 +403,7 @@ function notificationData(
     requiresAction: item.clientActionRequired,
     actionType: notificationActionType(item),
     actionTarget: notificationActionTarget(item, botId),
+    pushDeliveryNextAt: now,
   };
 }
 

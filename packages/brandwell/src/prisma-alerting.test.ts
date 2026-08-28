@@ -73,6 +73,7 @@ describe("BrandWell fleet health reconciliation", () => {
           title: "AIMEE needs your help",
           actionType: "OPEN_COMPUTER",
           actionTarget: "/computer?botId=bot-aimee",
+          pushDeliveryNextAt: now,
         }),
       }),
     );
