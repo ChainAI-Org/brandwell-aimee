@@ -4,7 +4,17 @@ import {
   BrandwellProvisioningError,
   type BrandwellProvisioningInput,
 } from "@brandwell/aimee";
-import { type JobPublisher, runContinueJob } from "@rakazo/adapter-kit";
+import {
+  type JobPublisher,
+  routineJobKey,
+  routineWakeupJob,
+  runContinueJob,
+} from "@rakazo/adapter-kit";
+import {
+  hasMixedOneShotSchedule,
+  isOneShotRoutineCrons,
+  nextCronDateAcrossStrict,
+} from "@rakazo/core";
 import type { PrismaClient } from "@rakazo/db";
 import type { Context, Hono } from "hono";
 import type { BrandwellSupportActor } from "./brandwell-support.js";
@@ -244,6 +254,19 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     return c.json(await usageDto(deps.prisma, mapping.rakazoWorkspaceId));
   });
 
+  app.get("/internal/workspaces/:id/integrations", async (c) => {
+    const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
+    if (!mapping) return c.json({ error: "Workspace not found" }, 404);
+    const integrations = await deps.prisma.connection.findMany({
+      where: {
+        workspaceId: mapping.rakazoWorkspaceId,
+        ownerType: "service",
+      },
+      orderBy: [{ status: "asc" }, { displayName: "asc" }],
+    });
+    return c.json({ integrations: integrations.map(integrationDto) });
+  });
+
   app.post("/internal/bots/:id/pause", async (c) => {
     const operator = supportActor(c.req.header());
     if (!operator.ok) return c.json({ error: operator.error }, 400);
@@ -291,6 +314,213 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
       }),
     ]);
     return c.json({ ok: true, status: "active" });
+  });
+
+  app.post("/internal/bots/:id/instructions", async (c) => {
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
+    const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+    const input = employeeInstructionsInput(body);
+    if (!input.ok) return c.json({ error: input.error }, 400);
+    const bot = await deps.prisma.bot.findFirst({
+      where: { id: c.req.param("id"), managedByBrandWell: true, archivedAt: null },
+      select: { id: true, workspaceId: true },
+    });
+    if (!bot) return c.json({ error: "AI employee not found" }, 404);
+    const updated = await deps.prisma.$transaction(async (tx) => {
+      const row = await tx.bot.update({
+        where: { id: bot.id },
+        data: { instructions: input.value.instructions },
+        select: { id: true, instructions: true, updatedAt: true },
+      });
+      await tx.brandwellAuditLog.create({
+        data: {
+          workspaceId: bot.workspaceId,
+          actorType: "brandwell_operator",
+          action: "employee.instructions.update",
+          resourceType: "bot",
+          resourceId: bot.id,
+          metadata: {
+            characterCount: row.instructions.length,
+            ...operatorAuditMetadata(operator.value),
+          },
+        },
+      });
+      return row;
+    });
+    return c.json({
+      ok: true,
+      employeeId: updated.id,
+      instructions: updated.instructions,
+      updatedAt: updated.updatedAt,
+    });
+  });
+
+  app.post("/internal/routines/:id/settings", async (c) => {
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
+    const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+    const input = routineSettingsInput(body);
+    if (!input.ok) return c.json({ error: input.error }, 400);
+    const scheduleMutation =
+      input.value.crons !== undefined ||
+      input.value.timezone !== undefined ||
+      input.value.active !== undefined;
+    if (scheduleMutation && !deps.jobs) {
+      return c.json({ error: "AIMEE routine scheduling is not configured" }, 503);
+    }
+    const existing = await deps.prisma.routine.findFirst({
+      where: {
+        id: c.req.param("id"),
+        bot: { managedByBrandWell: true, archivedAt: null },
+      },
+      include: { bot: { select: { managedStatus: true } } },
+    });
+    if (!existing) return c.json({ error: "AIMEE routine not found" }, 404);
+    const active = input.value.active ?? existing.active;
+    const crons = input.value.crons ?? existing.crons;
+    const timezone = input.value.timezone ?? existing.timezone;
+    if (active && existing.bot.managedStatus !== "active") {
+      return c.json({ error: "Resume the AI employee before activating a routine" }, 409);
+    }
+    if (active) {
+      const mapping = await deps.prisma.brandwellAiWorkspace.findUnique({
+        where: { rakazoWorkspaceId: existing.workspaceId },
+        select: { subscriptionStatus: true },
+      });
+      if (!mapping || !["trialing", "active"].includes(mapping.subscriptionStatus)) {
+        return c.json({ error: "The AIMEE subscription is not active" }, 409);
+      }
+    }
+    const scheduleChanged =
+      input.value.active !== undefined ||
+      input.value.timezone !== undefined ||
+      input.value.crons !== undefined;
+    const schedule = managedRoutineSchedule(crons, timezone);
+    if (!schedule.ok) return c.json({ error: schedule.error }, 400);
+    const nextRunAt = active ? schedule.nextRunAt : null;
+    const updated = await deps.prisma.$transaction(async (tx) => {
+      const row = await tx.routine.update({
+        where: { id: existing.id },
+        data: {
+          name: input.value.name,
+          prompt: input.value.prompt,
+          crons: input.value.crons,
+          timezone: input.value.timezone,
+          active: input.value.active,
+          notify: input.value.notify,
+          ...(scheduleChanged ? { nextRunAt } : {}),
+        },
+      });
+      await tx.brandwellAuditLog.create({
+        data: {
+          workspaceId: existing.workspaceId,
+          actorType: "brandwell_operator",
+          action: "routine.settings.update",
+          resourceType: "routine",
+          resourceId: existing.id,
+          metadata: {
+            active: row.active,
+            timezone: row.timezone,
+            schedules: row.crons.length,
+            ...operatorAuditMetadata(operator.value),
+          },
+        },
+      });
+      return row;
+    });
+    if (scheduleChanged) {
+      if (updated.active && updated.nextRunAt) {
+        await deps.jobs!.enqueue(routineWakeupJob(updated.id, updated.nextRunAt));
+      } else {
+        await deps.jobs!.cancel(routineJobKey(updated.id));
+      }
+    }
+    return c.json({ ok: true, routine: routineDto(updated) });
+  });
+
+  app.post("/internal/workspaces/:id/model-policy", async (c) => {
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
+    const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
+    if (!mapping) return c.json({ error: "Workspace not found" }, 404);
+    const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+    const input = modelPolicyInput(body);
+    if (!input.ok) return c.json({ error: input.error }, 400);
+    const current = await deps.prisma.brandwellWorkspaceModelCredential.findUnique({
+      where: { workspaceId: mapping.rakazoWorkspaceId },
+    });
+    if (!current) return c.json({ error: "AIMEE model policy is not provisioned" }, 409);
+    const limits = resolvedModelLimits(current, input.value);
+    if (!limits.ok) return c.json({ error: limits.error }, 400);
+    const updated = await deps.prisma.$transaction(async (tx) => {
+      const row = await tx.brandwellWorkspaceModelCredential.update({
+        where: { id: current.id },
+        data: {
+          preferredModel: input.value.preferredModel,
+          computerModel: input.value.computerModel,
+          lightweightModel: input.value.lightweightModel,
+          reasoningModel: input.value.reasoningModel,
+          fallbackModels: input.value.fallbackModels,
+          maxTokens: input.value.maxTokens,
+          thinkingLevel: input.value.thinkingLevel,
+          monthlyLimitMicros: input.value.monthlyLimitMicros,
+          dailyLimitMicros: input.value.dailyLimitMicros,
+          warningLimitMicros: input.value.warningLimitMicros,
+        },
+      });
+      await tx.brandwellAuditLog.create({
+        data: {
+          workspaceId: mapping.rakazoWorkspaceId,
+          actorType: "brandwell_operator",
+          action: "model.policy.update",
+          resourceType: "model_policy",
+          resourceId: row.id,
+          metadata: {
+            preferredModel: row.preferredModel,
+            monthlyLimitMicros: row.monthlyLimitMicros.toString(),
+            ...operatorAuditMetadata(operator.value),
+          },
+        },
+      });
+      return row;
+    });
+    return c.json({ ok: true, modelPolicy: modelPolicyDto(updated) });
+  });
+
+  app.post("/internal/alerts/:id/status", async (c) => {
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
+    const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+    const input = alertStatusInput(body);
+    if (!input.ok) return c.json({ error: input.error }, 400);
+    const alert = await deps.prisma.brandwellAlert.findUnique({
+      where: { id: c.req.param("id") },
+    });
+    if (!alert) return c.json({ error: "AIMEE alert not found" }, 404);
+    const now = new Date();
+    const updated = await deps.prisma.$transaction(async (tx) => {
+      const row = await tx.brandwellAlert.update({
+        where: { id: alert.id },
+        data: {
+          status: input.value.status,
+          acknowledgedAt: input.value.status === "OPEN" ? null : (alert.acknowledgedAt ?? now),
+          resolvedAt: ["RESOLVED", "IGNORED"].includes(input.value.status) ? now : null,
+        },
+      });
+      await tx.brandwellAuditLog.create({
+        data: {
+          workspaceId: alert.workspaceId,
+          actorType: "brandwell_operator",
+          action: `alert.${input.value.status.toLowerCase()}`,
+          resourceType: "alert",
+          resourceId: alert.id,
+          metadata: operatorAuditMetadata(operator.value),
+        },
+      });
+      return row;
+    });
+    return c.json({ ok: true, alert: updated });
   });
 
   app.post("/internal/bots/:id/run", async (c) => {
@@ -561,29 +791,45 @@ async function fleetRow(prisma: PrismaClient, mapping: NonNullable<WorkspaceMapp
 }
 
 async function workspaceDetail(prisma: PrismaClient, mapping: NonNullable<WorkspaceMapping>) {
-  const [summary, routines, alerts, recentRuns, notifications] = await Promise.all([
-    fleetRow(prisma, mapping),
-    prisma.routine.findMany({
-      where: { workspaceId: mapping.rakazoWorkspaceId },
-      orderBy: [{ active: "desc" }, { nextRunAt: "asc" }],
-    }),
-    prisma.brandwellAlert.findMany({
-      where: { workspaceId: mapping.rakazoWorkspaceId },
-      orderBy: [{ resolvedAt: "asc" }, { createdAt: "desc" }],
-      take: 50,
-    }),
-    prisma.run.findMany({
-      where: { workspaceId: mapping.rakazoWorkspaceId },
-      orderBy: [{ createdAt: "desc" }],
-      take: 50,
-    }),
-    prisma.brandwellClientNotification.findMany({
-      where: { workspaceId: mapping.rakazoWorkspaceId },
-      orderBy: [{ createdAt: "desc" }],
-      take: 50,
-    }),
-  ]);
-  return { ...summary, routines, alerts, recentRuns, notifications };
+  const [summary, routines, alerts, recentRuns, notifications, integrations, modelPolicy] =
+    await Promise.all([
+      fleetRow(prisma, mapping),
+      prisma.routine.findMany({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
+        orderBy: [{ active: "desc" }, { nextRunAt: "asc" }],
+      }),
+      prisma.brandwellAlert.findMany({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
+        orderBy: [{ resolvedAt: "asc" }, { createdAt: "desc" }],
+        take: 50,
+      }),
+      prisma.run.findMany({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
+        orderBy: [{ createdAt: "desc" }],
+        take: 50,
+      }),
+      prisma.brandwellClientNotification.findMany({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
+        orderBy: [{ createdAt: "desc" }],
+        take: 50,
+      }),
+      prisma.connection.findMany({
+        where: { workspaceId: mapping.rakazoWorkspaceId, ownerType: "service" },
+        orderBy: [{ status: "asc" }, { displayName: "asc" }],
+      }),
+      prisma.brandwellWorkspaceModelCredential.findUnique({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
+      }),
+    ]);
+  return {
+    ...summary,
+    routines,
+    alerts,
+    recentRuns,
+    notifications,
+    integrations: integrations.map(integrationDto),
+    modelPolicy: modelPolicy ? modelPolicyDto(modelPolicy) : null,
+  };
 }
 
 async function usageDto(prisma: PrismaClient, workspaceId: string) {
@@ -626,6 +872,7 @@ function agentDto(agent: {
   name: string;
   title: string;
   description: string;
+  instructions: string;
   managedStatus: string;
   computerId: string | null;
   updatedAt: Date;
@@ -635,9 +882,96 @@ function agentDto(agent: {
     name: agent.name,
     title: agent.title,
     description: agent.description,
+    instructions: agent.instructions,
     status: agent.managedStatus,
     computerId: agent.computerId,
     updatedAt: agent.updatedAt,
+  };
+}
+
+function integrationDto(connection: {
+  id: string;
+  connectorId: string;
+  provider: string;
+  displayName: string;
+  status: string;
+  ownerType: string;
+  updatedAt: Date;
+}) {
+  return {
+    id: connection.id,
+    connectorId: connection.connectorId,
+    provider: connection.provider,
+    displayName: connection.displayName,
+    status: connection.status,
+    ownerType: connection.ownerType,
+    updatedAt: connection.updatedAt,
+  };
+}
+
+function routineDto(routine: {
+  id: string;
+  botId: string;
+  name: string;
+  prompt: string;
+  crons: string[];
+  timezone: string;
+  active: boolean;
+  notify: boolean;
+  lastRunAt: Date | null;
+  nextRunAt: Date | null;
+  updatedAt: Date;
+}) {
+  return {
+    id: routine.id,
+    botId: routine.botId,
+    name: routine.name,
+    prompt: routine.prompt,
+    crons: routine.crons,
+    timezone: routine.timezone,
+    active: routine.active,
+    notify: routine.notify,
+    lastRunAt: routine.lastRunAt,
+    nextRunAt: routine.nextRunAt,
+    updatedAt: routine.updatedAt,
+  };
+}
+
+function modelPolicyDto(policy: {
+  id: string;
+  provider: string;
+  status: string;
+  preferredModel: string;
+  computerModel: string | null;
+  lightweightModel: string | null;
+  reasoningModel: string | null;
+  fallbackModels: unknown;
+  maxTokens: number | null;
+  thinkingLevel: string | null;
+  monthlyLimitMicros: bigint;
+  dailyLimitMicros: bigint | null;
+  warningLimitMicros: bigint;
+  currentUsageMicros: bigint;
+  disabledAt: Date | null;
+  updatedAt: Date;
+}) {
+  return {
+    id: policy.id,
+    provider: policy.provider,
+    status: policy.status,
+    preferredModel: policy.preferredModel,
+    computerModel: policy.computerModel,
+    lightweightModel: policy.lightweightModel,
+    reasoningModel: policy.reasoningModel,
+    fallbackModels: Array.isArray(policy.fallbackModels) ? policy.fallbackModels : [],
+    maxTokens: policy.maxTokens,
+    thinkingLevel: policy.thinkingLevel,
+    monthlyLimitMicros: policy.monthlyLimitMicros.toString(),
+    dailyLimitMicros: policy.dailyLimitMicros?.toString() ?? null,
+    warningLimitMicros: policy.warningLimitMicros.toString(),
+    currentUsageMicros: policy.currentUsageMicros.toString(),
+    disabledAt: policy.disabledAt,
+    updatedAt: policy.updatedAt,
   };
 }
 
@@ -685,6 +1019,271 @@ function managementIdempotencyKey(
     return { ok: false, error: "A valid x-idempotency-key header is required" };
   }
   return { ok: true, value: key };
+}
+
+function employeeInstructionsInput(
+  body: Record<string, unknown> | null,
+): { ok: true; value: { instructions: string } } | { ok: false; error: string } {
+  if (!body) return { ok: false, error: "A JSON request body is required" };
+  if (typeof body.instructions !== "string") {
+    return { ok: false, error: "instructions is required" };
+  }
+  const instructions = body.instructions.trim();
+  if (!instructions || instructions.length > 50_000) {
+    return { ok: false, error: "instructions must contain 1 to 50000 characters" };
+  }
+  return { ok: true, value: { instructions } };
+}
+
+type RoutineSettingsInput = {
+  name?: string;
+  prompt?: string;
+  crons?: string[];
+  timezone?: string;
+  active?: boolean;
+  notify?: boolean;
+};
+
+function routineSettingsInput(
+  body: Record<string, unknown> | null,
+): { ok: true; value: RoutineSettingsInput } | { ok: false; error: string } {
+  if (!body) return { ok: false, error: "A JSON request body is required" };
+  const value: RoutineSettingsInput = {};
+  if (body.name !== undefined) {
+    if (typeof body.name !== "string" || !body.name.trim() || body.name.trim().length > 120) {
+      return { ok: false, error: "name must contain 1 to 120 characters" };
+    }
+    value.name = body.name.trim();
+  }
+  if (body.prompt !== undefined) {
+    if (
+      typeof body.prompt !== "string" ||
+      !body.prompt.trim() ||
+      body.prompt.trim().length > 50_000
+    ) {
+      return { ok: false, error: "prompt must contain 1 to 50000 characters" };
+    }
+    value.prompt = body.prompt.trim();
+  }
+  if (body.crons !== undefined) {
+    if (
+      !Array.isArray(body.crons) ||
+      body.crons.length < 1 ||
+      body.crons.length > 8 ||
+      body.crons.some((cron) => typeof cron !== "string" || !cron.trim() || cron.length > 120)
+    ) {
+      return { ok: false, error: "crons must contain 1 to 8 valid schedules" };
+    }
+    value.crons = body.crons.map((cron) => String(cron).trim());
+  }
+  if (body.timezone !== undefined) {
+    if (typeof body.timezone !== "string" || !validTimezone(body.timezone.trim())) {
+      return { ok: false, error: "timezone must be a valid IANA timezone" };
+    }
+    value.timezone = body.timezone.trim();
+  }
+  if (body.active !== undefined) {
+    if (typeof body.active !== "boolean") return { ok: false, error: "active must be boolean" };
+    value.active = body.active;
+  }
+  if (body.notify !== undefined) {
+    if (typeof body.notify !== "boolean") return { ok: false, error: "notify must be boolean" };
+    value.notify = body.notify;
+  }
+  if (Object.keys(value).length === 0) {
+    return { ok: false, error: "At least one routine setting is required" };
+  }
+  return { ok: true, value };
+}
+
+function managedRoutineSchedule(
+  crons: string[],
+  timezone: string,
+): { ok: true; nextRunAt: Date } | { ok: false; error: string } {
+  if (hasMixedOneShotSchedule(crons) || isOneShotRoutineCrons(crons)) {
+    return { ok: false, error: "BrandWell managed routines must use recurring schedules" };
+  }
+  try {
+    const nextRunAt = nextCronDateAcrossStrict(crons, new Date(), timezone);
+    if (!nextRunAt) return { ok: false, error: "Enter at least one recurring schedule" };
+    return { ok: true, nextRunAt };
+  } catch {
+    return { ok: false, error: "Enter valid five-field cron schedules" };
+  }
+}
+
+function validTimezone(value: string): boolean {
+  if (!value || value.length > 100) return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+type ModelPolicyPatch = {
+  preferredModel?: string;
+  computerModel?: string | null;
+  lightweightModel?: string | null;
+  reasoningModel?: string | null;
+  fallbackModels?: string[];
+  maxTokens?: number | null;
+  thinkingLevel?: string | null;
+  monthlyLimitMicros?: bigint;
+  dailyLimitMicros?: bigint | null;
+  warningLimitMicros?: bigint;
+};
+
+function modelPolicyInput(
+  body: Record<string, unknown> | null,
+): { ok: true; value: ModelPolicyPatch } | { ok: false; error: string } {
+  if (!body) return { ok: false, error: "A JSON request body is required" };
+  const value: ModelPolicyPatch = {};
+  for (const field of [
+    "preferredModel",
+    "computerModel",
+    "lightweightModel",
+    "reasoningModel",
+  ] as const) {
+    if (body[field] === undefined) continue;
+    if (field !== "preferredModel" && body[field] === null) {
+      value[field] = null;
+      continue;
+    }
+    if (typeof body[field] !== "string" || !body[field].trim() || body[field].trim().length > 200) {
+      return { ok: false, error: `${field} must contain 1 to 200 characters` };
+    }
+    value[field] = body[field].trim();
+  }
+  if (body.fallbackModels !== undefined) {
+    if (
+      !Array.isArray(body.fallbackModels) ||
+      body.fallbackModels.length > 10 ||
+      body.fallbackModels.some(
+        (model) => typeof model !== "string" || !model.trim() || model.trim().length > 200,
+      )
+    ) {
+      return { ok: false, error: "fallbackModels must contain up to 10 model identifiers" };
+    }
+    value.fallbackModels = [...new Set(body.fallbackModels.map((model) => String(model).trim()))];
+  }
+  if (body.maxTokens !== undefined) {
+    if (body.maxTokens === null) value.maxTokens = null;
+    else if (
+      !Number.isInteger(body.maxTokens) ||
+      Number(body.maxTokens) < 256 ||
+      Number(body.maxTokens) > 1_000_000
+    ) {
+      return { ok: false, error: "maxTokens must be between 256 and 1000000" };
+    } else value.maxTokens = Number(body.maxTokens);
+  }
+  if (body.thinkingLevel !== undefined) {
+    if (body.thinkingLevel === null) value.thinkingLevel = null;
+    else if (
+      typeof body.thinkingLevel !== "string" ||
+      !["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(
+        body.thinkingLevel,
+      )
+    ) {
+      return { ok: false, error: "thinkingLevel is invalid" };
+    } else value.thinkingLevel = body.thinkingLevel;
+  }
+  for (const field of ["monthlyLimitMicros", "warningLimitMicros"] as const) {
+    if (body[field] === undefined) continue;
+    const parsed = nonnegativeBigInt(body[field]);
+    if (parsed === null) return { ok: false, error: `${field} must be a nonnegative integer` };
+    value[field] = parsed;
+  }
+  if (body.dailyLimitMicros !== undefined) {
+    if (body.dailyLimitMicros === null) value.dailyLimitMicros = null;
+    else {
+      const parsed = nonnegativeBigInt(body.dailyLimitMicros);
+      if (parsed === null) {
+        return { ok: false, error: "dailyLimitMicros must be a nonnegative integer or null" };
+      }
+      value.dailyLimitMicros = parsed;
+    }
+  }
+  if (Object.keys(value).length === 0) {
+    return { ok: false, error: "At least one model policy setting is required" };
+  }
+  return { ok: true, value };
+}
+
+function nonnegativeBigInt(value: unknown): bigint | null {
+  const text = typeof value === "bigint" ? value.toString() : String(value ?? "").trim();
+  if (!/^\d{1,20}$/.test(text)) return null;
+  try {
+    return BigInt(text);
+  } catch {
+    return null;
+  }
+}
+
+function resolvedModelLimits(
+  current: {
+    monthlyLimitMicros: bigint;
+    dailyLimitMicros: bigint | null;
+    warningLimitMicros: bigint;
+  },
+  patch: ModelPolicyPatch,
+): { ok: true } | { ok: false; error: string } {
+  const monthly = patch.monthlyLimitMicros ?? current.monthlyLimitMicros;
+  const daily =
+    patch.dailyLimitMicros === undefined ? current.dailyLimitMicros : patch.dailyLimitMicros;
+  const warning = patch.warningLimitMicros ?? current.warningLimitMicros;
+  if (monthly > 0n && warning > monthly) {
+    return { ok: false, error: "warningLimitMicros cannot exceed the monthly limit" };
+  }
+  if (monthly > 0n && daily !== null && daily > monthly) {
+    return { ok: false, error: "dailyLimitMicros cannot exceed the monthly limit" };
+  }
+  return { ok: true };
+}
+
+function alertStatusInput(body: Record<string, unknown> | null):
+  | {
+      ok: true;
+      value: {
+        status:
+          | "OPEN"
+          | "ACKNOWLEDGED"
+          | "WAITING_CLIENT"
+          | "WAITING_BRANDWELL"
+          | "RESOLVED"
+          | "IGNORED";
+      };
+    }
+  | { ok: false; error: string } {
+  if (!body) return { ok: false, error: "A JSON request body is required" };
+  const status = String(body.status ?? "")
+    .trim()
+    .toUpperCase();
+  if (
+    ![
+      "OPEN",
+      "ACKNOWLEDGED",
+      "WAITING_CLIENT",
+      "WAITING_BRANDWELL",
+      "RESOLVED",
+      "IGNORED",
+    ].includes(status)
+  ) {
+    return { ok: false, error: "status is invalid" };
+  }
+  return {
+    ok: true,
+    value: {
+      status: status as
+        | "OPEN"
+        | "ACKNOWLEDGED"
+        | "WAITING_CLIENT"
+        | "WAITING_BRANDWELL"
+        | "RESOLVED"
+        | "IGNORED",
+    },
+  };
 }
 
 function clientNotificationInput(body: Record<string, unknown> | null):

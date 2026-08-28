@@ -439,6 +439,294 @@ describe("BrandWell management API authentication", () => {
     });
   });
 
+  it("updates managed employee instructions with an operator audit record", async () => {
+    const auditCreate = vi.fn(async () => ({ id: "audit-1" }));
+    const botUpdate = vi.fn(async ({ data }) => ({
+      id: "bot-1",
+      instructions: data.instructions,
+      updatedAt: new Date("2026-08-27T19:00:00.000Z"),
+    }));
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {
+        bot: {
+          findFirst: vi.fn(async () => ({ id: "bot-1", workspaceId: "workspace-1" })),
+        },
+        $transaction: vi.fn(async (callback) =>
+          callback({
+            bot: { update: botUpdate },
+            brandwellAuditLog: { create: auditCreate },
+          }),
+        ),
+      } as unknown as PrismaClient,
+    });
+    const response = await app.request("/internal/bots/bot-1/instructions", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer management-secret",
+        "content-type": "application/json",
+        ...OPERATOR_HEADERS,
+      },
+      body: JSON.stringify({ instructions: "Qualify every buyer against the saved ICP." }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      employeeId: "bot-1",
+      instructions: "Qualify every buyer against the saved ICP.",
+    });
+    expect(botUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { instructions: "Qualify every buyer against the saved ICP." },
+      }),
+    );
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "employee.instructions.update",
+        metadata: expect.objectContaining({ operatorReference: "user:42" }),
+      }),
+    });
+  });
+
+  it("updates a recurring AIMEE routine and synchronizes its wakeup job", async () => {
+    const enqueue = vi.fn(async () => undefined);
+    const cancel = vi.fn(async () => undefined);
+    const auditCreate = vi.fn(async () => ({ id: "audit-1" }));
+    const routineUpdate = vi.fn(async ({ data }) => ({
+      id: "routine-1",
+      botId: "bot-1",
+      name: data.name ?? "Daily GTM review",
+      prompt: "Review new qualified buyers",
+      crons: data.crons ?? ["0 9 * * *"],
+      timezone: data.timezone ?? "America/Phoenix",
+      active: data.active ?? true,
+      notify: true,
+      lastRunAt: null,
+      nextRunAt: data.nextRunAt,
+      updatedAt: new Date("2026-08-27T19:00:00.000Z"),
+    }));
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {
+        routine: {
+          findFirst: vi.fn(async () => ({
+            id: "routine-1",
+            botId: "bot-1",
+            workspaceId: "workspace-1",
+            name: "Daily GTM review",
+            prompt: "Review new qualified buyers",
+            crons: ["0 9 * * *"],
+            timezone: "UTC",
+            active: false,
+            notify: true,
+            bot: { managedStatus: "active" },
+          })),
+        },
+        brandwellAiWorkspace: {
+          findUnique: vi.fn(async () => ({ subscriptionStatus: "active" })),
+        },
+        $transaction: vi.fn(async (callback) =>
+          callback({
+            routine: { update: routineUpdate },
+            brandwellAuditLog: { create: auditCreate },
+          }),
+        ),
+      } as unknown as PrismaClient,
+      jobs: { enqueue, cancel } as never,
+    });
+    const response = await app.request("/internal/routines/routine-1/settings", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer management-secret",
+        "content-type": "application/json",
+        ...OPERATOR_HEADERS,
+      },
+      body: JSON.stringify({
+        name: "Daily buyer follow-up",
+        crons: ["0 9 * * *"],
+        timezone: "America/Phoenix",
+        active: true,
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      routine: { id: "routine-1", active: true, timezone: "America/Phoenix" },
+    });
+    expect(enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: "routine.wakeup",
+        payload: expect.objectContaining({ routineId: "routine-1" }),
+      }),
+    );
+    expect(cancel).not.toHaveBeenCalled();
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({ action: "routine.settings.update" }),
+    });
+  });
+
+  it("updates model routing and spend limits without returning credential secrets", async () => {
+    const current = {
+      id: "model-policy-1",
+      workspaceId: "workspace-1",
+      provider: "openrouter",
+      status: "active",
+      secretId: "secret-never-returned",
+      preferredModel: "provider/old",
+      computerModel: null,
+      lightweightModel: null,
+      reasoningModel: null,
+      fallbackModels: [],
+      maxTokens: 8192,
+      thinkingLevel: "medium",
+      monthlyLimitMicros: 200_000_000n,
+      dailyLimitMicros: null,
+      warningLimitMicros: 150_000_000n,
+      currentUsageMicros: 10_000_000n,
+      disabledAt: null,
+      updatedAt: new Date("2026-08-27T19:00:00.000Z"),
+    };
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {
+        brandwellAiWorkspace: {
+          findFirst: vi.fn(async () => ({
+            id: "mapping-1",
+            rakazoWorkspaceId: "workspace-1",
+            rakazoWorkspace: { name: "Acme", slug: "acme" },
+          })),
+        },
+        brandwellWorkspaceModelCredential: {
+          findUnique: vi.fn(async () => current),
+        },
+        $transaction: vi.fn(async (callback) =>
+          callback({
+            brandwellWorkspaceModelCredential: {
+              update: vi.fn(async ({ data }) => ({ ...current, ...data })),
+            },
+            brandwellAuditLog: { create: vi.fn(async () => ({ id: "audit-1" })) },
+          }),
+        ),
+      } as unknown as PrismaClient,
+    });
+    const response = await app.request("/internal/workspaces/mapping-1/model-policy", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer management-secret",
+        "content-type": "application/json",
+        ...OPERATOR_HEADERS,
+      },
+      body: JSON.stringify({
+        preferredModel: "provider/general",
+        computerModel: "provider/vision",
+        fallbackModels: ["provider/fallback"],
+        monthlyLimitMicros: "250000000",
+        warningLimitMicros: "175000000",
+      }),
+    });
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.modelPolicy).toMatchObject({
+      provider: "openrouter",
+      preferredModel: "provider/general",
+      computerModel: "provider/vision",
+      monthlyLimitMicros: "250000000",
+    });
+    expect(JSON.stringify(payload)).not.toContain("secret-never-returned");
+    expect(payload.modelPolicy.secretId).toBeUndefined();
+  });
+
+  it("lists only safe workspace integration health fields", async () => {
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {
+        brandwellAiWorkspace: {
+          findFirst: vi.fn(async () => ({
+            id: "mapping-1",
+            rakazoWorkspaceId: "workspace-1",
+            rakazoWorkspace: { name: "Acme", slug: "acme" },
+          })),
+        },
+        connection: {
+          findMany: vi.fn(async () => [
+            {
+              id: "connection-1",
+              connectorId: "composio",
+              provider: "gmail",
+              displayName: "Gmail",
+              status: "connected",
+              ownerType: "service",
+              secretId: "secret-never-returned",
+              providerRef: "provider-ref-never-returned",
+              metadata: { accessToken: "never-returned" },
+              updatedAt: new Date("2026-08-27T19:00:00.000Z"),
+            },
+          ]),
+        },
+      } as unknown as PrismaClient,
+    });
+    const response = await app.request("/internal/workspaces/mapping-1/integrations", {
+      headers: { authorization: "Bearer management-secret" },
+    });
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload.integrations[0]).toMatchObject({ displayName: "Gmail", status: "connected" });
+    expect(JSON.stringify(payload)).not.toContain("never-returned");
+  });
+
+  it("acknowledges an alert with operator attribution", async () => {
+    const auditCreate = vi.fn(async () => ({ id: "audit-1" }));
+    const alertUpdate = vi.fn(async ({ data }) => ({
+      id: "alert-1",
+      workspaceId: "workspace-1",
+      summary: "Gmail needs attention",
+      acknowledgedAt: data.acknowledgedAt,
+      resolvedAt: data.resolvedAt,
+      status: data.status,
+    }));
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {
+        brandwellAlert: {
+          findUnique: vi.fn(async () => ({
+            id: "alert-1",
+            workspaceId: "workspace-1",
+            acknowledgedAt: null,
+          })),
+        },
+        $transaction: vi.fn(async (callback) =>
+          callback({
+            brandwellAlert: { update: alertUpdate },
+            brandwellAuditLog: { create: auditCreate },
+          }),
+        ),
+      } as unknown as PrismaClient,
+    });
+    const response = await app.request("/internal/alerts/alert-1/status", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer management-secret",
+        "content-type": "application/json",
+        ...OPERATOR_HEADERS,
+      },
+      body: JSON.stringify({ status: "ACKNOWLEDGED" }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      alert: { id: "alert-1", status: "ACKNOWLEDGED" },
+    });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "alert.acknowledged",
+        metadata: expect.objectContaining({ operatorReference: "user:42" }),
+      }),
+    });
+  });
+
   it("forwards operator identity to the isolated computer support service", async () => {
     const takeControl = vi.fn(async () => ({
       sessionId: "support-1",
