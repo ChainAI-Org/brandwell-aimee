@@ -57,13 +57,25 @@ import {
   screenControlKey,
 } from "./extra-displays.js";
 
-const DAYTONA_PRIMARY_DISPLAY = ":99";
+const DAYTONA_FALLBACK_DISPLAY = ":0";
 const DAYTONA_SCREEN_TTL_SECONDS = 3_600;
 
 export type DaytonaSandboxSdk = Pick<Daytona, "create" | "get">;
 
+export interface DaytonaSandboxProviderConfig extends DaytonaConfig {
+  apiKey: string;
+  snapshot?: string;
+  autoStopInterval?: number;
+  autoArchiveInterval?: number;
+  autoDeleteInterval?: number;
+  vncResolution?: string;
+  locale?: string;
+  timezone?: string;
+}
+
 export class DaytonaSandboxProvider implements SandboxProvider {
   private readonly client: DaytonaSandboxSdk;
+  private readonly provisioning: Omit<DaytonaSandboxProviderConfig, keyof DaytonaConfig | "apiKey">;
   private readonly boxes = new Map<string, Sandbox>();
   private readonly connections = new Map<string, Promise<Sandbox>>();
   private readonly workspaceRoots = new Map<string, string>();
@@ -71,6 +83,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
   private readonly preparations = new Map<string, Promise<void>>();
   private readonly desktopReady = new Set<string>();
   private readonly desktopStarts = new Map<string, Promise<void>>();
+  private readonly primaryDisplays = new Map<string, string>();
   private readonly screenPreviews = new Map<
     string,
     { url: string; token: string; expiresAt: number; viewPort: number }
@@ -84,7 +97,16 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     { x: number; y: number; button: "left" | "right" }
   >();
 
-  constructor(config: DaytonaConfig & { apiKey: string }, client?: DaytonaSandboxSdk) {
+  constructor(config: DaytonaSandboxProviderConfig, client?: DaytonaSandboxSdk) {
+    this.provisioning = {
+      snapshot: config.snapshot,
+      autoStopInterval: config.autoStopInterval,
+      autoArchiveInterval: config.autoArchiveInterval,
+      autoDeleteInterval: config.autoDeleteInterval,
+      vncResolution: config.vncResolution,
+      locale: config.locale,
+      timezone: config.timezone,
+    };
     this.client =
       client ??
       new Daytona({
@@ -131,10 +153,20 @@ export class DaytonaSandboxProvider implements SandboxProvider {
 
     const sandbox = await this.client.create(
       {
+        ...(this.provisioning.snapshot ? { snapshot: this.provisioning.snapshot } : {}),
         labels: { botId: request.botId, rakazo: "computer" },
-        envVars: { VNC_RESOLUTION: "1280x800" },
-        autoStopInterval: 0,
-        autoDeleteInterval: -1,
+        envVars: {
+          VNC_RESOLUTION: this.provisioning.vncResolution ?? "1280x800",
+          ...(this.provisioning.locale
+            ? { LANG: this.provisioning.locale, LC_ALL: this.provisioning.locale }
+            : {}),
+          ...(this.provisioning.timezone ? { TZ: this.provisioning.timezone } : {}),
+        },
+        autoStopInterval: this.provisioning.autoStopInterval ?? 0,
+        ...(this.provisioning.autoArchiveInterval === undefined
+          ? {}
+          : { autoArchiveInterval: this.provisioning.autoArchiveInterval }),
+        autoDeleteInterval: this.provisioning.autoDeleteInterval ?? -1,
       },
       { timeout: 120 },
     );
@@ -300,7 +332,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     if (layout.isPrimary) {
       await this.ensureDesktop(sandbox);
       const [screenshot, display, windows, cursor] = await Promise.all([
-        sandbox.computerUse.screenshot.takeFullScreen(true),
+        takeDaytonaScreenshot(sandbox, context.signal),
         sandbox.computerUse.display.getInfo().catch(() => undefined),
         sandbox.computerUse.display.getWindows().catch(() => undefined),
         sandbox.computerUse.mouse.getPosition().catch(() => undefined),
@@ -635,8 +667,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
   }
 
   private async openBrowser(sandbox: Sandbox): Promise<void> {
-    await this.ensureDesktop(sandbox);
-    await launchDaytonaApplication(sandbox, "browser");
+    await launchDaytonaApplication(sandbox, await this.primaryDisplay(sandbox), "browser");
   }
 
   private async applyAction(sandbox: Sandbox, action: ComputerAction): Promise<void> {
@@ -686,10 +717,15 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       const value = /^https?:\/\//i.test(action.path)
         ? action.path
         : workspacePath(root, action.path);
-      await launchDaytonaApplication(sandbox, "browser", value);
+      await launchDaytonaApplication(sandbox, await this.primaryDisplay(sandbox), "browser", value);
       return;
     }
-    await launchDaytonaApplication(sandbox, action.application, action.uri);
+    await launchDaytonaApplication(
+      sandbox,
+      await this.primaryDisplay(sandbox),
+      action.application,
+      action.uri,
+    );
   }
 
   private async writeFiles(sandbox: Sandbox, files: readonly PortableFile[]): Promise<void> {
@@ -770,7 +806,23 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     );
     if (allocation.exitCode !== 0) throw new ComputerScreenUnavailableError();
     const index = parseAllocatedExtraDisplay(allocation.result);
-    return extraDisplayLayout(index, DAYTONA_PRIMARY_DISPLAY);
+    const primaryDisplay =
+      index === 0
+        ? await this.primaryDisplay(sandbox)
+        : (this.primaryDisplays.get(sandbox.id) ?? DAYTONA_FALLBACK_DISPLAY);
+    return extraDisplayLayout(index, primaryDisplay);
+  }
+
+  private async primaryDisplay(sandbox: Sandbox): Promise<string> {
+    const cached = this.primaryDisplays.get(sandbox.id);
+    if (cached) return cached;
+    await this.ensureDesktop(sandbox);
+    const result = await sandbox.process.executeCommand(
+      'for socket in /tmp/.X11-unix/X*; do test -S "$socket" || continue; printf ":%s\\n" "$(basename "$socket" | cut -c2-)"; break; done',
+    );
+    const display = result.result?.match(/^:\d+$/m)?.[0] ?? DAYTONA_FALLBACK_DISPLAY;
+    this.primaryDisplays.set(sandbox.id, display);
+    return display;
   }
 
   private async ensureExtraDisplay(
@@ -801,6 +853,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     this.preparations.delete(id);
     this.desktopReady.delete(id);
     this.desktopStarts.delete(id);
+    this.primaryDisplays.delete(id);
     for (const key of [...this.screenPreviews.keys()]) {
       if (key.startsWith(`${id}:`)) this.screenPreviews.delete(key);
     }
@@ -845,6 +898,30 @@ function daytonaCwd(root: string, cwd: string | undefined): string {
 function decodeBase64Image(value: string): Uint8Array {
   const content = Buffer.from(value.replace(/^data:image\/[a-z0-9.+-]+;base64,/i, ""), "base64");
   return new Uint8Array(content.buffer, content.byteOffset, content.byteLength);
+}
+
+async function takeDaytonaScreenshot(sandbox: Sandbox, signal: AbortSignal) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (signal.aborted) throw signal.reason ?? new Error("computer observation aborted");
+    try {
+      return await sandbox.computerUse.screenshot.takeFullScreen(true);
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableDaytonaScreenshotError(error) || attempt === 2) throw error;
+      await delay(250 * (attempt + 1), undefined, { signal });
+    }
+  }
+  throw lastError;
+}
+
+function isRetryableDaytonaScreenshotError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { statusCode?: unknown; message?: unknown };
+  return (
+    (typeof candidate.statusCode === "number" && candidate.statusCode >= 500) ||
+    (typeof candidate.message === "string" && /unexpected EOF/i.test(candidate.message))
+  );
 }
 
 function isDaytonaExecutable(mode: string, permissions: string): boolean {
@@ -894,13 +971,14 @@ async function stopDaytonaBrowsers(sandbox: Sandbox): Promise<void> {
 
 async function launchDaytonaApplication(
   sandbox: Sandbox,
+  display: string,
   application: string,
   uri?: string,
 ): Promise<void> {
   const app = application === "browser" ? "google-chrome chromium firefox" : application;
   const candidates = app.split(/\s+/).filter(Boolean);
   const command = [
-    String.raw`export DISPLAY=\${DISPLAY:-:99}`,
+    `export DISPLAY=${shellQuote(display)}`,
     `for app in ${candidates.map(shellQuote).join(" ")}; do`,
     '  if command -v "$app" >/dev/null 2>&1; then',
     `    nohup "$app"${uri ? ` ${shellQuote(uri)}` : ""} >/tmp/rakazo-app.log 2>&1 &`,

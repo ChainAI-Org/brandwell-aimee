@@ -68,6 +68,28 @@ async function main() {
     daytonaApiKey: process.env.DAYTONA_API_KEY,
     daytonaApiUrl: process.env.DAYTONA_API_URL,
     daytonaTarget: process.env.DAYTONA_TARGET,
+    daytonaSnapshot: process.env.DAYTONA_SNAPSHOT?.trim() || undefined,
+    daytonaAutoStopInterval: optionalInteger(
+      process.env.DAYTONA_AUTO_STOP_INTERVAL,
+      "DAYTONA_AUTO_STOP_INTERVAL",
+      0,
+    ),
+    daytonaAutoArchiveInterval: optionalInteger(
+      process.env.DAYTONA_AUTO_ARCHIVE_INTERVAL,
+      "DAYTONA_AUTO_ARCHIVE_INTERVAL",
+      0,
+    ),
+    daytonaAutoDeleteInterval: optionalInteger(
+      process.env.DAYTONA_AUTO_DELETE_INTERVAL,
+      "DAYTONA_AUTO_DELETE_INTERVAL",
+      -1,
+    ),
+    daytonaVncResolution: optionalResolution(
+      process.env.DAYTONA_VNC_RESOLUTION,
+      "DAYTONA_VNC_RESOLUTION",
+    ),
+    daytonaLocale: process.env.DAYTONA_LOCALE?.trim() || undefined,
+    daytonaTimezone: process.env.DAYTONA_TIMEZONE?.trim() || undefined,
     boxApiKey: process.env.BOX_API_KEY,
     boxApiUrl: process.env.BOX_API_URL ?? process.env.BOX_BASE_URL,
     dataDir,
@@ -277,6 +299,24 @@ function boundedInterval(value: string | undefined, fallback: number): number {
 function nonNegativeInteger(value: string | undefined, fallback: number): number {
   const parsed = Number(value ?? fallback);
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function optionalInteger(value: string | undefined, key: string, minimum: number) {
+  if (value === undefined || value.trim() === "") return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum) {
+    throw new Error(`${key} must be an integer greater than or equal to ${minimum}`);
+  }
+  return parsed;
+}
+
+function optionalResolution(value: string | undefined, key: string) {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  if (!/^\d{3,5}x\d{3,5}$/.test(normalized)) {
+    throw new Error(`${key} must use WIDTHxHEIGHT format`);
+  }
+  return normalized;
 }
 
 function brandwellPlatformConfig(source: NodeJS.ProcessEnv) {

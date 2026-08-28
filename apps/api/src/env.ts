@@ -21,6 +21,13 @@ export interface AppEnv {
   daytonaApiKey: string | undefined;
   daytonaApiUrl: string | undefined;
   daytonaTarget: string | undefined;
+  daytonaSnapshot: string | undefined;
+  daytonaAutoStopInterval: number | undefined;
+  daytonaAutoArchiveInterval: number | undefined;
+  daytonaAutoDeleteInterval: number | undefined;
+  daytonaVncResolution: string | undefined;
+  daytonaLocale: string | undefined;
+  daytonaTimezone: string | undefined;
   boxApiKey: string | undefined;
   boxApiUrl: string | undefined;
   composioApiKey: string | undefined;
@@ -89,6 +96,28 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     daytonaApiKey: source.DAYTONA_API_KEY,
     daytonaApiUrl: source.DAYTONA_API_URL,
     daytonaTarget: source.DAYTONA_TARGET,
+    daytonaSnapshot: optional(source.DAYTONA_SNAPSHOT),
+    daytonaAutoStopInterval: optionalInteger(
+      source.DAYTONA_AUTO_STOP_INTERVAL,
+      "DAYTONA_AUTO_STOP_INTERVAL",
+      0,
+    ),
+    daytonaAutoArchiveInterval: optionalInteger(
+      source.DAYTONA_AUTO_ARCHIVE_INTERVAL,
+      "DAYTONA_AUTO_ARCHIVE_INTERVAL",
+      0,
+    ),
+    daytonaAutoDeleteInterval: optionalInteger(
+      source.DAYTONA_AUTO_DELETE_INTERVAL,
+      "DAYTONA_AUTO_DELETE_INTERVAL",
+      -1,
+    ),
+    daytonaVncResolution: optionalResolution(
+      source.DAYTONA_VNC_RESOLUTION,
+      "DAYTONA_VNC_RESOLUTION",
+    ),
+    daytonaLocale: optional(source.DAYTONA_LOCALE),
+    daytonaTimezone: optional(source.DAYTONA_TIMEZONE),
     boxApiKey: source.BOX_API_KEY,
     boxApiUrl: source.BOX_API_URL ?? source.BOX_BASE_URL,
     composioApiKey: source.COMPOSIO_API_KEY,
@@ -146,6 +175,24 @@ function required(source: NodeJS.ProcessEnv, key: string): string {
   const value = source[key];
   if (!value) throw new Error(`Missing ${key}`);
   return value;
+}
+
+function optionalInteger(value: string | undefined, key: string, minimum: number) {
+  if (value === undefined || value.trim() === "") return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum) {
+    throw new Error(`${key} must be an integer greater than or equal to ${minimum}`);
+  }
+  return parsed;
+}
+
+function optionalResolution(value: string | undefined, key: string) {
+  const normalized = optional(value);
+  if (!normalized) return undefined;
+  if (!/^\d{3,5}x\d{3,5}$/.test(normalized)) {
+    throw new Error(`${key} must use WIDTHxHEIGHT format`);
+  }
+  return normalized;
 }
 
 function optional(value: string | undefined): string | undefined {

@@ -33,13 +33,36 @@ describe("loadEnv", () => {
       DAYTONA_API_KEY: "test-daytona-key",
       DAYTONA_API_URL: "https://daytona.test/api",
       DAYTONA_TARGET: "test-target",
+      DAYTONA_SNAPSHOT: "brandwell-aimee-browser-v1",
+      DAYTONA_AUTO_STOP_INTERVAL: "15",
+      DAYTONA_AUTO_ARCHIVE_INTERVAL: "10080",
+      DAYTONA_AUTO_DELETE_INTERVAL: "-1",
+      DAYTONA_VNC_RESOLUTION: "1440x900",
+      DAYTONA_LOCALE: "en_US.UTF-8",
+      DAYTONA_TIMEZONE: "UTC",
     });
     expect(env).toMatchObject({
       sandboxProvider: "daytona",
       daytonaApiKey: "test-daytona-key",
       daytonaApiUrl: "https://daytona.test/api",
       daytonaTarget: "test-target",
+      daytonaSnapshot: "brandwell-aimee-browser-v1",
+      daytonaAutoStopInterval: 15,
+      daytonaAutoArchiveInterval: 10080,
+      daytonaAutoDeleteInterval: -1,
+      daytonaVncResolution: "1440x900",
+      daytonaLocale: "en_US.UTF-8",
+      daytonaTimezone: "UTC",
     });
+  });
+
+  it("rejects invalid Daytona lifecycle and display settings", () => {
+    expect(() => loadEnv({ ...base, DAYTONA_AUTO_STOP_INTERVAL: "1.5" })).toThrow(
+      /DAYTONA_AUTO_STOP_INTERVAL/,
+    );
+    expect(() => loadEnv({ ...base, DAYTONA_VNC_RESOLUTION: "wide" })).toThrow(
+      /DAYTONA_VNC_RESOLUTION/,
+    );
   });
 
   it("loads provider-specific Box configuration", () => {
