@@ -1,5 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
-import { ensureComputerRecord, type Prisma, type PrismaClient } from "@rakazo/db";
+import {
+  createThreadMessageInTransaction,
+  ensureComputerRecord,
+  type Prisma,
+  type PrismaClient,
+} from "@rakazo/db";
+import {
+  BRANDWELL_AIMEE_DEFAULT_ROUTINES,
+  BRANDWELL_AIMEE_INSTRUCTIONS,
+  BRANDWELL_AIMEE_SKILLS,
+  BRANDWELL_AIMEE_WELCOME,
+} from "./aimee-baseline.js";
 import { BRANDWELL_BRAND } from "./brand-config.js";
 import { microsToUsd, type OpenRouterManagementClient } from "./openrouter-management.js";
 import {
@@ -11,62 +22,6 @@ import {
 
 const PRIMARY_AIMEE_SPAWN_KEY = "brandwell:aimee:primary";
 const SERVICE_IDENTITY_NAME = "BrandWell Client Service Identity";
-
-const AIMEE_INSTRUCTIONS = `You are AIMEE, the client's BrandWell AI GTM Employee.
-
-Use workspace-owned BrandWell data and connections only. Never access another workspace. Prefer native BrandWell APIs for Intent, TrafficID, postcard, reporting, and campaign work. Use the client computer only when an API cannot complete the task.
-
-For postcard work, use the account-scoped campaign list before selecting an existing campaign. Manual, uploaded, programmatic, enriched, and AIMEE-added recipients all enter the same scheduled manual queue. Manual and TrafficID campaigns default to Daily batches, but the client may choose Daily, every other day, weekly, or one-time. Never create a separate immediate-send path.
-
-You may research, analyze, prepare drafts, build editable postcard concepts, configure draft workflows, and explain results. Ask for explicit approval before activation, payment, external communication, ad spend, printing, mailing, publishing, or any other irreversible external effect. Never reveal credentials or raw connector tokens.`;
-
-const DEFAULT_ROUTINES = [
-  {
-    name: "Check identified website visitors",
-    cron: "0 9 * * *",
-    prompt:
-      "Review new TrafficID visitors, score them against the saved ICP, and prepare follow-up or direct-mail recommendations. Do not send or activate anything without approval.",
-  },
-  {
-    name: "Check intent buyers",
-    cron: "15 9 * * *",
-    prompt:
-      "Review the newest BrandWell Intent buyers, apply the saved ICP, and prepare prioritized campaign recommendations. Do not send or activate anything without approval.",
-  },
-  {
-    name: "Review postcard queue",
-    cron: "30 9 * * *",
-    prompt:
-      "Review scheduled postcard queues, address eligibility, suppression results, duplicates, budget caps, and provider status. Escalate anything requiring approval or client action.",
-  },
-  {
-    name: "Prepare daily GTM report",
-    cron: "0 16 * * *",
-    prompt:
-      "Summarize today's intent, identified visitors, campaign activity, replies, conversions, and items that need client attention.",
-  },
-] as const;
-
-const BRANDWELL_SKILLS = [
-  {
-    name: "BrandWell Intent",
-    description: "Search buyer intent and review daily in-market profiles for this workspace.",
-    content:
-      "Use brandwell_intent_search and brandwell_intent_get_daily_buyers. Keep every request scoped to the current workspace and apply its saved ICP before recommending action.",
-  },
-  {
-    name: "BrandWell TrafficID",
-    description: "Review and qualify identified visitors for this workspace.",
-    content:
-      "Use brandwell_trafficid_get_visitors and brandwell_trafficid_qualify_visitor. Never request or reveal visitors from another workspace.",
-  },
-  {
-    name: "BrandWell Postcards",
-    description: "Prepare and monitor editable, tracked postcard campaigns.",
-    content:
-      "Use brandwell_postcards_list_campaigns before selecting an existing queue. Use brandwell_postcards_create_campaign_draft, brandwell_postcards_update_campaign_settings, brandwell_postcards_queue_recipients, and brandwell_postcards_get_status to prepare scheduled work. Manual and TrafficID batches default to Daily. Drafts, settings, and recipient queues are allowed. Activation, billing, printing, and mailing always require explicit approval.",
-  },
-] as const;
 
 const NATIVE_CONNECTIONS = [
   { provider: "brandwell-intent", displayName: "BrandWell Intent" },
@@ -276,7 +231,7 @@ export function createPrismaBrandwellProvisioningRunner(
                   title: "AI GTM Employee",
                   description:
                     "A managed AI employee for intent, visitor identification, campaigns, and GTM operations.",
-                  instructions: AIMEE_INSTRUCTIONS,
+                  instructions: BRANDWELL_AIMEE_INSTRUCTIONS,
                   color: BRANDWELL_BRAND.colors.primary,
                   notifyOnFinish: true,
                   pinned: true,
@@ -285,8 +240,14 @@ export function createPrismaBrandwellProvisioningRunner(
                   modelId: options.defaultModel,
                 },
               });
-              await tx.thread.create({
+              const thread = await tx.thread.create({
                 data: { workspaceId, botId: created.id, userId: systemUserId! },
+              });
+              await createThreadMessageInTransaction(tx, {
+                threadId: thread.id,
+                role: "bot",
+                botId: created.id,
+                blocks: [{ kind: "text", text: BRANDWELL_AIMEE_WELCOME }],
               });
               await tx.browserProfile.create({
                 data: { workspaceId, botId: created.id, userId: systemUserId! },
@@ -408,7 +369,7 @@ export function createPrismaBrandwellProvisioningRunner(
           const serviceIdentityId = await requireServiceIdentityId(options.prisma, workspaceId);
           const createdIds: string[] = [];
           const routineIds: string[] = [];
-          for (const template of DEFAULT_ROUTINES) {
+          for (const template of BRANDWELL_AIMEE_DEFAULT_ROUTINES) {
             const existing = await options.prisma.routine.findFirst({
               where: { workspaceId, botId, name: template.name },
             });
@@ -439,7 +400,7 @@ export function createPrismaBrandwellProvisioningRunner(
         case "brandwell_skills": {
           const createdIds: string[] = [];
           const skillIds: string[] = [];
-          for (const template of BRANDWELL_SKILLS) {
+          for (const template of BRANDWELL_AIMEE_SKILLS) {
             const existing = await options.prisma.agentSkill.findFirst({
               where: { workspaceId, userId: systemUserId!, name: template.name },
             });
