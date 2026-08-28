@@ -88,16 +88,34 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     if (!deps.provisionWorkspace) {
       return c.json({ error: "AIMEE provisioning is not configured" }, 503);
     }
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
     const body = await c.req.json<Record<string, unknown>>().catch(() => null);
     const input = provisioningInput(body);
     if (!input.ok) return c.json({ error: input.error }, 400);
     try {
       const checkpoint = await deps.provisionWorkspace(input.value);
       const inviteStep = checkpoint.steps.find((step) => step.name === "client_admin_membership");
+      const workspaceId = checkpoint.steps.find((step) => step.name === "workspace")?.resourceId;
+      if (workspaceId) {
+        await deps.prisma.brandwellAuditLog.create({
+          data: {
+            workspaceId,
+            actorType: "brandwell_operator",
+            action: "workspace.provision",
+            resourceType: "brandwell_ai_workspace",
+            resourceId: input.value.brandwellCustomerId,
+            metadata: {
+              runId: checkpoint.runId,
+              ...operatorAuditMetadata(operator.value),
+            },
+          },
+        });
+      }
       return c.json({
         status: checkpoint.status,
         runId: checkpoint.runId,
-        workspaceId: checkpoint.steps.find((step) => step.name === "workspace")?.resourceId ?? null,
+        workspaceId: workspaceId ?? null,
         botId: checkpoint.steps.find((step) => step.name === "primary_aimee")?.resourceId ?? null,
         clientAccess: inviteStep
           ? {
@@ -132,6 +150,10 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     if (!deps.cancelWorkspace) {
       return c.json({ error: "AIMEE cancellation is not configured" }, 503);
     }
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
+    const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
+    if (!mapping) return c.json({ error: "Workspace not found" }, 404);
     const body: Record<string, unknown> = await c.req
       .json<Record<string, unknown>>()
       .catch(() => ({}));
@@ -139,6 +161,20 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
       typeof body.reason === "string" && body.reason.trim() ? body.reason.trim() : undefined;
     try {
       const result = await deps.cancelWorkspace(c.req.param("id"), reason);
+      await deps.prisma.brandwellAuditLog.create({
+        data: {
+          workspaceId: mapping.rakazoWorkspaceId,
+          actorType: "brandwell_operator",
+          action: "workspace.cancel.request",
+          resourceType: "brandwell_ai_workspace",
+          resourceId: mapping.id,
+          metadata: {
+            reason: reason ?? null,
+            retentionEndsAt: result.retentionEndsAt.toISOString(),
+            ...operatorAuditMetadata(operator.value),
+          },
+        },
+      });
       return c.json({
         status: "canceling",
         retentionEndsAt: result.retentionEndsAt.toISOString(),

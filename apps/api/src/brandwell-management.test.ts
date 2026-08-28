@@ -75,6 +75,7 @@ describe("BrandWell management API authentication", () => {
   });
 
   it("validates and provisions a workspace through the internal service boundary", async () => {
+    const auditCreate = vi.fn(async () => ({ id: "audit-provision" }));
     const provisionWorkspace = vi.fn(async (input) => ({
       version: 1 as const,
       idempotencyKey: `brandwell:provision:${input.brandwellCustomerId}`,
@@ -97,7 +98,7 @@ describe("BrandWell management API authentication", () => {
     const app = new Hono();
     mountBrandwellManagementRoutes(app, {
       token: "management-secret",
-      prisma: {} as PrismaClient,
+      prisma: { brandwellAuditLog: { create: auditCreate } } as unknown as PrismaClient,
       provisionWorkspace,
     });
 
@@ -106,6 +107,9 @@ describe("BrandWell management API authentication", () => {
       headers: {
         authorization: "Bearer management-secret",
         "content-type": "application/json",
+        "x-brandwell-operator-ref": "user:42",
+        "x-brandwell-operator-name": "Jordan Support",
+        "x-brandwell-operator-email": "jordan@brandwell.ai",
       },
       body: JSON.stringify({
         brandwellCustomerId: "customer-acme",
@@ -127,6 +131,19 @@ describe("BrandWell management API authentication", () => {
       botId: "bot-aimee",
       clientAccess: { kind: "invitation", resourceId: "invite-1" },
     });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workspaceId: "workspace-acme",
+        actorType: "brandwell_operator",
+        action: "workspace.provision",
+        resourceId: "customer-acme",
+        metadata: expect.objectContaining({
+          operatorReference: "user:42",
+          operatorName: "Jordan Support",
+          operatorEmail: "jordan@brandwell.ai",
+        }),
+      }),
+    });
   });
 
   it("does not expose provisioning when OpenRouter management is unavailable", async () => {
@@ -144,6 +161,7 @@ describe("BrandWell management API authentication", () => {
   });
 
   it("starts cancellation without exposing provider details", async () => {
+    const auditCreate = vi.fn(async () => ({ id: "audit-cancel" }));
     const cancelWorkspace = vi.fn(async () => ({
       retentionEndsAt: new Date("2026-09-26T12:00:00.000Z"),
       executed: ["mark_canceling", "pause_routines"],
@@ -151,7 +169,17 @@ describe("BrandWell management API authentication", () => {
     const app = new Hono();
     mountBrandwellManagementRoutes(app, {
       token: "management-secret",
-      prisma: {} as PrismaClient,
+      prisma: {
+        brandwellAiWorkspace: {
+          findFirst: vi.fn(async () => ({
+            id: "mapping-acme",
+            brandwellCustomerId: "customer-acme",
+            rakazoWorkspaceId: "workspace-acme",
+            rakazoWorkspace: { name: "Acme Roofing", slug: "acme-roofing" },
+          })),
+        },
+        brandwellAuditLog: { create: auditCreate },
+      } as unknown as PrismaClient,
       cancelWorkspace,
     });
     const response = await app.request("/internal/workspaces/customer-acme/cancel", {
@@ -159,6 +187,9 @@ describe("BrandWell management API authentication", () => {
       headers: {
         authorization: "Bearer management-secret",
         "content-type": "application/json",
+        "x-brandwell-operator-ref": "user:42",
+        "x-brandwell-operator-name": "Jordan Support",
+        "x-brandwell-operator-email": "jordan@brandwell.ai",
       },
       body: JSON.stringify({ reason: "Subscription ended" }),
     });
@@ -168,6 +199,45 @@ describe("BrandWell management API authentication", () => {
       status: "canceling",
       retentionEndsAt: "2026-09-26T12:00:00.000Z",
       executed: ["mark_canceling", "pause_routines"],
+    });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workspaceId: "workspace-acme",
+        actorType: "brandwell_operator",
+        action: "workspace.cancel.request",
+        resourceId: "mapping-acme",
+        metadata: expect.objectContaining({
+          reason: "Subscription ended",
+          retentionEndsAt: "2026-09-26T12:00:00.000Z",
+          operatorReference: "user:42",
+        }),
+      }),
+    });
+  });
+
+  it("rejects lifecycle operations without an attributable BrandWell operator", async () => {
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {} as PrismaClient,
+      provisionWorkspace: vi.fn(),
+      cancelWorkspace: vi.fn(),
+    });
+    const provision = await app.request("/internal/workspaces/provision", {
+      method: "POST",
+      headers: { authorization: "Bearer management-secret" },
+    });
+    const cancel = await app.request("/internal/workspaces/customer-acme/cancel", {
+      method: "POST",
+      headers: { authorization: "Bearer management-secret" },
+    });
+    expect(provision.status).toBe(400);
+    expect(cancel.status).toBe(400);
+    expect(await provision.json()).toEqual({
+      error: "A valid BrandWell operator reference is required",
+    });
+    expect(await cancel.json()).toEqual({
+      error: "A valid BrandWell operator reference is required",
     });
   });
 
