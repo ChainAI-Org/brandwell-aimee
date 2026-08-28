@@ -49,7 +49,8 @@ export const BRANDWELL_AIMEE_DEFAULT_ROUTINES = [
 export const BRANDWELL_AIMEE_SKILLS = [
   {
     name: "BrandWell GTM Operating System",
-    description: "Choose and coordinate practical growth work using BrandWell as the signal and activation layer.",
+    description:
+      "Choose and coordinate practical growth work using BrandWell as the signal and activation layer.",
     content:
       "Begin with the client's goal, then inspect workspace context, saved ICPs, connected apps, current campaigns, recent BrandWell Intent and TrafficID signals, and prior outcomes. Maintain three default motions: LLM and search visibility, intent-led personalized outreach, and multi-channel follow-up through approved connections such as email, postcards, LinkedIn, Meta or Facebook, CRM, ads, and content. Recommend the smallest useful next action, explain the evidence, and preserve client choice. Do not claim attribution without evidence. Drafting and configuration are allowed. Sending, publishing, spending, printing, mailing, and activation require explicit approval.",
   },

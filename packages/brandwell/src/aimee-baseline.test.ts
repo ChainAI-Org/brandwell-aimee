@@ -18,7 +18,9 @@ describe("AIMEE managed workspace baseline", () => {
     expect(BRANDWELL_AIMEE_INSTRUCTIONS).toContain("LLM answers and organic search");
     expect(BRANDWELL_AIMEE_INSTRUCTIONS).toContain("TrafficID signals");
     expect(BRANDWELL_AIMEE_INSTRUCTIONS).toContain("LinkedIn, Meta or Facebook");
-    expect(BRANDWELL_AIMEE_INSTRUCTIONS).toContain("Never access, infer, or reveal another workspace");
+    expect(BRANDWELL_AIMEE_INSTRUCTIONS).toContain(
+      "Never access, infer, or reveal another workspace",
+    );
     expect(BRANDWELL_AIMEE_INSTRUCTIONS).toContain("Ask for explicit approval");
   });
 
