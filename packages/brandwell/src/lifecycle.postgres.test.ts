@@ -42,6 +42,14 @@ describePostgres("BrandWell AIMEE managed lifecycle (PostgreSQL acceptance)", ()
     const now = new Date("2026-08-27T18:00:00.000Z");
     const disableKey = vi.fn(async () => undefined);
     const deleteKey = vi.fn(async () => undefined);
+    const createKey = vi.fn(
+      async (input: { limitUsd?: number; limitReset?: "daily" | "weekly" | "monthly" }) => ({
+        key: `sk-or-${suffix}`,
+        hash: keyHash,
+        limitUsd: input.limitUsd,
+        limitReset: input.limitReset,
+      }),
+    );
     const suspend = vi.fn(async () => undefined);
     const destroy = vi.fn(async () => undefined);
     let workspaceId: string | null = null;
@@ -80,13 +88,7 @@ describePostgres("BrandWell AIMEE managed lifecycle (PostgreSQL acceptance)", ()
               `encrypted:${context.workspaceId}:${context.userId}:${plaintext.length}`,
           },
           openRouter: {
-            createKey: vi.fn(async (input) => ({
-              key: `sk-or-${suffix}`,
-              hash: keyHash,
-              workspaceId: input.workspaceId,
-              limitUsd: input.limitUsd,
-              limitReset: input.limitReset,
-            })),
+            createKey,
             deleteKey,
           },
           systemUserId,
@@ -105,6 +107,8 @@ describePostgres("BrandWell AIMEE managed lifecycle (PostgreSQL acceptance)", ()
 
       expect(provisioned.status).toBe("complete");
       expect(provisioned.steps.every((step) => step.status === "completed")).toBe(true);
+      expect(createKey).toHaveBeenCalledOnce();
+      expect(createKey.mock.calls[0]?.[0]).not.toHaveProperty("workspaceId");
 
       const mapping = await prisma.brandwellAiWorkspace.findUniqueOrThrow({
         where: { brandwellCustomerId: customerId },
