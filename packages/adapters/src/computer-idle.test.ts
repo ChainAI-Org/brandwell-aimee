@@ -34,7 +34,7 @@ describe("sandbox idle", () => {
     } as unknown as JobPublisher;
 
     scheduleComputerSleep(jobs, "computer-id");
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(jobs.enqueue).toHaveBeenCalledOnce();
     expect(consoleError).not.toHaveBeenCalled();
@@ -49,7 +49,7 @@ describe("sandbox idle", () => {
     } as unknown as JobPublisher;
 
     scheduleComputerSleep(jobs, "computer-id");
-    await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(consoleError).toHaveBeenCalledWith("computer sleep scheduling failed", error);
     consoleError.mockRestore();
