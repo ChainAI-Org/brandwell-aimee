@@ -19,7 +19,12 @@ export function sandboxIdleMs(): number {
 
 export function scheduleComputerSleep(jobs: JobPublisher, computerId: string): void {
   if (!computerId) return;
-  void jobs.enqueue(computerSleepJob(computerId, new Date(Date.now() + sandboxIdleMs())));
+  void jobs
+    .enqueue(computerSleepJob(computerId, new Date(Date.now() + sandboxIdleMs())))
+    .catch((error: unknown) => {
+      if (error instanceof Error && error.message === "Background job publisher is closed") return;
+      console.error("computer sleep scheduling failed", error);
+    });
 }
 
 export async function touchRunningComputer(
