@@ -15,9 +15,11 @@ const targets = [
   "apps/web/src/components",
   "apps/web/src/locales",
   "apps/web/src/pages",
+  "infra/sandboxes/computer/embed.html",
+  "infra/sandboxes/computer/fluxbox.menu",
   "packages/brandwell/src/brand-config.ts",
 ];
-const textExtensions = new Set([".html", ".js", ".json", ".po", ".ts", ".tsx"]);
+const textExtensions = new Set([".html", ".js", ".json", ".menu", ".po", ".ts", ".tsx"]);
 const forbiddenBrand = /\b(?:Rakazo|Razako|RAZAKO)\b/;
 
 async function textFiles(target) {

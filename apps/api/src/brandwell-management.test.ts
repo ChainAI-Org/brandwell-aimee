@@ -74,6 +74,131 @@ describe("BrandWell management API authentication", () => {
     expect(await response.json()).toEqual({ error: "Workspace not found" });
   });
 
+  it("returns each Sidekick as an AI employee with its own operational stats", async () => {
+    const now = new Date("2026-08-30T18:00:00.000Z");
+    const sidekickBot = {
+      id: "bot-sidekick-1",
+      name: "Jordan's AIMEE",
+      title: "Demand Generation Sidekick",
+      description: "Private AI employee",
+      instructions: "Help Jordan with demand generation.",
+      managedStatus: "active",
+      computerId: "computer-sidekick-1",
+      updatedAt: now,
+    };
+    const sidekickComputer = {
+      id: "computer-sidekick-1",
+      state: "running",
+      scope: "bot",
+      kind: "daytona",
+      controlHolder: "none",
+      controlActorType: null,
+      controlActorName: null,
+      controlStartedAt: null,
+      lastScreenshotAt: now,
+      lastComputerActivityAt: now,
+      lastComputerState: "running",
+      updatedAt: now,
+    };
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {
+        brandwellAiWorkspace: {
+          findMany: vi.fn(async () => [{
+            id: "mapping-1",
+            brandwellCustomerId: "portal-client:19",
+            rakazoWorkspaceId: "workspace-1",
+            rakazoWorkspace: { name: "Acme", slug: "acme" },
+            subscriptionStatus: "active",
+            brandwellAgencyId: "7",
+            brandwellClientId: "19",
+            brandwellContractId: "31",
+            commercialRevision: 5n,
+            commercialStatus: "active",
+            masterSeats: 1,
+            sidekickSeats: 2,
+            skillBundleVersion: 1,
+            plan: "aimee",
+            provisioningStatus: "ready",
+          }]),
+        },
+        bot: { findFirst: vi.fn(async () => ({ ...sidekickBot, id: "bot-primary" })) },
+        computer: { findFirst: vi.fn(async () => sidekickComputer) },
+        run: {
+          findFirst: vi.fn(async () => null),
+          findMany: vi.fn(async () => [{
+            id: "run-sidekick-1",
+            botId: sidekickBot.id,
+            status: "completed",
+            completedAt: now,
+            createdAt: now,
+          }]),
+        },
+        routine: {
+          findFirst: vi.fn(async () => null),
+          findMany: vi.fn(async () => [{ botId: sidekickBot.id, nextRunAt: now }]),
+        },
+        brandwellAlert: {
+          count: vi.fn(async () => 1),
+          groupBy: vi.fn(async () => [{ botId: sidekickBot.id, _count: { id: 2 } }]),
+        },
+        usageRecord: {
+          aggregate: vi.fn(async () => ({
+            _sum: { inputTokens: 10, outputTokens: 20, costMicros: 30n },
+            _count: { id: 1 },
+          })),
+          groupBy: vi.fn(async () => [{
+            botId: sidekickBot.id,
+            _sum: { inputTokens: 100, outputTokens: 200, costMicros: 300n },
+            _count: { id: 3 },
+          }]),
+        },
+        brandwellWorkspaceModelCredential: { findUnique: vi.fn(async () => null) },
+        brandwellSidekick: {
+          findMany: vi.fn(async () => [{
+            id: "sidekick-1",
+            brandwellSidekickId: "bw-sidekick-1",
+            email: "jordan@acme.example",
+            name: "Jordan Lee",
+            roleTitle: "Demand Generation Manager",
+            status: "active",
+            userId: "user-sidekick-1",
+            invitationId: null,
+            skillBundleVersion: 1,
+            activatedAt: now,
+            pausedAt: null,
+            canceledAt: null,
+            createdAt: now,
+            updatedAt: now,
+            botId: sidekickBot.id,
+            bot: sidekickBot,
+            computer: sidekickComputer,
+          }]),
+        },
+      } as unknown as PrismaClient,
+    });
+
+    const response = await app.request("/internal/workspaces", {
+      headers: { authorization: "Bearer management-secret" },
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      workspaces: [{
+        sidekickCount: 1,
+        sidekicks: [{
+          name: "Jordan Lee",
+          employee: { id: sidekickBot.id, name: "Jordan's AIMEE" },
+          computer: { id: sidekickComputer.id, state: "running" },
+          lastRun: { id: "run-sidekick-1", status: "completed" },
+          nextRunAt: now.toISOString(),
+          openAlerts: 2,
+          usage: { records: 3, inputTokens: 100, outputTokens: 200, costMicros: "300" },
+        }],
+      }],
+    });
+  });
+
   it("validates and provisions a workspace through the internal service boundary", async () => {
     const auditCreate = vi.fn(async () => ({ id: "audit-provision" }));
     const provisionWorkspace = vi.fn(async (input) => ({

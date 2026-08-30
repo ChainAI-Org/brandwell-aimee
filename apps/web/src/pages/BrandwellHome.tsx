@@ -19,7 +19,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { BuiButton, BuiCard, LoadingState } from "../components/beautiful-ui/primitives";
 import { BrandwellLogo } from "../components/brandwell/BrandwellLogo";
 import { rpc } from "../lib/rpc";
@@ -34,7 +34,7 @@ type ManagedHomeState = {
   notifications: BrandwellClientNotification[];
 };
 
-export function WorkspaceHomePage() {
+export function WorkspaceHomePage({ dashboard = false }: { dashboard?: boolean }) {
   const [me, setMe] = useState<Me | null | undefined>(undefined);
 
   useEffect(() => {
@@ -60,6 +60,9 @@ export function WorkspaceHomePage() {
     );
   }
   if (!me?.brandwell) return <ShellPage />;
+  if (!dashboard && me.brandwell.primaryBotId) {
+    return <Navigate to={`/app/${me.brandwell.primaryBotId}`} replace />;
+  }
   return <BrandwellHome me={me} />;
 }
 
@@ -141,7 +144,12 @@ function BrandwellHome({ me }: { me: Me }) {
           </p>
         </div>
         <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="AIMEE navigation">
-          <HomeNavItem icon={<Home size={17} />} label="Home" active onClick={() => undefined} />
+          <HomeNavItem
+            icon={<Home size={17} />}
+            label="Dashboard"
+            active
+            onClick={() => undefined}
+          />
           <HomeNavItem icon={<MessageSquare size={17} />} label="Chat" onClick={() => open()} />
           <HomeNavItem
             icon={<Activity size={17} />}

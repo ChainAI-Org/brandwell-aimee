@@ -12,6 +12,24 @@ import { rpc } from "../lib/rpc";
 
 type SourceKind = "treg" | "mcp" | "api";
 
+const MANAGED_AIMEE_CAPABILITIES = [
+  {
+    name: "BrandWell workspace",
+    detail: "Intent, TrafficID, campaigns, reporting, and approved client data",
+    glyph: "BW",
+  },
+  {
+    name: "Computer and browser",
+    detail: "A private cloud computer with its own persistent browser profile",
+    glyph: "CB",
+  },
+  {
+    name: "Managed AI models",
+    detail: "Centrally governed OpenRouter access with workspace spending limits",
+    glyph: "AI",
+  },
+] as const;
+
 function itemKey(item: Pick<ConnectionCatalogItem, "connectorId" | "slug">) {
   return `${item.connectorId}:${item.slug}`;
 }
@@ -273,11 +291,47 @@ export function PluginsOverlay({
             </p>
           ) : null}
 
+          {managed && showFeatured ? (
+            <section className="mb-7" data-testid="managed-aimee-capabilities">
+              <div className="mb-3 flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-[15px] font-medium text-[#ECECEE]">Included with AIMEE</h3>
+                  <p className="mt-1 text-[12.5px] text-[#707077]">
+                    These managed capabilities are ready without a separate app login.
+                  </p>
+                </div>
+                <span className="rounded-full border border-[#2F5A48] bg-[#13251E] px-2.5 py-1 text-[11px] font-medium text-[#72D5A9]">
+                  Managed by BrandWell
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+                {MANAGED_AIMEE_CAPABILITIES.map((capability) => (
+                  <article
+                    key={capability.name}
+                    className="rounded-[15px] border border-[#26262A] bg-[#101012] p-4"
+                  >
+                    <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#231A31] text-[11px] font-semibold text-[#B989FF]">
+                      {capability.glyph}
+                    </div>
+                    <div className="mt-3 text-[14px] font-medium text-[#ECECEE]">
+                      {capability.name}
+                    </div>
+                    <p className="mt-1 text-[12px] leading-5 text-[#707077]">
+                      {capability.detail}
+                    </p>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
           {showFeatured ? (
             <div className="mb-6" data-testid="featured-connectors">
               {!loading && catalog.length === 0 ? (
                 <p className="text-[13.5px] leading-6 text-[#6C6C70]">
-                  {EMPTY_PLUGIN_CATALOG_MESSAGE}
+                  {managed
+                    ? "Optional app connections are not enabled on this AIMEE deployment yet. BrandWell can add Google Workspace, Slack, HubSpot, and other OAuth apps after a managed connector provider is configured."
+                    : EMPTY_PLUGIN_CATALOG_MESSAGE}
                 </p>
               ) : (
                 <div className="grid grid-cols-2 gap-2">

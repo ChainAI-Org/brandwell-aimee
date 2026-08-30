@@ -208,7 +208,7 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
       include: { bot: true, computer: true },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
-    return c.json({ sidekicks: sidekicks.map(sidekickDto) });
+    return c.json({ sidekicks: sidekicks.map((sidekick) => sidekickDto(sidekick)) });
   });
 
   app.post("/internal/workspaces/:id/sidekicks", async (c) => {
@@ -962,7 +962,7 @@ async function findWorkspaceMapping(prisma: PrismaClient, id: string) {
 }
 
 async function fleetRow(prisma: PrismaClient, mapping: NonNullable<WorkspaceMapping>) {
-  const [agent, computer, lastRun, nextRoutine, alerts, usage] = await Promise.all([
+  const [agent, computer, lastRun, nextRoutine, alerts, usage, sidekicks] = await Promise.all([
     prisma.bot.findFirst({
       where: {
         workspaceId: mapping.rakazoWorkspaceId,
@@ -990,7 +990,13 @@ async function fleetRow(prisma: PrismaClient, mapping: NonNullable<WorkspaceMapp
       },
     }),
     usageDto(prisma, mapping.rakazoWorkspaceId),
+    prisma.brandwellSidekick.findMany({
+      where: { aiWorkspaceId: mapping.id },
+      include: { bot: true, computer: true },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    }),
   ]);
+  const sidekickStats = await sidekickOperationalStats(prisma, sidekicks);
   return {
     id: mapping.id,
     brandwellCustomerId: mapping.brandwellCustomerId,
@@ -1016,6 +1022,10 @@ async function fleetRow(prisma: PrismaClient, mapping: NonNullable<WorkspaceMapp
     nextRunAt: nextRoutine?.nextRunAt ?? null,
     openAlerts: alerts,
     usage,
+    sidekickCount: sidekicks.filter(
+      (sidekick) => !["canceled", "failed"].includes(sidekick.status.toLowerCase()),
+    ).length,
+    sidekicks: sidekicks.map((sidekick) => sidekickDto(sidekick, sidekickStats.get(sidekick.botId))),
   };
 }
 
@@ -1028,7 +1038,6 @@ async function workspaceDetail(prisma: PrismaClient, mapping: NonNullable<Worksp
     notifications,
     integrations,
     modelPolicy,
-    sidekicks,
   ] = await Promise.all([
     fleetRow(prisma, mapping),
     prisma.routine.findMany({
@@ -1057,11 +1066,6 @@ async function workspaceDetail(prisma: PrismaClient, mapping: NonNullable<Worksp
     prisma.brandwellWorkspaceModelCredential.findUnique({
       where: { workspaceId: mapping.rakazoWorkspaceId },
     }),
-    prisma.brandwellSidekick.findMany({
-      where: { aiWorkspaceId: mapping.id },
-      include: { bot: true, computer: true },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    }),
   ]);
   return {
     ...summary,
@@ -1071,8 +1075,81 @@ async function workspaceDetail(prisma: PrismaClient, mapping: NonNullable<Worksp
     notifications,
     integrations: integrations.map(integrationDto),
     modelPolicy: modelPolicy ? modelPolicyDto(modelPolicy) : null,
-    sidekicks: sidekicks.map(sidekickDto),
   };
+}
+
+type SidekickWithResources = {
+  botId: string | null;
+};
+
+type SidekickStats = {
+  lastRun: Record<string, unknown> | null;
+  nextRunAt: Date | null;
+  openAlerts: number;
+  usage: {
+    records: number;
+    inputTokens: number;
+    outputTokens: number;
+    costMicros: string;
+  };
+};
+
+async function sidekickOperationalStats(
+  prisma: PrismaClient,
+  sidekicks: SidekickWithResources[],
+): Promise<Map<string | null, SidekickStats>> {
+  const botIds = sidekicks
+    .map((sidekick) => sidekick.botId)
+    .filter((botId): botId is string => Boolean(botId));
+  const result = new Map<string | null, SidekickStats>();
+  if (botIds.length === 0) return result;
+
+  const [lastRuns, nextRoutines, alertCounts, usageGroups] = await Promise.all([
+    prisma.run.findMany({
+      where: { botId: { in: botIds } },
+      orderBy: [{ botId: "asc" }, { createdAt: "desc" }],
+      distinct: ["botId"],
+    }),
+    prisma.routine.findMany({
+      where: { botId: { in: botIds }, active: true },
+      orderBy: [{ botId: "asc" }, { nextRunAt: "asc" }],
+      distinct: ["botId"],
+    }),
+    prisma.brandwellAlert.groupBy({
+      by: ["botId"],
+      where: {
+        botId: { in: botIds },
+        status: { notIn: ["RESOLVED", "IGNORED"] },
+      },
+      _count: { id: true },
+    }),
+    prisma.usageRecord.groupBy({
+      by: ["botId"],
+      where: { botId: { in: botIds } },
+      _sum: { inputTokens: true, outputTokens: true, costMicros: true },
+      _count: { id: true },
+    }),
+  ]);
+
+  const runsByBot = new Map(lastRuns.map((run) => [run.botId, run]));
+  const routinesByBot = new Map(nextRoutines.map((routine) => [routine.botId, routine]));
+  const alertsByBot = new Map(alertCounts.map((row) => [row.botId, row._count.id]));
+  const usageByBot = new Map(usageGroups.map((row) => [row.botId, row]));
+  for (const botId of botIds) {
+    const usage = usageByBot.get(botId);
+    result.set(botId, {
+      lastRun: (runsByBot.get(botId) as unknown as Record<string, unknown> | undefined) ?? null,
+      nextRunAt: routinesByBot.get(botId)?.nextRunAt ?? null,
+      openAlerts: alertsByBot.get(botId) ?? 0,
+      usage: {
+        records: usage?._count.id ?? 0,
+        inputTokens: usage?._sum.inputTokens ?? 0,
+        outputTokens: usage?._sum.outputTokens ?? 0,
+        costMicros: (usage?._sum.costMicros ?? 0n).toString(),
+      },
+    });
+  }
+  return result;
 }
 
 async function usageDto(prisma: PrismaClient, workspaceId: string) {
@@ -1275,7 +1352,7 @@ function sidekickDto(sidekick: {
   updatedAt: Date;
   bot: Parameters<typeof agentDto>[0] | null;
   computer: Parameters<typeof computerDto>[0] | null;
-}) {
+}, stats?: SidekickStats) {
   return {
     id: sidekick.id,
     brandwellSidekickId: sidekick.brandwellSidekickId,
@@ -1292,6 +1369,15 @@ function sidekickDto(sidekick: {
     updatedAt: sidekick.updatedAt,
     employee: sidekick.bot ? agentDto(sidekick.bot) : null,
     computer: sidekick.computer ? computerDto(sidekick.computer) : null,
+    lastRun: stats?.lastRun ?? null,
+    nextRunAt: stats?.nextRunAt ?? null,
+    openAlerts: stats?.openAlerts ?? 0,
+    usage: stats?.usage ?? {
+      records: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      costMicros: "0",
+    },
   };
 }
 

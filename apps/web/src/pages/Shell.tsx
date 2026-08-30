@@ -1778,9 +1778,9 @@ export function ShellPage() {
           {managedWorkspace ? (
             <button
               type="button"
-              onClick={() => navigate("/app")}
+              onClick={() => navigate("/app/dashboard")}
               className="app-no-drag flex items-center gap-2.5"
-              aria-label={t`AIMEE home`}
+              aria-label={t`AIMEE dashboard`}
             >
               <BrandwellLogo className="h-[23px] w-auto" />
               <span className="text-[14px] font-semibold tracking-[-0.01em] text-[#ECECEE]">
@@ -1791,6 +1791,17 @@ export function ShellPage() {
             <WindowChrome />
           )}
           <div className="relative flex items-center gap-2.5">
+            {managedWorkspace && active ? (
+              <button
+                type="button"
+                onClick={() => setClearTarget(active)}
+                className="app-no-drag grid h-7 w-7 place-items-center rounded-full text-[21px] text-[#9A9AA0] hover:bg-[#1A1A1D] hover:text-white"
+                aria-label={t`Start a new chat`}
+                title={t`Start a new chat`}
+              >
+                +
+              </button>
+            ) : null}
             {!managedWorkspace ? (
               <button
                 type="button"
@@ -1864,15 +1875,30 @@ export function ShellPage() {
               type="button"
               onClick={() => {
                 setMobileSidebarOpen(false);
-                navigate("/app");
+                navigate("/app/dashboard");
               }}
               className="mb-1 flex items-center gap-3 rounded-xl px-2.5 py-[11px] text-start text-[#A8A8AD] hover:bg-[#161618] hover:text-white"
             >
               <span className="grid h-[38px] w-[38px] place-items-center rounded-xl bg-[#1b1721] text-[#9f62ff]">
                 <Home size={17} strokeWidth={1.8} />
               </span>
-              <span className="text-[15px] font-medium">Home</span>
+              <span className="text-[15px] font-medium">Dashboard</span>
             </button>
+          ) : null}
+          {managedWorkspace ? (
+            <div className="flex items-center justify-between px-2.5 pb-1 pt-3 text-[12.5px] font-medium text-[#6C6C70]">
+              <span>Chats</span>
+              <button
+                type="button"
+                onClick={() => active && setClearTarget(active)}
+                disabled={!active}
+                className="grid h-6 w-6 place-items-center rounded-full text-[17px] text-[#85858A] hover:bg-[#171719] hover:text-white disabled:opacity-40"
+                aria-label={t`Start a new chat`}
+                title={t`Start a new chat`}
+              >
+                +
+              </button>
+            </div>
           ) : null}
           {showWorkspaceSearch ? (
             <WorkspaceSearchResults
