@@ -81,9 +81,7 @@ export function App() {
           />
           <Route
             path="/app/dashboard"
-            element={
-              user ? <WorkspaceHomePage dashboard /> : <Navigate to="/sign-in" replace />
-            }
+            element={user ? <ShellPage /> : <Navigate to="/sign-in" replace />}
           />
           <Route
             path="/app/g/:groupId"

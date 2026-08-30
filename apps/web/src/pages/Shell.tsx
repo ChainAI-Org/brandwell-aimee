@@ -103,7 +103,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArtifactFileCard } from "../components/ArtifactFileCard";
 import { AskCard } from "../components/AskCard";
 import {
@@ -145,6 +145,7 @@ import {
 import { transcriptIsNearEnd } from "../lib/transcript-scroll";
 import { speaker } from "../lib/tts";
 import { ActivityList } from "./ActivityList";
+import { BrandwellHome } from "./BrandwellHome";
 import type { ContextMenuPosition } from "./BotContextMenu";
 import { CreateGroupForm, GroupSettings, memberName } from "./GroupPanel";
 import { HostComputerPrompt } from "./HostComputerPrompt";
@@ -208,6 +209,8 @@ const ATTACHMENT_ACCEPT = ATTACHMENT_ALLOWED_MIME_TYPES.join(",");
 export function ShellPage() {
   const { t } = useLingui();
   const { botId, groupId } = useParams();
+  const { pathname } = useLocation();
+  const dashboardMode = pathname === "/app/dashboard";
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   // Mirrors searchParams for effects that only need to read it once on run,
@@ -376,6 +379,7 @@ export function ShellPage() {
 
   const inGroup = Boolean(groupId);
   const managedWorkspace = Boolean(bootstrapMe?.brandwell);
+  const managedDashboard = dashboardMode && managedWorkspace;
   const active = inGroup ? undefined : (bots.find((b) => b.id === botId) ?? bots[0]);
   const activeGroup = groups.find((group) => group.id === groupId);
   const activePendingAttachments = useMemo(
@@ -470,11 +474,11 @@ export function ShellPage() {
         return;
       }
       const currentBotId = routeBotId.current;
-      if (!currentBotId || !list.some((bot) => bot.id === currentBotId)) {
+      if (!managedDashboard && (!currentBotId || !list.some((bot) => bot.id === currentBotId))) {
         navigate(firstThreadRoute(list, groupList), { replace: true });
       }
     },
-    [navigate],
+    [managedDashboard, navigate],
   );
 
   async function refreshGroupThread(id: string) {
@@ -665,7 +669,11 @@ export function ShellPage() {
           return;
         }
         const selectedBotId = bootstrap.thread?.botId ?? bootstrap.bots[0]?.id;
-        if (selectedBotId && selectedBotId !== botId) {
+        if (
+          !(dashboardMode && bootstrap.me.brandwell) &&
+          selectedBotId &&
+          selectedBotId !== botId
+        ) {
           navigate(`/app/${selectedBotId}`, { replace: true });
         }
       })
@@ -2207,171 +2215,178 @@ export function ShellPage() {
         </div>
       </aside>
 
-      <main className="flex min-w-0 flex-1 flex-col bg-[#0D0D0E]">
-        <div className="flex items-center justify-between border-b border-[#141416] px-3 py-[17px] md:px-[22px]">
-          <div className="flex min-w-0 items-center gap-2">
-            <button
-              type="button"
-              aria-label={t`Open navigation`}
-              onClick={() => setMobileSidebarOpen(true)}
-              className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[#A8A8AD] hover:bg-[#1B1B1E] md:hidden"
-            >
-              <Menu size={19} strokeWidth={1.7} />
-            </button>
-            <button
-              type="button"
-              data-testid="bot-settings-trigger"
-              onClick={() => setPanel(inGroup ? "group-settings" : "settings")}
-              className="flex min-w-0 items-center gap-3"
-            >
-              {inGroup ? (
-                <GroupAvatar
-                  members={activeSnapshot?.members ?? activeGroup?.members ?? []}
-                  size={26}
-                />
-              ) : active ? (
-                <BotAvatar
-                  color={active.color}
-                  identity={active.id}
-                  size={26}
-                  status={active.status}
-                />
-              ) : null}
-              <span className="min-w-0">
-                <span className="block truncate text-[16px] font-medium text-[#ECECEE]" dir="auto">
-                  {inGroup
-                    ? (activeGroup?.name ?? activeSnapshot?.groupName ?? t`Group`)
-                    : (active?.name ?? t`Select a bot`)}
+      {managedDashboard && bootstrapMe ? (
+        <BrandwellHome me={bootstrapMe} embedded />
+      ) : (
+        <main className="flex min-w-0 flex-1 flex-col bg-[#0D0D0E]">
+          <div className="flex items-center justify-between border-b border-[#141416] px-3 py-[17px] md:px-[22px]">
+            <div className="flex min-w-0 items-center gap-2">
+              <button
+                type="button"
+                aria-label={t`Open navigation`}
+                onClick={() => setMobileSidebarOpen(true)}
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[#A8A8AD] hover:bg-[#1B1B1E] md:hidden"
+              >
+                <Menu size={19} strokeWidth={1.7} />
+              </button>
+              <button
+                type="button"
+                data-testid="bot-settings-trigger"
+                onClick={() => setPanel(inGroup ? "group-settings" : "settings")}
+                className="flex min-w-0 items-center gap-3"
+              >
+                {inGroup ? (
+                  <GroupAvatar
+                    members={activeSnapshot?.members ?? activeGroup?.members ?? []}
+                    size={26}
+                  />
+                ) : active ? (
+                  <BotAvatar
+                    color={active.color}
+                    identity={active.id}
+                    size={26}
+                    status={active.status}
+                  />
+                ) : null}
+                <span className="min-w-0">
+                  <span
+                    className="block truncate text-[16px] font-medium text-[#ECECEE]"
+                    dir="auto"
+                  >
+                    {inGroup
+                      ? (activeGroup?.name ?? activeSnapshot?.groupName ?? t`Group`)
+                      : (active?.name ?? t`Select a bot`)}
+                  </span>
                 </span>
-              </span>
-            </button>
-          </div>
-          <div className="flex items-center gap-1">
-            {!inGroup && active ? (
-              <button
-                type="button"
-                title={voiceStatus?.ready ? t`Call` : t`Set up voice to call`}
-                aria-label={t`Call`}
-                onClick={() => {
-                  if (!voiceStatus?.ready) {
-                    setVoiceOpen(true);
-                    return;
-                  }
-                  setCallOpen(true);
-                }}
-                className="grid h-[30px] w-[34px] place-items-center rounded-[9px] hover:bg-[#1B1B1E]"
-                style={{ background: callOpen ? "#1B1B1E" : "transparent" }}
-              >
-                <Phone size={16} strokeWidth={1.6} className="text-[#A8A8AD]" />
               </button>
-            ) : null}
-            {!inGroup ? (
-              <button
-                type="button"
-                title={t`Agent computer`}
-                onClick={() => {
-                  const next = panel === "computer" ? null : "computer";
-                  setPanel(next);
-                  if (next === "computer" && active) {
-                    // Refresh run/computer so Take control isn't stuck on a stale busyBotName.
-                    void refreshThread(active.id).catch(() => undefined);
-                  }
-                }}
-                className="grid h-[30px] w-[34px] place-items-center rounded-[9px] hover:bg-[#1B1B1E]"
-                style={{ background: panel ? "#1B1B1E" : "transparent" }}
-              >
-                <Monitor size={18} strokeWidth={1.6} className="text-[#A8A8AD]" />
-              </button>
-            ) : null}
+            </div>
+            <div className="flex items-center gap-1">
+              {!inGroup && active ? (
+                <button
+                  type="button"
+                  title={voiceStatus?.ready ? t`Call` : t`Set up voice to call`}
+                  aria-label={t`Call`}
+                  onClick={() => {
+                    if (!voiceStatus?.ready) {
+                      setVoiceOpen(true);
+                      return;
+                    }
+                    setCallOpen(true);
+                  }}
+                  className="grid h-[30px] w-[34px] place-items-center rounded-[9px] hover:bg-[#1B1B1E]"
+                  style={{ background: callOpen ? "#1B1B1E" : "transparent" }}
+                >
+                  <Phone size={16} strokeWidth={1.6} className="text-[#A8A8AD]" />
+                </button>
+              ) : null}
+              {!inGroup ? (
+                <button
+                  type="button"
+                  title={t`Agent computer`}
+                  onClick={() => {
+                    const next = panel === "computer" ? null : "computer";
+                    setPanel(next);
+                    if (next === "computer" && active) {
+                      // Refresh run/computer so Take control isn't stuck on a stale busyBotName.
+                      void refreshThread(active.id).catch(() => undefined);
+                    }
+                  }}
+                  className="grid h-[30px] w-[34px] place-items-center rounded-[9px] hover:bg-[#1B1B1E]"
+                  style={{ background: panel ? "#1B1B1E" : "transparent" }}
+                >
+                  <Monitor size={18} strokeWidth={1.6} className="text-[#A8A8AD]" />
+                </button>
+              ) : null}
+            </div>
           </div>
-        </div>
-        <Transcript
-          key={activeSnapshot?.threadId}
-          scrollRef={messageScroll}
-          artifactTarget={transcriptArtifactTarget}
-          messages={activeSnapshot?.messages ?? []}
-          olderCursor={activeSnapshot?.olderCursor ?? null}
-          loadingOlder={loadingOlder}
-          answerableAskMessageId={answerableAskMessageId}
-          running={transcriptRunning}
-          workingBots={workingBots}
-          onLoadOlder={loadOlder}
-          onOpenBot={openBot}
-          onAnswer={answerMessage}
-          onReply={setReplyTarget}
-          onJumpToMessage={jumpToReplyMessage}
-          onOpenPeerMessages={(peerBotId) => {
-            setPeerMessagesFocusId(peerBotId);
-            setPeerMessagesOpen(true);
-          }}
-          memberName={resolveTranscriptMemberName}
-          peerBot={resolveTranscriptBot}
-          onRefresh={refreshActiveThread}
-          onBotChanged={refreshBots}
-          onAddRoutine={addSkillRoutine}
-          voiceReady={Boolean(voiceStatus?.ready)}
-          speakingMessageId={speakingMessageId}
-          onSpeak={speakMessage}
-        />
-        {recordingSkill ? (
-          <div className="px-6 pb-2 text-center text-[13px] text-[#E65707]">
-            <Trans>Teaching in progress. Stop teaching before sending a new message.</Trans>
-          </div>
-        ) : null}
-        <Composer
-          key={
-            inGroup ? `group:${groupId ?? "loading"}` : `bot:${botId ?? active?.id ?? "loading"}`
-          }
-          activeName={inGroup ? (activeGroup?.name ?? activeSnapshot?.groupName) : active?.name}
-          running={composerRunning}
-          disabled={Boolean(recordingSkill)}
-          pendingAttachments={activePendingAttachments}
-          attachmentNotice={attachmentNotice}
-          sendError={sendError}
-          dictationError={dictationError}
-          sending={sending}
-          fileInputRef={fileInputRef}
-          onAttachmentPick={onAttachmentPick}
-          onRemoveAttachment={removeAttachment}
-          onSend={sendMessage}
-          onStop={stopRun}
-          replyTarget={activeReplyTarget}
-          replyTargetName={replyTargetName}
-          onClearReply={() => setReplyTarget(null)}
-          mentionTargets={composerMentionTargets}
-          agentSkills={agentSkills}
-          onSlashOpen={refreshAgentSkills}
-          onSlashAction={(action) => {
-            if (action === "chat-settings") {
-              setPanel(inGroup ? "group-settings" : "settings");
-              return;
+          <Transcript
+            key={activeSnapshot?.threadId}
+            scrollRef={messageScroll}
+            artifactTarget={transcriptArtifactTarget}
+            messages={activeSnapshot?.messages ?? []}
+            olderCursor={activeSnapshot?.olderCursor ?? null}
+            loadingOlder={loadingOlder}
+            answerableAskMessageId={answerableAskMessageId}
+            running={transcriptRunning}
+            workingBots={workingBots}
+            onLoadOlder={loadOlder}
+            onOpenBot={openBot}
+            onAnswer={answerMessage}
+            onReply={setReplyTarget}
+            onJumpToMessage={jumpToReplyMessage}
+            onOpenPeerMessages={(peerBotId) => {
+              setPeerMessagesFocusId(peerBotId);
+              setPeerMessagesOpen(true);
+            }}
+            memberName={resolveTranscriptMemberName}
+            peerBot={resolveTranscriptBot}
+            onRefresh={refreshActiveThread}
+            onBotChanged={refreshBots}
+            onAddRoutine={addSkillRoutine}
+            voiceReady={Boolean(voiceStatus?.ready)}
+            speakingMessageId={speakingMessageId}
+            onSpeak={speakMessage}
+          />
+          {recordingSkill ? (
+            <div className="px-6 pb-2 text-center text-[13px] text-[#E65707]">
+              <Trans>Teaching in progress. Stop teaching before sending a new message.</Trans>
+            </div>
+          ) : null}
+          <Composer
+            key={
+              inGroup ? `group:${groupId ?? "loading"}` : `bot:${botId ?? active?.id ?? "loading"}`
             }
-            if (action === "settings-general") {
-              setAccountSettingsFocusUsage(false);
-              setAccountSettingsOpen(true);
-              return;
-            }
-            if (action === "settings-usage") {
-              setAccountSettingsFocusUsage(true);
-              setAccountSettingsOpen(true);
-              void rpc.usage
-                .summary()
-                .then(setUsage)
-                .catch(() => undefined);
-            }
-          }}
-          dictating={dictating}
-          transcribe={Boolean(voiceStatus?.transcribe)}
-          onDictateStart={(onFinal) => {
-            void dictation.listen({
-              mode: "hold",
-              transcribe: Boolean(voiceStatus?.transcribe),
-              onFinal,
-            });
-          }}
-          onDictateStop={() => dictation.submitHold()}
-        />
-      </main>
+            activeName={inGroup ? (activeGroup?.name ?? activeSnapshot?.groupName) : active?.name}
+            running={composerRunning}
+            disabled={Boolean(recordingSkill)}
+            pendingAttachments={activePendingAttachments}
+            attachmentNotice={attachmentNotice}
+            sendError={sendError}
+            dictationError={dictationError}
+            sending={sending}
+            fileInputRef={fileInputRef}
+            onAttachmentPick={onAttachmentPick}
+            onRemoveAttachment={removeAttachment}
+            onSend={sendMessage}
+            onStop={stopRun}
+            replyTarget={activeReplyTarget}
+            replyTargetName={replyTargetName}
+            onClearReply={() => setReplyTarget(null)}
+            mentionTargets={composerMentionTargets}
+            agentSkills={agentSkills}
+            onSlashOpen={refreshAgentSkills}
+            onSlashAction={(action) => {
+              if (action === "chat-settings") {
+                setPanel(inGroup ? "group-settings" : "settings");
+                return;
+              }
+              if (action === "settings-general") {
+                setAccountSettingsFocusUsage(false);
+                setAccountSettingsOpen(true);
+                return;
+              }
+              if (action === "settings-usage") {
+                setAccountSettingsFocusUsage(true);
+                setAccountSettingsOpen(true);
+                void rpc.usage
+                  .summary()
+                  .then(setUsage)
+                  .catch(() => undefined);
+              }
+            }}
+            dictating={dictating}
+            transcribe={Boolean(voiceStatus?.transcribe)}
+            onDictateStart={(onFinal) => {
+              void dictation.listen({
+                mode: "hold",
+                transcribe: Boolean(voiceStatus?.transcribe),
+                onFinal,
+              });
+            }}
+            onDictateStop={() => dictation.submitHold()}
+          />
+        </main>
+      )}
 
       <aside
         data-testid="side-panel"

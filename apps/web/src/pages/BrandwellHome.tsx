@@ -23,7 +23,6 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { BuiButton, BuiCard, LoadingState } from "../components/beautiful-ui/primitives";
 import { BrandwellLogo } from "../components/brandwell/BrandwellLogo";
 import { rpc } from "../lib/rpc";
-import { ShellPage } from "./Shell";
 
 type ManagedHomeState = {
   bot: Bot;
@@ -59,14 +58,43 @@ export function WorkspaceHomePage({ dashboard = false }: { dashboard?: boolean }
       </div>
     );
   }
-  if (!me?.brandwell) return <ShellPage />;
+  if (!me?.brandwell) return <UnmanagedWorkspaceRedirect />;
   if (!dashboard && me.brandwell.primaryBotId) {
     return <Navigate to={`/app/${me.brandwell.primaryBotId}`} replace />;
   }
   return <BrandwellHome me={me} />;
 }
 
-function BrandwellHome({ me }: { me: Me }) {
+function UnmanagedWorkspaceRedirect() {
+  const [destination, setDestination] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void Promise.all([rpc.bots.list(), rpc.groups.list()])
+      .then(([bots, groups]) => {
+        if (!active) return;
+        setDestination(
+          bots[0] ? `/app/${bots[0].id}` : groups[0] ? `/app/g/${groups[0].id}` : "/onboarding",
+        );
+      })
+      .catch(() => {
+        if (active) setDestination("/onboarding");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return destination ? (
+    <Navigate to={destination} replace />
+  ) : (
+    <div className="grid h-full place-items-center bg-[#101114] text-[#f7f7fa]">
+      <LoadingState label="Opening workspace" />
+    </div>
+  );
+}
+
+export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boolean }) {
   const navigate = useNavigate();
   const [state, setState] = useState<ManagedHomeState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -135,47 +163,51 @@ function BrandwellHome({ me }: { me: Me }) {
   };
 
   return (
-    <div className="flex h-full min-w-0 overflow-hidden bg-[#101114] text-[#f7f7fa]">
-      <aside className="hidden w-[248px] shrink-0 flex-col border-e border-[#282a31] bg-[#15161a] md:flex">
-        <div className="border-b border-[#282a31] px-5 py-5">
-          <BrandwellLogo className="h-[27px] w-auto" />
-          <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#a6a7b1]">
-            {BRANDWELL_BRAND.productName}
-          </p>
-        </div>
-        <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="AIMEE navigation">
-          <HomeNavItem
-            icon={<Home size={17} />}
-            label="Dashboard"
-            active
-            onClick={() => undefined}
-          />
-          <HomeNavItem icon={<MessageSquare size={17} />} label="Chat" onClick={() => open()} />
-          <HomeNavItem
-            icon={<Activity size={17} />}
-            label="Activity"
-            onClick={() => document.getElementById("aimee-activity")?.scrollIntoView()}
-          />
-          <HomeNavItem
-            icon={<Monitor size={17} />}
-            label="Computer"
-            onClick={() => open("computer")}
-          />
-          <HomeNavItem
-            icon={<Plug size={17} />}
-            label="Connections"
-            onClick={() => open("integrations")}
-          />
-          <HomeNavItem
-            icon={<Settings size={17} />}
-            label="Settings"
-            onClick={() => open("account")}
-          />
-        </nav>
-        <div className="border-t border-[#282a31] px-5 py-4 text-[12px] text-[#777984]">
-          {me.email}
-        </div>
-      </aside>
+    <div
+      className={`flex h-full min-w-0 overflow-hidden bg-[#101114] text-[#f7f7fa] ${embedded ? "flex-1" : ""}`}
+    >
+      {embedded ? null : (
+        <aside className="hidden w-[248px] shrink-0 flex-col border-e border-[#282a31] bg-[#15161a] md:flex">
+          <div className="border-b border-[#282a31] px-5 py-5">
+            <BrandwellLogo className="h-[27px] w-auto" />
+            <p className="mt-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-[#a6a7b1]">
+              {BRANDWELL_BRAND.productName}
+            </p>
+          </div>
+          <nav className="flex flex-1 flex-col gap-1 p-3" aria-label="AIMEE navigation">
+            <HomeNavItem
+              icon={<Home size={17} />}
+              label="Dashboard"
+              active
+              onClick={() => undefined}
+            />
+            <HomeNavItem icon={<MessageSquare size={17} />} label="Chat" onClick={() => open()} />
+            <HomeNavItem
+              icon={<Activity size={17} />}
+              label="Activity"
+              onClick={() => document.getElementById("aimee-activity")?.scrollIntoView()}
+            />
+            <HomeNavItem
+              icon={<Monitor size={17} />}
+              label="Computer"
+              onClick={() => open("computer")}
+            />
+            <HomeNavItem
+              icon={<Plug size={17} />}
+              label="Connections"
+              onClick={() => open("integrations")}
+            />
+            <HomeNavItem
+              icon={<Settings size={17} />}
+              label="Settings"
+              onClick={() => open("account")}
+            />
+          </nav>
+          <div className="border-t border-[#282a31] px-5 py-4 text-[12px] text-[#777984]">
+            {me.email}
+          </div>
+        </aside>
+      )}
 
       <main className="rk-scroll min-w-0 flex-1 overflow-y-auto">
         <div className="mx-auto w-full max-w-[1180px] px-5 py-8 md:px-10 md:py-10">
