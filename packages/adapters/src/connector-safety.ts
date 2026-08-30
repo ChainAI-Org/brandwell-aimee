@@ -1,4 +1,11 @@
+import type { AdapterContext } from "@rakazo/adapter-kit";
 import { redactSecrets } from "@rakazo/core";
+
+export function connectorPrincipalId(
+  context: Pick<AdapterContext, "userId" | "serviceIdentityId">,
+): string {
+  return context.serviceIdentityId ?? context.userId;
+}
 
 export function combineSignals(...signals: Array<AbortSignal | undefined>): AbortSignal {
   return AbortSignal.any(signals.filter((signal): signal is AbortSignal => Boolean(signal)));

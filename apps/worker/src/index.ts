@@ -1,9 +1,19 @@
+import {
+  createBrandwellManagedModelResolver,
+  deliverPendingBrandwellClientNotifications,
+  OpenRouterManagementClient,
+  reconcileBrandwellFleetHealth,
+  reconcileBrandwellOpenRouterUsage,
+  reconcileBrandwellRetentionCleanupWithPrisma,
+  reconcileBrandwellSupportSessions,
+} from "@brandwell/aimee";
 import type { JobPublisher, JobWorkerHost } from "@rakazo/adapter-kit";
 import { loadRootEnv } from "@rakazo/core/node/load-root-env";
 
 loadRootEnv();
 
 import {
+  BrandwellNativeConnector,
   createBackgroundJobHandlers,
   createConnectorStack,
   createJobReconciler,
@@ -29,6 +39,7 @@ import {
   pipedreamConfigFromEnv,
   resolveDeploymentModel,
   ScriptedAgentRuntime,
+  toComputerRef,
   WorkspaceMemoryProviderResolver,
 } from "@rakazo/adapters";
 import { resolveEncryptionKey } from "@rakazo/core";
@@ -58,6 +69,28 @@ async function main() {
     daytonaApiKey: process.env.DAYTONA_API_KEY,
     daytonaApiUrl: process.env.DAYTONA_API_URL,
     daytonaTarget: process.env.DAYTONA_TARGET,
+    daytonaSnapshot: process.env.DAYTONA_SNAPSHOT?.trim() || undefined,
+    daytonaAutoStopInterval: optionalInteger(
+      process.env.DAYTONA_AUTO_STOP_INTERVAL,
+      "DAYTONA_AUTO_STOP_INTERVAL",
+      0,
+    ),
+    daytonaAutoArchiveInterval: optionalInteger(
+      process.env.DAYTONA_AUTO_ARCHIVE_INTERVAL,
+      "DAYTONA_AUTO_ARCHIVE_INTERVAL",
+      0,
+    ),
+    daytonaAutoDeleteInterval: optionalInteger(
+      process.env.DAYTONA_AUTO_DELETE_INTERVAL,
+      "DAYTONA_AUTO_DELETE_INTERVAL",
+      -1,
+    ),
+    daytonaVncResolution: optionalResolution(
+      process.env.DAYTONA_VNC_RESOLUTION,
+      "DAYTONA_VNC_RESOLUTION",
+    ),
+    daytonaLocale: process.env.DAYTONA_LOCALE?.trim() || undefined,
+    daytonaTimezone: process.env.DAYTONA_TIMEZONE?.trim() || undefined,
     boxApiKey: process.env.BOX_API_KEY,
     boxApiUrl: process.env.BOX_API_URL ?? process.env.BOX_BASE_URL,
     dataDir,
@@ -86,9 +119,14 @@ async function main() {
   const pipedream = isPipedreamEnabled(pipedreamConfig)
     ? new PipedreamConnector(pipedreamConfig)
     : undefined;
+  const brandwellPlatform = brandwellPlatformConfig(process.env);
+  const brandwellNative = brandwellPlatform
+    ? new BrandwellNativeConnector(prisma, brandwellPlatform)
+    : undefined;
   const stack = createConnectorStack(isComposioEnabled(process.env.COMPOSIO_API_KEY), undefined, [
     new InstalledConnectorProvider(prisma, secrets),
     ...(pipedream ? [pipedream] : []),
+    ...(brandwellNative ? [brandwellNative] : []),
     mcp,
   ]);
   const connector = stack.destination;
@@ -96,6 +134,7 @@ async function main() {
   const memoryProviders = new WorkspaceMemoryProviderResolver(prisma, secrets);
   const home = new LocalAgentHomeStore(dataDir);
   const artifacts = new LocalArtifactStore(dataDir);
+  const notifications = new ExpoPushProvider(dataDir);
   const inMemoryJobs = process.env.WAKEUP_DRIVER === "memory" ? new InMemoryJobQueue() : undefined;
   const jobs: JobPublisher = inMemoryJobs ?? new GraphileJobPublisher(databaseUrl);
   const jobHost: JobWorkerHost = inMemoryJobs ?? new GraphileJobWorkerHost(databaseUrl);
@@ -110,11 +149,16 @@ async function main() {
     connector: stack.connector,
     connectors: stack.connector,
     listConnectedPluginSlugs: stack.composio?.listConnectedSlugs.bind(stack.composio),
-    secrets: [deploymentModelKey ?? "", process.env.COMPOSIO_API_KEY ?? ""].filter(Boolean),
+    secrets: [
+      deploymentModelKey ?? "",
+      process.env.COMPOSIO_API_KEY ?? "",
+      brandwellPlatform?.serviceToken ?? "",
+    ].filter(Boolean),
     secretStore: secrets,
     deploymentModelKey,
+    managedModelResolver: createBrandwellManagedModelResolver(prisma),
     dataDir,
-    notifications: new ExpoPushProvider(dataDir),
+    notifications,
     jobs,
     events,
   });
@@ -140,10 +184,86 @@ async function main() {
   });
   reconciler.start();
 
+  const brandwellMaintenanceIntervalMs = boundedInterval(
+    process.env.BRANDWELL_HEALTH_INTERVAL_MS,
+    60_000,
+  );
+  const openRouterManagement = process.env.OPENROUTER_MANAGEMENT_KEY?.trim()
+    ? new OpenRouterManagementClient(process.env.OPENROUTER_MANAGEMENT_KEY.trim())
+    : null;
+  let brandwellMaintenanceRunning = false;
+  const reconcileBrandwell = async () => {
+    if (brandwellMaintenanceRunning) return;
+    brandwellMaintenanceRunning = true;
+    try {
+      if (openRouterManagement) {
+        await reconcileBrandwellOpenRouterUsage(prisma, openRouterManagement);
+        await reconcileBrandwellRetentionCleanupWithPrisma(
+          {
+            prisma,
+            openRouter: openRouterManagement,
+            computerLifecycle: {
+              suspend: (computer) =>
+                computer.providerRef
+                  ? sandbox.stop(toComputerRef(computer), cancellationComputerContext(computer))
+                  : Promise.resolve(),
+              destroy: (computer) =>
+                computer.providerRef
+                  ? sandbox.destroy(toComputerRef(computer), cancellationComputerContext(computer))
+                  : Promise.resolve(),
+            },
+          },
+          {
+            retentionDays: nonNegativeInteger(process.env.BRANDWELL_RETENTION_DAYS, 30),
+            deleteAfterRetention: process.env.BRANDWELL_DELETE_AFTER_RETENTION !== "false",
+          },
+        );
+      }
+      await reconcileBrandwellFleetHealth(prisma);
+      await deliverPendingBrandwellClientNotifications(
+        prisma,
+        (message) =>
+          notifications.send(
+            {
+              kind: message.kind,
+              title: message.title,
+              body: message.body,
+              botId: message.botId,
+              threadId: message.threadId,
+              notificationId: message.notificationId,
+              actionTarget: message.actionTarget ?? undefined,
+            },
+            {
+              operationId: `brandwell-notification:${message.notificationId}`,
+              traceId: message.notificationId,
+              workspaceId: message.workspaceId,
+              userId: message.userId,
+              botId: message.botId,
+              signal: new AbortController().signal,
+            },
+          ),
+        { workerId: `brandwell-worker:${process.pid}` },
+      );
+      await reconcileBrandwellSupportSessions(prisma);
+    } finally {
+      brandwellMaintenanceRunning = false;
+    }
+  };
+  const brandwellMaintenanceTimer = setInterval(() => {
+    void reconcileBrandwell().catch((error) =>
+      console.error("BrandWell fleet reconciliation", error),
+    );
+  }, brandwellMaintenanceIntervalMs);
+  brandwellMaintenanceTimer.unref?.();
+  void reconcileBrandwell().catch((error) =>
+    console.error("BrandWell fleet reconciliation", error),
+  );
+
   let stopping = false;
   const stop = async () => {
     if (stopping) return;
     stopping = true;
+    clearInterval(brandwellMaintenanceTimer);
     await reconciler.stop();
     await jobHost.stop();
     await jobs.close();
@@ -157,6 +277,63 @@ async function main() {
   process.once("SIGINT", () => void stop());
 
   console.log("rakazo worker ready");
+}
+
+function cancellationComputerContext(computer: {
+  id: string;
+  workspaceId: string;
+  userId: string;
+}) {
+  return {
+    operationId: `brandwell-retention:${computer.id}`,
+    traceId: `brandwell-retention:${computer.id}`,
+    workspaceId: computer.workspaceId,
+    userId: computer.userId,
+    signal: new AbortController().signal,
+  };
+}
+
+function boundedInterval(value: string | undefined, fallback: number): number {
+  const parsed = Number(value ?? fallback);
+  return Number.isFinite(parsed) && parsed >= 60_000 ? Math.trunc(parsed) : fallback;
+}
+
+function nonNegativeInteger(value: string | undefined, fallback: number): number {
+  const parsed = Number(value ?? fallback);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function optionalInteger(value: string | undefined, key: string, minimum: number) {
+  if (value === undefined || value.trim() === "") return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum) {
+    throw new Error(`${key} must be an integer greater than or equal to ${minimum}`);
+  }
+  return parsed;
+}
+
+function optionalResolution(value: string | undefined, key: string) {
+  const normalized = value?.trim();
+  if (!normalized) return undefined;
+  if (!/^\d{3,5}x\d{3,5}$/.test(normalized)) {
+    throw new Error(`${key} must use WIDTHxHEIGHT format`);
+  }
+  return normalized;
+}
+
+function brandwellPlatformConfig(source: NodeJS.ProcessEnv) {
+  const apiBaseUrl = source.BRANDWELL_PLATFORM_API_URL?.trim();
+  const serviceToken = source.BRANDWELL_PLATFORM_SERVICE_TOKEN?.trim();
+  if (Boolean(apiBaseUrl) !== Boolean(serviceToken)) {
+    throw new Error(
+      "BRANDWELL_PLATFORM_API_URL and BRANDWELL_PLATFORM_SERVICE_TOKEN must be configured together",
+    );
+  }
+  if (!apiBaseUrl || !serviceToken) return undefined;
+  if (serviceToken.length < 32) {
+    throw new Error("BRANDWELL_PLATFORM_SERVICE_TOKEN must be at least 32 characters");
+  }
+  return { apiBaseUrl, serviceToken };
 }
 
 main().catch((error) => {

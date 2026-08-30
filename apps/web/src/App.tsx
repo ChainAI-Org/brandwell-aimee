@@ -10,6 +10,7 @@ import {
   sessionRetryDelayMs,
   showSessionUnavailable,
 } from "./lib/session-gate";
+import { WorkspaceHomePage } from "./pages/BrandwellHome";
 import { McpOAuthCallbackPage } from "./pages/McpOAuthCallback";
 import { ShellPage } from "./pages/Shell";
 
@@ -74,7 +75,10 @@ export function App() {
             path="/mcp/oauth/callback"
             element={user ? <McpOAuthCallbackPage /> : <Navigate to="/sign-in" replace />}
           />
-          <Route path="/app" element={user ? <ShellPage /> : <Navigate to="/sign-in" replace />} />
+          <Route
+            path="/app"
+            element={user ? <WorkspaceHomePage /> : <Navigate to="/sign-in" replace />}
+          />
           <Route
             path="/app/g/:groupId"
             element={user ? <ShellPage /> : <Navigate to="/sign-in" replace />}

@@ -10,6 +10,7 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@brandwell/aimee": "workspace:*",
     "@rakazo/adapter-kit": "workspace:*",
     "@rakazo/adapters": "workspace:*",
     "@rakazo/core": "workspace:*",

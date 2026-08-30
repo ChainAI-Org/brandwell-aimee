@@ -115,6 +115,9 @@ describe("contracts", () => {
     expect(appContract.threads.clear).toBeTruthy();
     expect(appContract.voice.prepare).toBeTruthy();
     expect(appContract.notifications.registerPush).toBeTruthy();
+    expect(appContract.notifications.list).toBeTruthy();
+    expect(appContract.notifications.markRead).toBeTruthy();
+    expect(appContract.notifications.resolve).toBeTruthy();
     expect(ProductEventType.options).toContain("thread.message.created");
     expect(ProductEventType.options).toContain("thread.cleared");
     expect(ProductEventType.options).toContain("thread.subagent");

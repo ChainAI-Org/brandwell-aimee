@@ -45,6 +45,15 @@ SANDBOX_COMMAND_TIMEOUT_MS=300000 # stop a shell command after 5 minutes
 MAX_TOOL_CALLS_PER_TURN=  # optional Pi turn tool-call fuse; unset/0 = unlimited
 E2B_API_KEY=              # when SANDBOX_PROVIDER=e2b
 DAYTONA_API_KEY=          # when SANDBOX_PROVIDER=daytona
+DAYTONA_API_URL=https://app.daytona.io/api
+DAYTONA_TARGET=us
+DAYTONA_SNAPSHOT=brandwell-aimee-browser-v1
+DAYTONA_AUTO_STOP_INTERVAL=15
+DAYTONA_AUTO_ARCHIVE_INTERVAL=10080
+DAYTONA_AUTO_DELETE_INTERVAL=-1
+DAYTONA_VNC_RESOLUTION=1440x900
+DAYTONA_LOCALE=en_US.UTF-8
+DAYTONA_TIMEZONE=UTC
 BOX_API_KEY=              # when SANDBOX_PROVIDER=box
 ```
 
@@ -80,7 +89,7 @@ The Electron desktop app is a client of the same API. Docker and E2B still apply
 
 - **Docker** is the default for local use and the quickest self-hosted setup. Workspace bots share a persistent Team Computer by default; Private computers are optional. Keep the supervisor private, as the included Compose file does.
 - **E2B** runs bot computers away from the Rakazo host and is the recommended choice for public or multi-user production deployments. Rakazo checkpoints the portable workspace and browser-profile directory to `DATA_DIR`; the E2B disk is a runtime cache, not the durable source of truth.
-- **Daytona** provides the same remote-computer contract through Daytona sandboxes. Configure `DAYTONA_API_KEY` and optionally `DAYTONA_API_URL` / `DAYTONA_TARGET`.
+- **Daytona** provides the same remote-computer contract through Daytona sandboxes. Configure `DAYTONA_API_KEY` and optionally `DAYTONA_API_URL`, `DAYTONA_TARGET`, and `DAYTONA_SNAPSHOT`. Lifecycle settings use minutes. Keep `DAYTONA_AUTO_DELETE_INTERVAL=-1` for managed client computers, and let the application stop idle computers through both `SANDBOX_IDLE_MS` and `DAYTONA_AUTO_STOP_INTERVAL`. The BrandWell staging baseline is 2 vCPU, 4 GiB memory, and 10 GiB disk because 10 GiB is the current account limit. The `brandwell-aimee-browser-v1` snapshot includes Google Chrome Stable, a fresh per-sandbox browser profile, the ColorZilla extension, common command-line utilities, fonts, image tools, and PDF tools. Daytona's native computer-use API provides screenshots, so no screenshot extension is required.
 - **Box by ASCII** provides a managed Linux desktop through `BOX_API_KEY` and optionally `BOX_API_URL`. Rakazo always creates or resumes boxes with `noEnv: true`, keeps the portable workspace under `/home/user/rakazo-home`, and refreshes a two-hour TTL. A Box currently exposes one shared desktop, so concurrent Team bots can still use shell and files but only one can use graphical tools at a time.
 - **Desktop provider** / **This Mac** runs commands on the API/worker host. Docker stays the default. The Electron app asks once; if you choose This Mac, bots can use working directories under your home folder. Do not enable it on a public or shared service. macOS does not show its own permission dialog for this.
 - **Fake** is only an emulator for verification.
@@ -161,13 +170,13 @@ curl --fail https://app.example.com/health
 **Build, do not pull, for a first deployment.** `RAKAZO_IMAGE_TAG` ships as `local`, a tag no
 registry serves, so the commands above build `api`, `worker`, and `web` from the checkout you just
 cloned. The opt-in command under [Updater sidecar](#updater-sidecar) builds `updater` when needed.
-Running `docker compose … pull` first — as earlier versions of this page told you to — fails outright
+Running `docker compose … pull` first, as earlier versions of this page told you to, fails outright
 with `error from registry: denied` whenever the tag you are on has not been published, and there is
 nothing to fall back to.
 
 Passing `GIT_SHA` is what makes `GET /health` report a `"revision"`; a locally built image has no
 other way to know its commit. Prebuilt images from the registry bake it in at publish time, so when
-you switch to a release tag you should leave `GIT_SHA` unset — a value in `.env` would override what
+you switch to a release tag you should leave `GIT_SHA` unset. A value in `.env` would override what
 the image already knows.
 
 Once a release has been published you can switch this host to prebuilt images by setting
@@ -236,16 +245,16 @@ this repository that is:
 
 | Image | Contents |
 | --- | --- |
-| `ghcr.io/elie222/rakazo/app` | api, worker, and web — one image, three commands |
+| `ghcr.io/elie222/rakazo/app` | api, worker, and web: one image, three commands |
 | `ghcr.io/elie222/rakazo/updater` | the updater sidecar, plus the Docker CLI |
 
-If you deploy from your own fork, set `RAKAZO_IMAGE` and `RAKAZO_UPDATER_IMAGE` to your namespace —
+If you deploy from your own fork, set `RAKAZO_IMAGE` and `RAKAZO_UPDATER_IMAGE` to your namespace.
 your CI cannot publish into someone else's.
 
 | Tag | Published on | Moves? |
 | --- | --- | --- |
-| `local` | nothing — built locally by `up --build` | rebuilt in place |
-| `local-<full-commit>` | nothing — built on the server by a fork update | never |
+| `local` | nothing; built locally by `up --build` | rebuilt in place |
+| `local-<full-commit>` | nothing; built on the server by a fork update | never |
 | `vX.Y.Z`, `vX.Y` | release tags | conventionally no / on patch releases |
 | `latest` | stable `vX.Y.Z` tags only (not prereleases) | yes, to the newest stable release |
 | `sha-<full-commit>` | every push and manual run | source-addressed; used by the updater sidecar |
@@ -283,8 +292,8 @@ It exposes `/health`, `/state`, `/plan`, `/apply`, and `/rollback` at `http://up
 `RAKAZO_UPDATER_TOKEN`. Operator CLI upgrades above do not need it; the sidecar is for automated
 apply/rollback over that private HTTP API.
 
-The API cannot update itself — its image has no `.git`, and nothing inside the container would
-restart it — so the work happens in a separate `updater` container that outlives the recreate:
+The API cannot update itself. Its image has no `.git`, and nothing inside the container would
+restart it, so the work happens in a separate `updater` container that outlives the recreate:
 
 - *Official repository:* resolves the newest stable release and its source commit with
   `git ls-remote --tags`, pins the corresponding full `sha-<commit>` image tag in `.env`, keeps the
@@ -292,7 +301,7 @@ restart it — so the work happens in a separate `updater` container that outliv
   `up -d --wait --pull never`. No build runs on the server.
 - *Fork (Advanced):* a fork has no published images, so the sidecar fast-forwards the checkout in
   `RAKAZO_DEPLOY_DIR` and runs `up -d --build`. This builds on the server and takes minutes rather
-  than seconds. Point it only at a fork you control and have reviewed — the sidecar runs that
+  than seconds. Point it only at a fork you control and have reviewed. The sidecar runs that
   Compose file through a root-equivalent Docker socket.
 
 Updates and rollbacks run one at a time. A failed pull leaves running services alone; a failed recreate restores the previous environment
@@ -300,7 +309,7 @@ pin and attempts to redeploy the cached previous image. A failed fork build also
 pre-update branch and commit (including when checkout succeeded but merge did not) so a later
 manual `--build` cannot deploy the rejected or unintended revision. Database migrations are not
 reversed. The sidecar never recreates itself, never touches Postgres or Caddy, and never runs
-migrations — that ordering belongs to the API start command.
+migrations. That ordering belongs to the API start command.
 
 Only `https://` and `ssh://` git remotes are accepted. Merges are fast-forward only. A dirty or
 untracked source tree fails closed before anything runs (the application Dockerfile uses `COPY . .`).
@@ -311,8 +320,8 @@ untracked source tree fails closed before anything runs (the application Dockerf
 (`${RAKAZO_DEPLOY_DIR}:${RAKAZO_DEPLOY_DIR}`), and that is load-bearing rather than tidy. Production
 Compose defaults both sides to `/srv/rakazo`; set the variable for any other layout. When the
 updater runs `docker compose -p <project> --file $RAKAZO_DEPLOY_DIR/infra/compose/docker-compose.prod.yml up -d`,
-the Compose CLI *inside* the container expands this file's relative bind mounts — `../../.env`,
-`./Caddyfile.prod` — against that path and hands the results to the daemon. The daemon has to be
+the Compose CLI *inside* the container expands this file's relative bind mounts (`../../.env` and
+`./Caddyfile.prod`) against that path and hands the results to the daemon. The daemon has to be
 able to resolve the same strings, or it silently creates empty directories where your `.env` and
 Caddyfile should be. Compose makes the effective `-p` value available for interpolation but does
 not automatically put it in a container's environment, so the production file explicitly assigns
@@ -338,7 +347,7 @@ docker compose --env-file .env -f infra/compose/docker-compose.prod.yml \
 
   That must print your checkout's HEAD. The two tempting wrong answers both fail: a native Windows
   path is rejected by the daemon (`mount denied: … too many colons`, because the drive letter's
-  colon collides with the bind-mount separator), and `/mnt/c/...` fails *silently* — the container
+  colon collides with the bind-mount separator), and `/mnt/c/...` fails *silently*. The container
   starts, the mount is an empty directory, and the updater simply reports no checkout.
 
 ### The updater's privileges
@@ -370,12 +379,12 @@ To run a hosted product (same codebase):
 2. Provision managed Postgres 16 and run `pnpm db:migrate`.
 3. Run **API** and **worker** as always-on Node 22 services (Fly machines, a VM, ECS, k8s). Not lambda-style request handlers.
 4. Persist and back up `DATA_DIR` (bot homes, browser profiles, artifacts). Today the concrete store is a local filesystem (`LocalAgentHomeStore`), so attach a Rakazo-owned durable volume shared by API and worker processes. The storage contract is separate from the computer-provider contract, but an object-storage implementation is not wired yet.
-5. Choose computers: **`SANDBOX_PROVIDER=e2b`**, `daytona`, or `box` with the matching provider key for a public or multi-user production service. Each Team or Private Computer reconnects to its sandbox id (`providerRef`), while workspace state is checkpointed outside the provider at run completion, explicit stop, and idle suspension. If that sandbox is gone—or the deployment changes providers—the replacement is hydrated from Rakazo's copy. Idle computers pause after `SANDBOX_IDLE_MS` (default 10 minutes) and resume on the next message or Take control. Docker remains the local and trusted single-machine default.
+5. Choose computers: **`SANDBOX_PROVIDER=e2b`**, `daytona`, or `box` with the matching provider key for a public or multi-user production service. Each Team or Private Computer reconnects to its sandbox id (`providerRef`), while workspace state is checkpointed outside the provider at run completion, explicit stop, and idle suspension. If that sandbox is gone or the deployment changes providers, the replacement is hydrated from Rakazo's copy. Idle computers pause after `SANDBOX_IDLE_MS` (default 10 minutes) and resume on the next message or Take control. Docker remains the local and trusted single-machine default.
 6. A Hetzner CX22 (2 vCPU / 4 GB) is enough for API + worker + Postgres when E2B owns the desktops. 2 GB works for a quiet box; 8 GB is only needed if you also run Docker computers on that same machine.
 7. Set public HTTPS `WEB_ORIGIN` / `BETTER_AUTH_URL` / `API_URL`, secrets, and an OpenRouter (or other Pi) deployment key if you want to skip per-user model keys.
 8. Put the web app behind the same origin as `/api` and `/rpc` (Vite preview proxy, or a reverse proxy). Docker noVNC connections use short-lived signed `/novnc/*` capabilities; do not replace that route with an unrestricted port proxy.
 9. Deploy `apps/www` to your public website and point `app.example.com` (or similar) at the product origin.
-10. Turn on `SIGNUP_ALLOWLIST` until you want open registration. There is no Rakazo-managed model billing in version 1 — users bring keys.
+10. Turn on `SIGNUP_ALLOWLIST` until you want open registration. There is no Rakazo-managed model billing in version 1. Users bring keys.
 
 Expo / desktop installers are clients of that origin (`EXPO_PUBLIC_API_URL`, `RAKAZO_WEB_URL`). They are not a Cloud control plane.
 

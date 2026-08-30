@@ -19,7 +19,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { rpc } from "../lib/api";
+import { type MobileMe, rpc } from "../lib/api";
 import { loadLastBotId } from "../lib/last-bot";
 import { native } from "../lib/native";
 
@@ -41,6 +41,7 @@ export default function Integrations() {
   const [sourceError, setSourceError] = useState<string | null>(null);
   const [lastBotId, setLastBotId] = useState("");
   const [catalogReady, setCatalogReady] = useState(false);
+  const [managedWorkspace, setManagedWorkspace] = useState<boolean | null>(null);
   const connectionAttempt = useRef<AbortController | null>(null);
 
   const featuredTiles = useMemo(() => buildFeaturedConnectorTiles(catalog), [catalog]);
@@ -71,6 +72,9 @@ export default function Integrations() {
       setCatalogReady(false);
       setCatalogError(reason instanceof Error ? reason.message : "Could not load integrations");
     });
+    void rpc<MobileMe>("me")
+      .then((me) => setManagedWorkspace(Boolean(me.brandwell)))
+      .catch(() => setManagedWorkspace(false));
     void loadLastBotId().then(setLastBotId);
     return () => connectionAttempt.current?.abort();
   }, []);
@@ -214,7 +218,11 @@ export default function Integrations() {
   return (
     <SafeAreaView edges={["bottom"]} style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content}>
-        <Text style={styles.explanation}>Connect apps.</Text>
+        <Text style={styles.explanation}>
+          {managedWorkspace
+            ? "Connect the apps AIMEE is approved to use. Credentials stay encrypted and are shared only with this BrandWell workspace."
+            : "Connect apps."}
+        </Text>
 
         {catalogError ? <Text style={styles.error}>{catalogError}</Text> : null}
 
@@ -291,21 +299,23 @@ export default function Integrations() {
           </View>
         ) : null}
 
-        <Pressable
-          accessibilityRole="button"
-          accessibilityState={{ expanded: advancedOpen }}
-          testID="integrations-advanced"
-          onPress={() => {
-            if (advancedOpen) closeAdvanced();
-            else setAdvancedOpen(true);
-          }}
-          style={styles.advancedToggle}
-        >
-          <Text style={styles.advancedLabel}>Advanced</Text>
-          <Text style={styles.chevron}>›</Text>
-        </Pressable>
+        {managedWorkspace === false ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityState={{ expanded: advancedOpen }}
+            testID="integrations-advanced"
+            onPress={() => {
+              if (advancedOpen) closeAdvanced();
+              else setAdvancedOpen(true);
+            }}
+            style={styles.advancedToggle}
+          >
+            <Text style={styles.advancedLabel}>Advanced</Text>
+            <Text style={styles.chevron}>›</Text>
+          </Pressable>
+        ) : null}
 
-        {advancedOpen ? (
+        {managedWorkspace === false && advancedOpen ? (
           <View style={styles.advancedBody}>
             <View style={styles.actions}>
               {(["mcp", "api", "treg"] as const).map((kind) => (

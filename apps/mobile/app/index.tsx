@@ -16,6 +16,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BotAvatar } from "../components/bot-avatar";
 import { BotOrganizeModal } from "../components/bot-organize-modal";
+import { BrandwellHome } from "../components/brandwell-home";
 import { GroupAvatar } from "../components/group-avatar";
 import { NativeSymbol } from "../components/native-symbol";
 import {
@@ -52,6 +53,8 @@ export default function Home() {
   const [groups, setGroups] = useState<MobileGroup[]>([]);
   const [botSections, setBotSections] = useState<MobileBotSection[]>([]);
   const [me, setMe] = useState<MobileMe | null>(null);
+  const [profileReady, setProfileReady] = useState(false);
+  const [botsReady, setBotsReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [hasSession, setHasSession] = useState(false);
@@ -93,6 +96,8 @@ export default function Home() {
       setGroups(nextGroups);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load bots");
+    } finally {
+      setBotsReady(true);
     }
   }, []);
 
@@ -117,7 +122,8 @@ export default function Home() {
     void registerPushToken().catch(() => undefined);
     void rpc<MobileMe>("me")
       .then(setMe)
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => setProfileReady(true));
   }, [hasSession]);
 
   useFocusEffect(
@@ -219,6 +225,14 @@ export default function Home() {
     );
   }
   if (!hasSession) return <Redirect href="/sign-in" />;
+  if (!profileReady || !botsReady) {
+    return (
+      <View style={[styles.screen, styles.centered]}>
+        <ActivityIndicator color={native.secondaryLabel} />
+      </View>
+    );
+  }
+  if (me?.brandwell) return <BrandwellHome me={me} bots={bots} />;
 
   return (
     <View style={[styles.screen, { paddingTop: Math.max(insets.top, 20) }]}>

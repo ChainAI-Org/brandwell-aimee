@@ -75,6 +75,7 @@ import {
   Copy,
   Cpu,
   Gauge,
+  Home,
   LogOut,
   Menu,
   Mic,
@@ -110,6 +111,7 @@ import {
   CollaborationMarker,
 } from "../components/beautiful-ui/CollaborationMarker";
 import { BuiButton, BuiCard, SuccessPop } from "../components/beautiful-ui/primitives";
+import { BrandwellLogo } from "../components/brandwell/BrandwellLogo";
 import { ComputerMaintenanceActions } from "../components/ComputerMaintenanceActions";
 import { SkillDraftCard } from "../components/teach/SkillDraftCard";
 import { TeachCaptureOverlay } from "../components/teach/TeachCaptureOverlay";
@@ -373,6 +375,7 @@ export function ShellPage() {
   const autoSpokenBotId = useRef<string | null>(null);
 
   const inGroup = Boolean(groupId);
+  const managedWorkspace = Boolean(bootstrapMe?.brandwell);
   const active = inGroup ? undefined : (bots.find((b) => b.id === botId) ?? bots[0]);
   const activeGroup = groups.find((group) => group.id === groupId);
   const activePendingAttachments = useMemo(
@@ -941,15 +944,37 @@ export function ShellPage() {
   }, [activeGroup?.id, groupId]);
 
   const filtered = useMemo(
-    () => bots.filter((b) => `${b.name} ${b.preview}`.toLowerCase().includes(query.toLowerCase())),
-    [bots, query],
+    () =>
+      bots.filter(
+        (bot) =>
+          (!managedWorkspace || bot.managedByBrandWell) &&
+          `${bot.name} ${bot.preview}`.toLowerCase().includes(query.toLowerCase()),
+      ),
+    [bots, managedWorkspace, query],
   );
   const sidebarGroups = useMemo(
     () => groupBotsForSidebar<Bot>(filtered, botSections),
     [botSections, filtered],
   );
   const workspaceQuery = query.trim();
-  const showWorkspaceSearch = workspaceQuery.length > 0;
+  const showWorkspaceSearch = !managedWorkspace && workspaceQuery.length > 0;
+
+  useEffect(() => {
+    if (!managedWorkspace || !active) return;
+    const view = searchParams.get("view");
+    if (view === "computer" || view === "routines") {
+      setPanel("computer");
+      return;
+    }
+    if (view === "integrations") {
+      setPluginsOpen(true);
+      return;
+    }
+    if (view === "account") {
+      setAccountSettingsFocusUsage(false);
+      setAccountSettingsOpen(true);
+    }
+  }, [active, managedWorkspace, searchParams]);
 
   useEffect(() => {
     if (!showWorkspaceSearch) {
@@ -1655,7 +1680,7 @@ export function ShellPage() {
   }, [panel]);
 
   // The routine panel copies a routine's data into local draft state at click time
-  // rather than deriving it from `active`, so it goes stale across a bot switch —
+  // rather than deriving it from `active`, so it goes stale across a bot switch.
   // without this, Save on bot B could silently update bot A's routine.
   useEffect(() => {
     setEditingRoutine(null);
@@ -1750,35 +1775,50 @@ export function ShellPage() {
         }`}
       >
         <div className="app-drag flex items-center justify-between px-[18px] pb-3 pt-4">
-          <WindowChrome />
+          {managedWorkspace ? (
+            <button
+              type="button"
+              onClick={() => navigate("/app")}
+              className="app-no-drag"
+              aria-label={t`AIMEE home`}
+            >
+              <BrandwellLogo className="h-[23px] w-auto" />
+            </button>
+          ) : (
+            <WindowChrome />
+          )}
           <div className="relative flex items-center gap-2.5">
-            <button
-              type="button"
-              aria-label={t`Activity`}
-              aria-pressed={activityMode}
-              title={t`Activity`}
-              data-activity-mode={activityMode ? "on" : "off"}
-              onClick={toggleActivityMode}
-              className={`app-no-drag flex h-7 w-7 items-center justify-center rounded-full ${
-                activityMode ? "bg-[#4C8DFF] text-white" : "text-[#7A7A80] hover:text-[#C9C9CE]"
-              }`}
-            >
-              <Bell
-                size={15}
-                strokeWidth={1.8}
-                fill={activityMode ? "currentColor" : "none"}
-                aria-hidden="true"
-              />
-            </button>
-            <button
-              type="button"
-              onClick={() => setCreateMenuOpen((open) => !open)}
-              className="app-no-drag text-[21px] text-[#7A7A80] hover:text-[#C9C9CE]"
-              title={t`Create`}
-            >
-              +
-            </button>
-            {createMenuOpen ? (
+            {!managedWorkspace ? (
+              <button
+                type="button"
+                aria-label={t`Activity`}
+                aria-pressed={activityMode}
+                title={t`Activity`}
+                data-activity-mode={activityMode ? "on" : "off"}
+                onClick={toggleActivityMode}
+                className={`app-no-drag flex h-7 w-7 items-center justify-center rounded-full ${
+                  activityMode ? "bg-[#4C8DFF] text-white" : "text-[#7A7A80] hover:text-[#C9C9CE]"
+                }`}
+              >
+                <Bell
+                  size={15}
+                  strokeWidth={1.8}
+                  fill={activityMode ? "currentColor" : "none"}
+                  aria-hidden="true"
+                />
+              </button>
+            ) : null}
+            {!managedWorkspace ? (
+              <button
+                type="button"
+                onClick={() => setCreateMenuOpen((open) => !open)}
+                className="app-no-drag text-[21px] text-[#7A7A80] hover:text-[#C9C9CE]"
+                title={t`Create`}
+              >
+                +
+              </button>
+            ) : null}
+            {!managedWorkspace && createMenuOpen ? (
               <div className="app-no-drag absolute end-0 top-full z-20 mt-2 min-w-[160px] rounded-xl border border-[#26262A] bg-[#141416] py-1 shadow-lg">
                 <button
                   type="button"
@@ -1804,16 +1844,33 @@ export function ShellPage() {
             ) : null}
           </div>
         </div>
-        <div className="mx-3.5 mb-3 flex items-center gap-2.5 rounded-xl border border-[#202023] bg-[#141416] px-3 py-2 text-[14px] text-[#6C6C70]">
-          <span>⌕</span>
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder={t`Search`}
-            className="w-full bg-transparent outline-none"
-          />
-        </div>
+        {!managedWorkspace ? (
+          <div className="mx-3.5 mb-3 flex items-center gap-2.5 rounded-xl border border-[#202023] bg-[#141416] px-3 py-2 text-[14px] text-[#6C6C70]">
+            <span>⌕</span>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t`Search`}
+              className="w-full bg-transparent outline-none"
+            />
+          </div>
+        ) : null}
         <div className="rk-scroll flex flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 pb-2.5">
+          {managedWorkspace ? (
+            <button
+              type="button"
+              onClick={() => {
+                setMobileSidebarOpen(false);
+                navigate("/app");
+              }}
+              className="mb-1 flex items-center gap-3 rounded-xl px-2.5 py-[11px] text-start text-[#A8A8AD] hover:bg-[#161618] hover:text-white"
+            >
+              <span className="grid h-[38px] w-[38px] place-items-center rounded-xl bg-[#1b1721] text-[#9f62ff]">
+                <Home size={17} strokeWidth={1.8} />
+              </span>
+              <span className="text-[15px] font-medium">Home</span>
+            </button>
+          ) : null}
           {showWorkspaceSearch ? (
             <WorkspaceSearchResults
               hits={searchHits}
@@ -1822,7 +1879,7 @@ export function ShellPage() {
             />
           ) : (
             <>
-              {activityMode ? (
+              {!managedWorkspace && activityMode ? (
                 <ActivityList
                   onOpenRun={(run) => {
                     setMobileSidebarOpen(false);
@@ -1904,7 +1961,7 @@ export function ShellPage() {
               ))}
             </>
           )}
-          {!showWorkspaceSearch
+          {!managedWorkspace && !showWorkspaceSearch
             ? groups.map((group) => (
                 <button
                   key={group.id}
@@ -1950,7 +2007,7 @@ export function ShellPage() {
                 </button>
               ))
             : null}
-          {archivedBots.length > 0 && !showWorkspaceSearch ? (
+          {!managedWorkspace && archivedBots.length > 0 && !showWorkspaceSearch ? (
             <div className="mt-2 border-t border-[#202023] pt-2">
               <button
                 type="button"
@@ -2010,7 +2067,7 @@ export function ShellPage() {
             <Puzzle size={15} strokeWidth={1.7} />
           </span>
           <span className="text-[14.5px] text-[#C9C9CE]">
-            <Trans>Integrations</Trans>
+            {managedWorkspace ? "Connections" : <Trans>Integrations</Trans>}
           </span>
         </button>
         <div className="relative">
@@ -2031,32 +2088,36 @@ export function ShellPage() {
                   <Trans>Settings</Trans>
                 </span>
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  setModelsOpen(true);
-                }}
-                className="flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 hover:bg-[#232327]"
-              >
-                <Cpu size={16} strokeWidth={1.7} className="text-[#9A9AA0]" />
-                <span className="flex-1 text-start text-[14.5px] text-[#ECECEE]">
-                  <Trans>Models</Trans>
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  setMemorySettingsOpen(true);
-                }}
-                className="flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 hover:bg-[#232327]"
-              >
-                <span className="text-[#9A9AA0]">◇</span>
-                <span className="flex-1 text-start text-[14.5px] text-[#ECECEE]">
-                  <Trans>Memory</Trans>
-                </span>
-              </button>
+              {!managedWorkspace ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setModelsOpen(true);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 hover:bg-[#232327]"
+                  >
+                    <Cpu size={16} strokeWidth={1.7} className="text-[#9A9AA0]" />
+                    <span className="flex-1 text-start text-[14.5px] text-[#ECECEE]">
+                      <Trans>Models</Trans>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setMemorySettingsOpen(true);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 hover:bg-[#232327]"
+                  >
+                    <span className="text-[#9A9AA0]">◇</span>
+                    <span className="flex-1 text-start text-[14.5px] text-[#ECECEE]">
+                      <Trans>Memory</Trans>
+                    </span>
+                  </button>
+                </>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {
@@ -2070,19 +2131,21 @@ export function ShellPage() {
                   <Trans>Voice</Trans>
                 </span>
               </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 hover:bg-[#232327]"
-                onClick={async () => {
-                  setUsage(await rpc.usage.summary());
-                }}
-              >
-                <Gauge size={16} strokeWidth={1.7} className="text-[#9A9AA0]" />
-                <span className="flex-1 text-start text-[14.5px] text-[#ECECEE]">
-                  <Trans>Usage</Trans>
-                </span>
-              </button>
-              {usage ? (
+              {!managedWorkspace ? (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 hover:bg-[#232327]"
+                  onClick={async () => {
+                    setUsage(await rpc.usage.summary());
+                  }}
+                >
+                  <Gauge size={16} strokeWidth={1.7} className="text-[#9A9AA0]" />
+                  <span className="flex-1 text-start text-[14.5px] text-[#ECECEE]">
+                    <Trans>Usage</Trans>
+                  </span>
+                </button>
+              ) : null}
+              {!managedWorkspace && usage ? (
                 <p className="px-3 pb-2 text-[12.5px] text-[#85858A]">
                   <Trans>
                     {usage.runs} runs · {usage.inputTokens + usage.outputTokens} tokens
@@ -2223,11 +2286,13 @@ export function ShellPage() {
         />
         {recordingSkill ? (
           <div className="px-6 pb-2 text-center text-[13px] text-[#E65707]">
-            <Trans>Teaching in progress — stop teaching before sending a new message.</Trans>
+            <Trans>Teaching in progress. Stop teaching before sending a new message.</Trans>
           </div>
         ) : null}
         <Composer
-          key={inGroup ? `group:${groupId}` : `bot:${active?.id}`}
+          key={
+            inGroup ? `group:${groupId ?? "loading"}` : `bot:${botId ?? active?.id ?? "loading"}`
+          }
           activeName={inGroup ? (activeGroup?.name ?? activeSnapshot?.groupName) : active?.name}
           running={composerRunning}
           disabled={Boolean(recordingSkill)}
@@ -2394,9 +2459,10 @@ export function ShellPage() {
                     </Button>
                   )}
                 </div>
-                {computer?.state === "error" ||
-                computer?.state === "stopped" ||
-                (computer?.state === "running" && !embeddedScreenUrl) ? (
+                {!managedWorkspace &&
+                (computer?.state === "error" ||
+                  computer?.state === "stopped" ||
+                  (computer?.state === "running" && !embeddedScreenUrl)) ? (
                   <ComputerMaintenanceActions
                     botId={active.id}
                     computer={computer}
@@ -2528,6 +2594,7 @@ export function ShellPage() {
               <BotSettings
                 key={active.id}
                 bot={active}
+                managed={managedWorkspace && active.managedByBrandWell}
                 computer={computer}
                 memoryProviderConfigured={memoryProviderConfig != null}
                 onSave={async ({ computerMode, ...patch }) => {
@@ -2717,7 +2784,7 @@ export function ShellPage() {
       </aside>
 
       <Suspense fallback={null}>
-        {contextBot && botMenu ? (
+        {contextBot && botMenu && !contextBot.managedByBrandWell ? (
           <BotContextMenu
             bot={contextBot}
             position={botMenu.position}
@@ -2835,6 +2902,7 @@ export function ShellPage() {
         {pluginsOpen ? (
           <PluginsOverlay
             activeBotId={activeBotId.current}
+            managed={managedWorkspace}
             onClose={() => setPluginsOpen(false)}
             onOpenMcp={() => {
               setPluginsOpen(false);
@@ -3807,7 +3875,7 @@ function previewMessageText(message: ThreadMessage): string {
   return t`Message`;
 }
 
-/** Plain message text for clipboard copy — text/ask/progress only, no chrome. */
+/** Plain message text for clipboard copy: text/ask/progress only, no chrome. */
 function copyableMessageText(message: ThreadMessage): string {
   return message.blocks
     .map((block) => {
@@ -4501,6 +4569,7 @@ function CreateBotForm({
 
 function BotSettings({
   bot,
+  managed,
   computer,
   memoryProviderConfigured,
   onSave,
@@ -4509,6 +4578,7 @@ function BotSettings({
   onComputerChanged,
 }: {
   bot: Bot;
+  managed: boolean;
   computer: ComputerStatus | null;
   memoryProviderConfigured: boolean;
   onSave: (patch: {
@@ -4553,17 +4623,24 @@ function BotSettings({
       .voices({})
       .then(setVoices)
       .catch(() => setVoices([]));
+    if (managed) {
+      void rpc
+        .me()
+        .then(setMe)
+        .catch(() => undefined);
+      return;
+    }
     void Promise.all([rpc.models.credentials(), rpc.models.list(), rpc.me()])
       .then(([nextCredentials, nextCatalog, nextMe]) => {
         setCredentials(nextCredentials);
         setCatalog(nextCatalog);
         setMe(nextMe);
-        // Only mark ready on success — a failed catalog load must not clear
+        // Only mark ready on success. A failed catalog load must not clear
         // an existing thinkingLevel override on save.
         setModelMetaReady(true);
       })
       .catch(() => undefined);
-  }, []);
+  }, [managed]);
 
   const connectedOptions: Array<{
     key: string;
@@ -4660,37 +4737,47 @@ function BotSettings({
             ›
           </span>
         </summary>
-        <ComputerModePicker value={computerMode} onChange={setComputerMode} />
+        {managed ? (
+          <div className="mt-4 rounded-xl border border-[#342a42] bg-[#1b1721] px-3.5 py-3 text-[13px] leading-5 text-[#b9a7cc]">
+            BrandWell manages AIMEE's model, memory, and computer assignment for this workspace.
+          </div>
+        ) : (
+          <ComputerModePicker value={computerMode} onChange={setComputerMode} />
+        )}
         <Suspense fallback={null}>
           <ScratchpadSection botId={bot.id} />
         </Suspense>
-        <label className="mt-4 block text-[14px] text-[#85858A]">
-          <Trans>Model</Trans>
-          <select
-            value={modelKey}
-            onChange={(event) => {
-              setModelKey(event.target.value);
-              setThinkingLevel("");
-            }}
-            className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
-          >
-            <option value="">
-              {t`Workspace default`}
-              {me?.defaultModel
-                ? ` (${catalogLabel(catalog, me.defaultProvider, me.defaultModel) ?? me.defaultModel})`
-                : ""}
-            </option>
-            {modelKey && !connectedOptions.some((option) => option.key === modelKey) ? (
-              <option value={modelKey}>{parseModelOptionKey(modelKey)?.modelId ?? modelKey}</option>
-            ) : null}
-            {connectedOptions.map((option) => (
-              <option key={option.key} value={option.key}>
-                {option.label}
+        {!managed ? (
+          <label className="mt-4 block text-[14px] text-[#85858A]">
+            <Trans>Model</Trans>
+            <select
+              value={modelKey}
+              onChange={(event) => {
+                setModelKey(event.target.value);
+                setThinkingLevel("");
+              }}
+              className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
+            >
+              <option value="">
+                {t`Workspace default`}
+                {me?.defaultModel
+                  ? ` (${catalogLabel(catalog, me.defaultProvider, me.defaultModel) ?? me.defaultModel})`
+                  : ""}
               </option>
-            ))}
-          </select>
-        </label>
-        {thinkingOptions.length ? (
+              {modelKey && !connectedOptions.some((option) => option.key === modelKey) ? (
+                <option value={modelKey}>
+                  {parseModelOptionKey(modelKey)?.modelId ?? modelKey}
+                </option>
+              ) : null}
+              {connectedOptions.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        {!managed && thinkingOptions.length ? (
           <label className="mt-4 block text-[14px] text-[#85858A]">
             <Trans>Thinking</Trans>
             <select
@@ -4707,7 +4794,7 @@ function BotSettings({
             </select>
           </label>
         ) : null}
-        {memoryProviderConfigured ? (
+        {!managed && memoryProviderConfigured ? (
           <div className="mt-4 text-[14px] text-[#85858A]">
             <Trans>Memory scope</Trans>
             <div className="mt-2 flex gap-2">
@@ -4779,17 +4866,21 @@ function BotSettings({
               memoryScope,
               autoSpeak,
               voiceId: voiceId || null,
-              modelProvider: selected?.provider ?? null,
-              modelId: selected?.modelId ?? null,
-              // Only clear thinking when catalog metadata is available; otherwise
-              // preserve the stored override if models.list failed or is still loading.
-              ...(modelMetaReady
-                ? {
-                    thinkingLevel: thinkingOptions.length
-                      ? ((thinkingLevel || null) as ThinkingLevel | null)
-                      : null,
-                  }
-                : {}),
+              ...(managed
+                ? {}
+                : {
+                    modelProvider: selected?.provider ?? null,
+                    modelId: selected?.modelId ?? null,
+                    // Only clear thinking when catalog metadata is available. Otherwise,
+                    // preserve the stored override if models.list failed or is still loading.
+                    ...(modelMetaReady
+                      ? {
+                          thinkingLevel: thinkingOptions.length
+                            ? ((thinkingLevel || null) as ThinkingLevel | null)
+                            : null,
+                        }
+                      : {}),
+                  }),
             })
               .catch((err) => setError(err instanceof Error ? err.message : t`Could not save`))
               .finally(() => setSaving(false));
@@ -4808,11 +4899,13 @@ function BotSettings({
         <button type="button" onClick={onClear} className="text-[14px] text-[#E65707]">
           <Trans>Clear conversation</Trans>
         </button>
-        <ComputerMaintenanceActions
-          botId={bot.id}
-          computer={computer}
-          onChanged={onComputerChanged}
-        />
+        {!managed ? (
+          <ComputerMaintenanceActions
+            botId={bot.id}
+            computer={computer}
+            onChanged={onComputerChanged}
+          />
+        ) : null}
       </div>
     </div>
   );
@@ -5236,7 +5329,7 @@ function computerPlaceholder(
 ) {
   if (state === "booting" || booting) return t`Booting live desktop…`;
   if (state === "running") return label;
-  if (state === "suspended") return t`Computer is asleep — take control to wake it`;
+  if (state === "suspended") return t`Computer is asleep. Take control to wake it`;
   if (state === "error") return t`Computer failed to boot`;
   return t`Computer is stopped`;
 }
@@ -5548,7 +5641,7 @@ function McpApprovalCard({
         <>
           <p className="mt-2 text-[13px] leading-[1.5]" style={{ color: "var(--bui-ink-2)" }}>
             {needsOAuth
-              ? t`This server uses browser sign-in. Authorize it to let your agents use its tools — a popup will open.`
+              ? t`This server uses browser sign-in. Authorize it to let your agents use its tools. A popup will open.`
               : t`Approve this server to let your agent use its tools.`}
           </p>
           {error ? <p className="mt-2 text-xs text-[#F07178]">{error}</p> : null}
@@ -5568,12 +5661,12 @@ function McpApprovalCard({
       ) : null}
       {state === "connected" ? (
         <div className="mt-3">
-          <SuccessPop label={t`Connected — its tools are available from your next message.`} />
+          <SuccessPop label={t`Connected. Its tools are available from your next message.`} />
         </div>
       ) : null}
       {state === "dismissed" ? (
         <p className="mt-2 text-[13px] text-[#85858A]">
-          <Trans>Dismissed — reconnect anytime from MCP settings.</Trans>
+          <Trans>Dismissed. Reconnect anytime from MCP settings.</Trans>
         </p>
       ) : null}
     </BuiCard>

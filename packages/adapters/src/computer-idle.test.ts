@@ -1,7 +1,12 @@
 import type { AgentHomeStore, JobPublisher, SandboxProvider } from "@rakazo/adapter-kit";
 import type { PrismaClient, ThreadEvents } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_SANDBOX_IDLE_MS, sandboxIdleMs, sleepComputerIfIdle } from "./computer-idle.js";
+import {
+  DEFAULT_SANDBOX_IDLE_MS,
+  sandboxIdleMs,
+  scheduleComputerSleep,
+  sleepComputerIfIdle,
+} from "./computer-idle.js";
 import {
   e2bCreateOptions,
   isUnrecoverableSandboxError,
@@ -20,6 +25,34 @@ describe("sandbox idle", () => {
       if (previous === undefined) delete process.env.SANDBOX_IDLE_MS;
       else process.env.SANDBOX_IDLE_MS = previous;
     }
+  });
+
+  it("treats publisher shutdown as an expected sleep-scheduling race", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const jobs = {
+      enqueue: vi.fn().mockRejectedValue(new Error("Background job publisher is closed")),
+    } as unknown as JobPublisher;
+
+    scheduleComputerSleep(jobs, "computer-id");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(jobs.enqueue).toHaveBeenCalledOnce();
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("reports an unexpected failure to schedule computer sleep", async () => {
+    const error = new Error("queue unavailable");
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const jobs = {
+      enqueue: vi.fn().mockRejectedValue(error),
+    } as unknown as JobPublisher;
+
+    scheduleComputerSleep(jobs, "computer-id");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(consoleError).toHaveBeenCalledWith("computer sleep scheduling failed", error);
+    consoleError.mockRestore();
   });
 
   it("does not suspend a computer while a run is active", async () => {

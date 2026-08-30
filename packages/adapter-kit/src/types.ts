@@ -5,6 +5,8 @@ export interface AdapterContext {
   traceId: string;
   workspaceId: string;
   userId: string;
+  /** Stable workspace-owned principal for managed background execution. */
+  serviceIdentityId?: string;
   botId?: string;
   runId?: string;
   /** Opaque fence for releasing a graphical screen without tearing down its replacement. */
@@ -354,7 +356,14 @@ export type AgentRuntimeEvent =
   | { type: "tool"; name: string; args: Record<string, unknown>; executionId: string }
   | { type: "ask"; text: string; detail?: string }
   | { type: "takeover"; reason: string }
-  | { type: "usage"; inputTokens: number; outputTokens: number; provider: string; model: string }
+  | {
+      type: "usage";
+      inputTokens: number;
+      outputTokens: number;
+      costMicros: number;
+      provider: string;
+      model: string;
+    }
   | { type: "checkpoint"; blob: string }
   | {
       type: "subagent";
@@ -451,4 +460,6 @@ export interface NotificationMessage {
   body: string;
   botId: string;
   threadId: string;
+  notificationId?: string;
+  actionTarget?: string;
 }

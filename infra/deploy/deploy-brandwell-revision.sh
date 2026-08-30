@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "Usage: $0 <staging|production> <40-character commit SHA>" >&2
+  exit 64
+}
+
+TARGET="${1:-}"
+DEPLOY_SHA="${2:-}"
+case "${TARGET}" in
+  staging)
+    DEFAULT_HEALTH_URL="https://staging-ai.brandwell.ai/health"
+    ;;
+  production)
+    DEFAULT_HEALTH_URL="https://ai.brandwell.ai/health"
+    ;;
+  *)
+    usage
+    ;;
+esac
+
+if [[ ! "${DEPLOY_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "Deployment revision must be a lowercase 40-character commit SHA" >&2
+  exit 64
+fi
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+REPO_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
+ENV_FILE="${BRANDWELL_ENV_FILE:-${REPO_DIR}/.env}"
+BACKUP_ROOT="${BRANDWELL_BACKUP_ROOT:-/var/backups/brandwell-aimee-${TARGET}}"
+HEALTH_URL="${BRANDWELL_HEALTH_URL:-${DEFAULT_HEALTH_URL}}"
+LOCK_FILE="${BRANDWELL_DEPLOY_LOCK_FILE:-/tmp/brandwell-aimee-${TARGET}.lock}"
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-brandwell-aimee-${TARGET}}"
+COMPOSE_FILE="${REPO_DIR}/infra/compose/docker-compose.prod.yml"
+
+if [[ ! -f "${ENV_FILE}" ]]; then
+  echo "BrandWell environment file is missing: ${ENV_FILE}" >&2
+  exit 66
+fi
+if [[ "${REPO_DIR}" == "/" || "${BACKUP_ROOT}" == "/" ]]; then
+  echo "Refusing to deploy with a broad repository or backup path" >&2
+  exit 64
+fi
+
+exec 9>"${LOCK_FILE}"
+if ! flock -n 9; then
+  echo "Another ${TARGET} deployment is already running" >&2
+  exit 75
+fi
+
+cd "${REPO_DIR}"
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+  echo "Deployment checkout has tracked local changes" >&2
+  exit 65
+fi
+
+PREVIOUS_SHA="$(git rev-parse HEAD)"
+compose=(docker compose --project-name "${COMPOSE_PROJECT_NAME}" --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}")
+
+backup_running_state() {
+  local running stamp snapshot_dir
+  running="$("${compose[@]}" ps --status running --services 2>/dev/null || true)"
+  if ! grep -qx "postgres" <<<"${running}"; then
+    echo "No running database found. Skipping the pre-deploy backup for this first start."
+    return
+  fi
+
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  snapshot_dir="${BACKUP_ROOT}/${stamp}-${PREVIOUS_SHA}"
+  install -d -m 700 "${BACKUP_ROOT}" "${snapshot_dir}"
+  # Expand these variables inside the Postgres container, not in the deployment shell.
+  # shellcheck disable=SC2016
+  "${compose[@]}" exec -T postgres sh -c \
+    'pg_dump --format=custom --no-owner --no-privileges -U "$POSTGRES_USER" "$POSTGRES_DB"' \
+    > "${snapshot_dir}/database.dump"
+  "${compose[@]}" exec -T postgres pg_restore --list \
+    < "${snapshot_dir}/database.dump" >/dev/null
+
+  if grep -qx "api" <<<"${running}"; then
+    "${compose[@]}" exec -T api tar -czf - -C /data . > "${snapshot_dir}/appdata.tgz"
+    tar -tzf "${snapshot_dir}/appdata.tgz" >/dev/null
+  fi
+
+  sha256sum "${snapshot_dir}"/* > "${snapshot_dir}/SHA256SUMS"
+  chmod 600 "${snapshot_dir}"/*
+  echo "Verified pre-deploy backup: ${snapshot_dir}"
+}
+
+start_revision() {
+  local revision="$1"
+  GIT_SHA="${revision}" "${compose[@]}" up -d --build --remove-orphans postgres api worker web caddy
+}
+
+wait_for_health() {
+  local expected_sha="$1" response
+  for _ in $(seq 1 24); do
+    if response="$(curl --fail --silent --show-error --max-time 10 "${HEALTH_URL}" 2>/dev/null)"; then
+      if grep -Fq "\"revision\":\"${expected_sha}\"" <<<"${response}"; then
+        echo "Healthy ${TARGET} revision ${expected_sha}"
+        return 0
+      fi
+    fi
+    sleep 5
+  done
+  return 1
+}
+
+backup_running_state
+git fetch --no-tags origin
+git cat-file -e "${DEPLOY_SHA}^{commit}"
+git checkout --detach "${DEPLOY_SHA}"
+
+if start_revision "${DEPLOY_SHA}" && wait_for_health "${DEPLOY_SHA}"; then
+  exit 0
+fi
+
+echo "Deployment failed health verification. Restoring ${PREVIOUS_SHA}." >&2
+git checkout --detach "${PREVIOUS_SHA}"
+start_revision "${PREVIOUS_SHA}"
+if ! wait_for_health "${PREVIOUS_SHA}"; then
+  echo "Rollback also failed health verification. Operator action is required." >&2
+  exit 70
+fi
+exit 1

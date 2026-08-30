@@ -49,8 +49,14 @@ export function OnboardingPage() {
   });
 
   useEffect(() => {
-    void Promise.all([rpc.me(), rpc.models.list().catch(() => [])])
-      .then(([me, models]) => {
+    void rpc
+      .me()
+      .then(async (me) => {
+        if (me.brandwell) {
+          navigate("/app", { replace: true });
+          return;
+        }
+        const models = await rpc.models.list().catch(() => []);
         setCatalog(models);
         const preferred =
           models.find(
@@ -68,7 +74,7 @@ export function OnboardingPage() {
     return () => {
       probeRequestIdRef.current += 1;
     };
-  }, []);
+  }, [navigate]);
 
   const providers = useMemo(() => {
     const seen = new Map<string, ModelCatalogEntry>();

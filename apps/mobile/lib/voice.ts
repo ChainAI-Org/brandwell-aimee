@@ -15,7 +15,7 @@ export async function speakUtterance(
     method: "POST",
     headers: {
       "content-type": "application/json",
-      origin: "rakazo://",
+      origin: "aimee://",
       ...(await authHeaders()),
     },
     body: JSON.stringify({ text, voiceId: opts.voiceId, botId: opts.botId }),

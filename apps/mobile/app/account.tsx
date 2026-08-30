@@ -1,9 +1,11 @@
+import { BRANDWELL_BRAND } from "@brandwell/aimee/brand-config";
 import type { AvatarStyle } from "@rakazo/contracts";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -14,6 +16,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAvatarStyle } from "../components/avatar-style";
 import { BotAvatar } from "../components/bot-avatar";
+import { NativeSymbol } from "../components/native-symbol";
 import type { MobileBot } from "../lib/api";
 import { deleteAccount, type MobileMe, rpc, signOut } from "../lib/api";
 import { confirmDeleteBot } from "../lib/bot-lifecycle";
@@ -120,6 +123,93 @@ export default function Account() {
     } finally {
       setPending(false);
     }
+  }
+
+  if (!me) {
+    return (
+      <View style={[styles.screen, styles.loading]}>
+        <ActivityIndicator color={BRANDWELL_BRAND.colors.accent} />
+      </View>
+    );
+  }
+
+  if (me.brandwell) {
+    const primaryBotId = me.brandwell.primaryBotId;
+    return (
+      <SafeAreaView edges={["bottom"]} style={styles.managedScreen}>
+        <ScrollView contentContainerStyle={styles.managedContent}>
+          <View style={styles.managedProfile}>
+            <View style={styles.managedAvatar}>
+              <Text style={styles.managedAvatarText}>{accountInitials(me.name)}</Text>
+            </View>
+            <View style={styles.managedProfileText}>
+              <Text style={styles.managedName}>{me.name || "Your account"}</Text>
+              <Text style={styles.managedEmail}>{me.email}</Text>
+            </View>
+          </View>
+
+          <View style={styles.managedPlan}>
+            <View style={styles.managedPlanTop}>
+              <View>
+                <Text style={styles.managedEyebrow}>BRANDWELL AIMEE</Text>
+                <Text style={styles.managedPlanTitle}>{planLabel(me.brandwell.plan)}</Text>
+              </View>
+              <Text style={styles.managedPlanStatus}>
+                {statusLabel(me.brandwell.subscriptionStatus)}
+              </Text>
+            </View>
+            <Text style={styles.managedPlanCopy}>
+              Your models, memory, routines, and computer are securely managed by BrandWell.
+            </Text>
+          </View>
+
+          <Text style={styles.managedSectionLabel}>WORKSPACE</Text>
+          <ManagedSettingRow
+            icon={{ ios: "link", android: "link" }}
+            title="Connected apps"
+            detail="Connect email, calendar, CRM, and work apps"
+            onPress={() => router.push("/integrations")}
+          />
+          {primaryBotId ? (
+            <ManagedSettingRow
+              icon={{ ios: "clock.arrow.circlepath", android: "time-outline" }}
+              title="Routines"
+              detail="Review AIMEE's recurring responsibilities"
+              onPress={() =>
+                router.push({ pathname: "/bot-settings", params: { botId: primaryBotId } })
+              }
+            />
+          ) : null}
+          <ManagedSettingRow
+            icon={{ ios: "creditcard", android: "card-outline" }}
+            title="Subscription and billing"
+            detail="Manage your BrandWell account and invoices"
+            onPress={() => void Linking.openURL(BRANDWELL_BRAND.portalUrl)}
+          />
+          <ManagedSettingRow
+            icon={{ ios: "questionmark.circle", android: "help-circle-outline" }}
+            title="BrandWell support"
+            detail={BRANDWELL_BRAND.supportEmail}
+            onPress={() => void Linking.openURL(`mailto:${BRANDWELL_BRAND.supportEmail}`)}
+          />
+
+          <Pressable
+            accessibilityRole="button"
+            disabled={pending}
+            onPress={() => void handleSignOut()}
+            style={({ pressed }) => [styles.managedSignOut, pressed && styles.pressed]}
+          >
+            <NativeSymbol
+              ios="rectangle.portrait.and.arrow.right"
+              android="log-out-outline"
+              size={18}
+              color={BRANDWELL_BRAND.colors.text}
+            />
+            <Text style={styles.managedSignOutText}>{pending ? "Signing out..." : "Sign out"}</Text>
+          </Pressable>
+        </ScrollView>
+      </SafeAreaView>
+    );
   }
 
   return (
@@ -286,11 +376,155 @@ export default function Account() {
   );
 }
 
+function ManagedSettingRow({
+  icon,
+  title,
+  detail,
+  onPress,
+}: {
+  icon: { ios: string; android: "link" | "time-outline" | "card-outline" | "help-circle-outline" };
+  title: string;
+  detail: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.managedRow, pressed && styles.pressed]}
+    >
+      <View style={styles.managedRowIcon}>
+        <NativeSymbol {...icon} size={19} color={BRANDWELL_BRAND.colors.accent} />
+      </View>
+      <View style={styles.managedProfileText}>
+        <Text style={styles.managedRowTitle}>{title}</Text>
+        <Text style={styles.managedRowDetail}>{detail}</Text>
+      </View>
+      <NativeSymbol ios="chevron.right" android="chevron-forward" size={18} color="#777985" />
+    </Pressable>
+  );
+}
+
+function accountInitials(name: string) {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  return `${parts[0]?.[0] ?? "B"}${parts[1]?.[0] ?? ""}`;
+}
+
+function planLabel(plan: string) {
+  if (plan.toLowerCase().includes("scale")) return "Scale plan";
+  if (plan.toLowerCase().includes("grow")) return "Grow plan";
+  if (plan.toLowerCase().includes("employee")) return "AI Employee plan";
+  return plan || "Managed plan";
+}
+
+function statusLabel(status: string) {
+  if (status === "active") return "Active";
+  if (status === "canceling") return "Canceling";
+  if (status === "canceled") return "Canceled";
+  return status;
+}
+
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: native.page,
   },
+  loading: { alignItems: "center", justifyContent: "center" },
+  managedScreen: { flex: 1, backgroundColor: BRANDWELL_BRAND.colors.background },
+  managedContent: { padding: 18, paddingBottom: 34, gap: 12 },
+  managedProfile: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 13,
+    paddingVertical: 8,
+    marginBottom: 4,
+  },
+  managedAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 16,
+    backgroundColor: BRANDWELL_BRAND.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  managedAvatarText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
+  managedProfileText: { flex: 1, minWidth: 0 },
+  managedName: { color: BRANDWELL_BRAND.colors.text, fontSize: 21, fontWeight: "800" },
+  managedEmail: { color: BRANDWELL_BRAND.colors.muted, fontSize: 14, marginTop: 4 },
+  managedPlan: {
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#343540",
+    backgroundColor: BRANDWELL_BRAND.colors.surface,
+    padding: 18,
+    gap: 13,
+    marginBottom: 8,
+  },
+  managedPlanTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+  },
+  managedEyebrow: {
+    color: BRANDWELL_BRAND.colors.accent,
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.25,
+  },
+  managedPlanTitle: {
+    color: BRANDWELL_BRAND.colors.text,
+    fontSize: 22,
+    fontWeight: "800",
+    marginTop: 5,
+  },
+  managedPlanStatus: { color: "#56D8A2", fontSize: 12, fontWeight: "800", marginTop: 2 },
+  managedPlanCopy: { color: BRANDWELL_BRAND.colors.muted, fontSize: 14, lineHeight: 21 },
+  managedSectionLabel: {
+    color: "#777985",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    marginTop: 8,
+    marginBottom: 2,
+  },
+  managedRow: {
+    minHeight: 70,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#2D2E36",
+    backgroundColor: BRANDWELL_BRAND.colors.surface,
+    paddingHorizontal: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  managedRowIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: "#2A1C35",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  managedRowTitle: { color: BRANDWELL_BRAND.colors.text, fontSize: 15, fontWeight: "700" },
+  managedRowDetail: {
+    color: BRANDWELL_BRAND.colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+  },
+  managedSignOut: {
+    minHeight: 52,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: "#3A3B45",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginTop: 10,
+  },
+  managedSignOutText: { color: BRANDWELL_BRAND.colors.text, fontSize: 15, fontWeight: "700" },
   content: {
     flexGrow: 1,
     padding: 20,

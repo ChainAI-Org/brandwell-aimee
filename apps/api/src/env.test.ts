@@ -33,13 +33,36 @@ describe("loadEnv", () => {
       DAYTONA_API_KEY: "test-daytona-key",
       DAYTONA_API_URL: "https://daytona.test/api",
       DAYTONA_TARGET: "test-target",
+      DAYTONA_SNAPSHOT: "brandwell-aimee-browser-v1",
+      DAYTONA_AUTO_STOP_INTERVAL: "15",
+      DAYTONA_AUTO_ARCHIVE_INTERVAL: "10080",
+      DAYTONA_AUTO_DELETE_INTERVAL: "-1",
+      DAYTONA_VNC_RESOLUTION: "1440x900",
+      DAYTONA_LOCALE: "en_US.UTF-8",
+      DAYTONA_TIMEZONE: "UTC",
     });
     expect(env).toMatchObject({
       sandboxProvider: "daytona",
       daytonaApiKey: "test-daytona-key",
       daytonaApiUrl: "https://daytona.test/api",
       daytonaTarget: "test-target",
+      daytonaSnapshot: "brandwell-aimee-browser-v1",
+      daytonaAutoStopInterval: 15,
+      daytonaAutoArchiveInterval: 10080,
+      daytonaAutoDeleteInterval: -1,
+      daytonaVncResolution: "1440x900",
+      daytonaLocale: "en_US.UTF-8",
+      daytonaTimezone: "UTC",
     });
+  });
+
+  it("rejects invalid Daytona lifecycle and display settings", () => {
+    expect(() => loadEnv({ ...base, DAYTONA_AUTO_STOP_INTERVAL: "1.5" })).toThrow(
+      /DAYTONA_AUTO_STOP_INTERVAL/,
+    );
+    expect(() => loadEnv({ ...base, DAYTONA_VNC_RESOLUTION: "wide" })).toThrow(
+      /DAYTONA_VNC_RESOLUTION/,
+    );
   });
 
   it("loads provider-specific Box configuration", () => {
@@ -91,5 +114,46 @@ describe("loadEnv", () => {
     expect(loadEnv(base).gitSha).toBeUndefined();
     expect(loadEnv({ ...base, GIT_SHA: "  3c6e209  " }).gitSha).toBe("3c6e209");
     expect(loadEnv({ ...base, RAKAZO_GIT_SHA: "abc1234" }).gitSha).toBe("abc1234");
+  });
+
+  it("requires both BrandWell platform connector settings", () => {
+    expect(() =>
+      loadEnv({
+        ...base,
+        BRANDWELL_PLATFORM_API_URL: "https://portal.example.test",
+      }),
+    ).toThrow(/configured together/);
+  });
+
+  it("loads the paired BrandWell platform connector settings", () => {
+    expect(
+      loadEnv({
+        ...base,
+        BRANDWELL_PLATFORM_API_URL: "https://portal.example.test",
+        BRANDWELL_PLATFORM_SERVICE_TOKEN: "test-service-token-0123456789abcdef",
+      }),
+    ).toMatchObject({
+      brandwellPlatformApiUrl: "https://portal.example.test",
+      brandwellPlatformServiceToken: "test-service-token-0123456789abcdef",
+    });
+  });
+
+  it("rejects weak BrandWell platform service tokens in every environment", () => {
+    expect(() =>
+      loadEnv({
+        ...base,
+        BRANDWELL_PLATFORM_API_URL: "https://portal.example.test",
+        BRANDWELL_PLATFORM_SERVICE_TOKEN: "too-short",
+      }),
+    ).toThrow(/at least 32 characters/);
+  });
+
+  it("rejects weak BrandWell management API tokens in every environment", () => {
+    expect(() =>
+      loadEnv({
+        ...base,
+        BRANDWELL_MANAGEMENT_API_TOKEN: "too-short",
+      }),
+    ).toThrow(/BRANDWELL_MANAGEMENT_API_TOKEN must be at least 32 characters/);
   });
 });

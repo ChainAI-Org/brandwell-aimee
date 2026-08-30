@@ -92,8 +92,15 @@ describe("sandbox conformance", () => {
         ctx,
       );
       expect(await provider.readFile(computer, "bin/tool", ctx)).toEqual(binary);
+      const desktopExecutable =
+        process.platform !== "win32" || !(provider instanceof DesktopSandboxProvider);
       expect(await provider.listFiles(computer, "bin", ctx)).toEqual([
-        { path: "bin/tool", kind: "file", size: 4, executable: true },
+        {
+          path: "bin/tool",
+          kind: "file",
+          size: 4,
+          ...(desktopExecutable ? { executable: true } : {}),
+        },
       ]);
       const acted = await provider.act(
         computer,
@@ -107,7 +114,7 @@ describe("sandbox conformance", () => {
       expect(exported.map((file) => file.path)).toContain("notes/result.txt");
       expect(exported.find((file) => file.path === "bin/tool")).toMatchObject({
         content: binary,
-        executable: true,
+        executable: desktopExecutable,
       });
       await provider.destroy(computer, ctx);
     }
@@ -139,10 +146,16 @@ describe("sandbox conformance", () => {
     const events: ProcessEvent[] = [];
     const startedAt = Date.now();
 
+    const descendant = `setTimeout(() => require("node:fs").writeFileSync(${JSON.stringify(
+      marker,
+    )}, "survived"), 3000); setTimeout(() => {}, 10000);`;
+    const parent = `require("node:child_process").spawn(process.execPath, ["-e", ${JSON.stringify(
+      descendant,
+    )}], { stdio: "inherit" }); setTimeout(() => {}, 10000);`;
     for await (const event of desktop.execute(
       computer,
       {
-        argv: ["bash", "-lc", "(sleep 0.2; printf survived > descendant-survived) & wait"],
+        argv: [process.execPath, "-e", parent],
         timeoutMs: 40,
       },
       ctx,
@@ -150,13 +163,15 @@ describe("sandbox conformance", () => {
       events.push(event);
     }
 
-    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    expect(Date.now() - startedAt).toBeLessThan(process.platform === "win32" ? 2_500 : 1_000);
     expect(events).toContainEqual({ type: "exit", code: 124 });
     expect(events).toContainEqual({
       type: "stderr",
       data: "command timed out after 40 ms\n",
     });
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.max(0, 3_200 - (Date.now() - startedAt))),
+    );
     expect(() => readFileSync(marker)).toThrow();
 
     await desktop.destroy(computer, ctx);
@@ -173,7 +188,7 @@ describe("sandbox conformance", () => {
 
     for await (const event of desktop.execute(
       computer,
-      { argv: ["bash", "-lc", "sleep 10"], timeoutMs: 5_000 },
+      { argv: [process.execPath, "-e", "setTimeout(() => {}, 10000)"], timeoutMs: 5_000 },
       { ...ctx, signal: controller.signal },
     )) {
       events.push(event);

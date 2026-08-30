@@ -30,27 +30,75 @@ const baseBot = {
   thread: { id: "thread-1", unread: false, messages: [] },
   runs: [],
   computer: null,
+  ownerType: "user",
+  visibility: "private",
+  managedByBrandWell: false,
+  managedStatus: "active",
 };
 
 function reposFor(memoryScope: string | null) {
+  const findMany = vi.fn(async () => [{ ...baseBot, memoryScope }]);
   const prisma = {
     bot: {
-      findMany: vi.fn(async () => [{ ...baseBot, memoryScope }]),
+      findMany,
     },
   };
-  return createRepos(prisma as unknown as PrismaClient);
+  return { repos: createRepos(prisma as unknown as PrismaClient), findMany };
 }
 
 describe("createRepos.listBots", () => {
   it("passes memoryScope through as null when unset", async () => {
-    await expect(reposFor(null).listBots(actor)).resolves.toEqual([
+    await expect(reposFor(null).repos.listBots(actor)).resolves.toEqual([
       expect.objectContaining({ memoryScope: null }),
     ]);
   });
 
   it("passes memoryScope through when set to shared", async () => {
-    await expect(reposFor("shared").listBots(actor)).resolves.toEqual([
+    await expect(reposFor("shared").repos.listBots(actor)).resolves.toEqual([
       expect.objectContaining({ memoryScope: "shared" }),
     ]);
+  });
+
+  it("lists workspace-owned managed employees for every workspace member", async () => {
+    const { repos, findMany } = reposFor(null);
+    await repos.listBots(actor);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          workspaceId: "ws-1",
+          OR: [{ userId: "user-1" }, { ownerType: "workspace", visibility: "workspace" }],
+        }),
+      }),
+    );
+  });
+});
+
+describe("createRepos.getBot", () => {
+  it("allows a workspace member to open a visible workspace-owned employee", async () => {
+    const findFirst = vi.fn(async () => ({
+      ...baseBot,
+      userId: "system-user",
+      ownerType: "workspace",
+      visibility: "workspace",
+      managedByBrandWell: true,
+      thread: { id: "thread-1", unread: false },
+    }));
+    const prisma = { bot: { findFirst } };
+    const repos = createRepos(prisma as unknown as PrismaClient);
+
+    await expect(repos.getBot(actor, "bot-1")).resolves.toMatchObject({
+      id: "bot-1",
+      managedByBrandWell: true,
+    });
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: "bot-1",
+          workspaceId: "ws-1",
+          OR: [{ userId: "user-1" }, { ownerType: "workspace", visibility: "workspace" }],
+          archivedAt: null,
+        },
+      }),
+    );
   });
 });

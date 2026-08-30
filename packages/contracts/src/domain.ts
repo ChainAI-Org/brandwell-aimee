@@ -49,6 +49,10 @@ export const BotSchema = z.object({
   modelProvider: z.string().nullable(),
   modelId: z.string().nullable(),
   thinkingLevel: ThinkingLevelSchema.nullable(),
+  ownerType: z.enum(["user", "workspace"]),
+  visibility: z.enum(["private", "workspace"]),
+  managedByBrandWell: z.boolean(),
+  managedStatus: z.string(),
 });
 export type Bot = z.infer<typeof BotSchema>;
 
@@ -516,6 +520,12 @@ export const ComputerStatusSchema = z.object({
   homeRevision: z.string().nullable(),
   busyBotName: z.string().nullable(),
   updateAvailable: z.boolean(),
+  controlUserId: Id.nullable(),
+  controlActorType: z.enum(["client", "brandwell_operator", "bot"]).nullable(),
+  controlActorName: z.string().nullable(),
+  controlStartedAt: z.string().nullable(),
+  lastScreenshotAt: z.string().nullable(),
+  lastComputerActivityAt: z.string().nullable(),
 });
 export type ComputerStatus = z.infer<typeof ComputerStatusSchema>;
 
@@ -796,8 +806,34 @@ export const MeSchema = z.object({
   computerHost: z.enum(["docker", "this-mac"]).nullable(),
   canChooseHostComputer: z.boolean(),
   avatarStyle: AvatarStyleSchema,
+  workspaceRole: z.string(),
+  brandwell: z
+    .object({
+      plan: z.string(),
+      subscriptionStatus: z.string(),
+      provisioningStatus: z.string(),
+      primaryBotId: Id.nullable(),
+    })
+    .nullable(),
 });
 export type Me = z.infer<typeof MeSchema>;
+
+export const BrandwellClientNotificationSchema = z.object({
+  id: Id,
+  botId: Id.nullable(),
+  runId: Id.nullable(),
+  type: z.string(),
+  title: z.string(),
+  body: z.string(),
+  severity: z.string(),
+  requiresAction: z.boolean(),
+  actionType: z.string().nullable(),
+  actionTarget: z.string().nullable(),
+  createdAt: z.string(),
+  readAt: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+});
+export type BrandwellClientNotification = z.infer<typeof BrandwellClientNotificationSchema>;
 
 export const AppBootstrapSchema = z.object({
   me: MeSchema,

@@ -646,7 +646,7 @@ describe("thread event reduction", () => {
       }),
     );
 
-    // Still mid-sentence — the tool call stays hidden, folded into the streaming text instead.
+    // Still mid-sentence. The tool call stays hidden, folded into the streaming text instead.
     expect(afterTool?.messages).toEqual([
       expect.objectContaining({
         id: "progress:run-1",
@@ -670,7 +670,7 @@ describe("thread event reduction", () => {
       }),
     );
 
-    // The sentence just finished — the completed sentence and the held-back tool call appear
+    // The sentence just finished. The completed sentence and the held-back tool call appear
     // together, in that order.
     expect(afterMore?.messages).toEqual([
       expect.objectContaining({
@@ -685,7 +685,7 @@ describe("thread event reduction", () => {
 
   it("survives a React StrictMode replay of the same event without double-counting", () => {
     // StrictMode invokes a setState updater twice per event in development to catch impure
-    // updaters — reduceThreadSnapshot(prev, event) must return the same result both times
+    // updaters. reduceThreadSnapshot(prev, event) must return the same result both times
     // rather than mutating its pending-tool-call bookkeeping a second time.
     const initial = snapshot([]);
     const afterNarration = reduceThreadSnapshot(
@@ -704,7 +704,7 @@ describe("thread event reduction", () => {
       payload: { name: "SLACK_FIND_CHANNELS" },
     });
 
-    // The tool call lands mid-sentence, so it's held back rather than flushed immediately —
+    // The tool call lands mid-sentence, so it's held back rather than flushed immediately.
     // exactly the state a naive module-level mutation would double-push on replay.
     const first = reduceThreadSnapshot(afterNarration, toolEvent);
     const replay = reduceThreadSnapshot(afterNarration, toolEvent);
@@ -720,7 +720,7 @@ describe("thread event reduction", () => {
       }),
     );
 
-    // A single tool call, not two — StrictMode's replay must not have pushed it twice.
+    // A single tool call, not two. StrictMode's replay must not have pushed it twice.
     expect(sentenceEnd?.messages).toEqual([
       expect.objectContaining({
         id: "progress:run-1",
@@ -1205,6 +1205,12 @@ function computer(overrides: Partial<ComputerStatus> = {}): ComputerStatus {
     homeRevision: null,
     busyBotName: null,
     updateAvailable: true,
+    controlUserId: null,
+    controlActorType: null,
+    controlActorName: null,
+    controlStartedAt: null,
+    lastScreenshotAt: null,
+    lastComputerActivityAt: null,
     ...overrides,
   };
 }

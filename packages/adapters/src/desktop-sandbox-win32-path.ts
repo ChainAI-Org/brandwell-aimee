@@ -55,12 +55,16 @@ type NtFns = {
 
 let cached: NtFns | undefined | null;
 
-/** True when real Win32 NT APIs loaded (false on Linux hosts that only mock win32). */
-export function win32NtRelativeAvailable(): boolean {
+/**
+ * True when the Win32 APIs can translate this Node file descriptor into a
+ * native HANDLE. Some Node distributions use a different CRT descriptor table,
+ * so loading the APIs alone is not sufficient proof that relative opens work.
+ */
+export function win32NtRelativeAvailable(fd: number): boolean {
   if (process.platform !== "win32") return false;
   try {
-    nt();
-    return true;
+    const handle = nt().getOsFhandle(fd) as number | bigint;
+    return handle !== -1 && handle !== -1n;
   } catch {
     cached = null;
     return false;

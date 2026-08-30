@@ -12,7 +12,10 @@ test("logout protects bot deep links and sign-in restores the session", async ({
   await page.goto("/sign-up");
   await expect(page.getByLabel("Name")).toHaveAttribute("autocomplete", "name");
   await expect(page.getByLabel("Email")).toHaveAttribute("autocomplete", "username");
-  await expect(page.getByLabel("Password")).toHaveAttribute("autocomplete", "new-password");
+  await expect(page.locator('input[name="password"]')).toHaveAttribute(
+    "autocomplete",
+    "new-password",
+  );
 
   await signup(page, email, password, userName);
   await completeOnboarding(page);
@@ -26,24 +29,27 @@ test("logout protects bot deep links and sign-in restores the session", async ({
   await captureScreenshot(page, testInfo, "36-account-menu");
 
   await page.getByRole("button", { name: "Log out" }).click();
-  await expect(page.getByRole("heading", { name: "Sign in to Rakazo" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign in to your account" })).toBeVisible();
   await page.goto("/");
-  await expect(page.getByText(/Your team of always-on agents/)).toBeVisible();
-  await expect(page.getByRole("button", { name: /Sign in/ })).toBeVisible();
+  await expect(page.getByText(/Your AI employee, with its own computer/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open AIMEE" })).toBeVisible();
   await captureScreenshot(page, testInfo, "37-logged-out-welcome");
 
   await page.goto(protectedBotPath);
   await page.waitForURL((url) => url.pathname === "/sign-in");
-  await expect(page.getByRole("heading", { name: "Sign in to Rakazo" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Sign in to your account" })).toBeVisible();
   await expect(page.getByText("Chief", { exact: true })).toHaveCount(0);
   await expect(page.getByText(userName, { exact: true })).toHaveCount(0);
   await expect(page.getByLabel("Email")).toHaveAttribute("autocomplete", "username");
-  await expect(page.getByLabel("Password")).toHaveAttribute("autocomplete", "current-password");
+  await expect(page.locator('input[name="password"]')).toHaveAttribute(
+    "autocomplete",
+    "current-password",
+  );
   await captureScreenshot(page, testInfo, "38-protected-deep-link-sign-in");
 
-  await page.getByPlaceholder("Your email address").fill(email);
+  await page.getByLabel("Email").fill(email);
   await page.getByPlaceholder("Password").fill("wrong-password12");
-  await page.getByRole("button", { name: "Continue with email" }).click();
+  await page.getByRole("button", { name: "Sign in" }).click();
   await expect(
     page
       .locator("form")
@@ -53,7 +59,7 @@ test("logout protects bot deep links and sign-in restores the session", async ({
   await captureScreenshot(page, testInfo, "39-invalid-credentials");
 
   await page.getByPlaceholder("Password").fill(password);
-  await page.getByRole("button", { name: "Continue with email" }).click();
+  await page.getByRole("button", { name: "Sign in" }).click();
   await page.waitForURL((url) => url.pathname === protectedBotPath, {
     timeout: 20_000,
   });

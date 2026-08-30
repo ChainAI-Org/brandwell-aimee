@@ -12,6 +12,7 @@ import {
   BotMcpServerSchema,
   BotSchema,
   BotSectionSchema,
+  BrandwellClientNotificationSchema,
   CapabilityInstallSchema,
   ComputerModeSchema,
   ComputerReleaseReasonSchema,
@@ -535,6 +536,11 @@ export const appContract = {
     registerPush: oc
       .input(z.object({ token: z.string().min(8).max(512) }))
       .output(z.object({ ok: z.literal(true) })),
+    list: oc
+      .input(z.object({ includeResolved: z.boolean().optional() }))
+      .output(z.array(BrandwellClientNotificationSchema)),
+    markRead: oc.input(z.object({ notificationId: Id })).output(BrandwellClientNotificationSchema),
+    resolve: oc.input(z.object({ notificationId: Id })).output(BrandwellClientNotificationSchema),
   },
   search: {
     query: oc.input(z.object({ q: z.string().max(200) })).output(SearchQueryOutputSchema),

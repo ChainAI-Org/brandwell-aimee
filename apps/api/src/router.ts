@@ -106,6 +106,7 @@ import {
   resolveBusyBotName,
   toComputerStatus,
 } from "./computer-status.js";
+import { connectionOwnerWhere, resolveConnectionOwner } from "./connection-owner.js";
 import { buildMcpUpdateMaterial } from "./mcp-material.js";
 import { chooseFocus, markAppConnected, startOnboarding } from "./onboarding.js";
 import { listWorkspaceRuns } from "./runs.js";
@@ -547,6 +548,7 @@ export function createRouter(deps: RouterDeps) {
       ),
       duplicate: authed.bots.duplicate.handler(async ({ context, input }) => {
         const source = await repos.getBot(context.actor, input.botId);
+        rejectManagedBotLifecycleChange(source, "duplicate");
         const duplicate = await repos.createBot(context.actor, {
           name: duplicateBotName(source.name),
           title: source.title,
@@ -582,6 +584,14 @@ export function createRouter(deps: RouterDeps) {
       }),
       update: authed.bots.update.handler(async ({ context, input }) => {
         const existing = await repos.getBot(context.actor, input.botId);
+        if (existing.managedByBrandWell) {
+          await requireWorkspaceOwner(deps.prisma, context.actor);
+          if (input.modelProvider !== undefined || input.modelId !== undefined) {
+            throw new ORPCError("FORBIDDEN", {
+              message: "BrandWell manages the model for this AI employee.",
+            });
+          }
+        }
         if (input.sectionId) {
           const section = await deps.prisma.botSection.findFirst({
             where: {
@@ -660,6 +670,11 @@ export function createRouter(deps: RouterDeps) {
       }),
       setComputer: authed.bots.setComputer.handler(async ({ context, input }) => {
         const bot = await repos.getBot(context.actor, input.botId);
+        if (bot.managedByBrandWell) {
+          throw new ORPCError("FORBIDDEN", {
+            message: "BrandWell manages the computer assigned to this AI employee.",
+          });
+        }
         if (!bot.computer) throw new IsolationError();
         const currentMode = bot.computer.scope === "dedicated" ? "dedicated" : "team";
         if (currentMode === input.mode) {
@@ -716,6 +731,7 @@ export function createRouter(deps: RouterDeps) {
       }),
       archive: authed.bots.archive.handler(async ({ context, input }) => {
         const bot = await repos.getBot(context.actor, input.botId, { includeArchived: true });
+        rejectManagedBotLifecycleChange(bot, "archive");
         await archiveBot(
           {
             prisma: deps.prisma,
@@ -732,12 +748,14 @@ export function createRouter(deps: RouterDeps) {
       }),
       restore: authed.bots.restore.handler(async ({ context, input }) => {
         const bot = await repos.getBot(context.actor, input.botId, { includeArchived: true });
+        rejectManagedBotLifecycleChange(bot, "restore");
         if (!bot.archivedAt) return { ok: true as const };
         await deps.prisma.bot.update({ where: { id: bot.id }, data: { archivedAt: null } });
         return { ok: true as const };
       }),
       remove: authed.bots.remove.handler(async ({ context, input }) => {
         const bot = await repos.getBot(context.actor, input.botId, { includeArchived: true });
+        rejectManagedBotLifecycleChange(bot, "remove");
         await destroyBot(
           {
             prisma: deps.prisma,
@@ -873,7 +891,7 @@ export function createRouter(deps: RouterDeps) {
         // generation also covers a compaction job that began just after the clear committed.
         if (configuredMemory) {
           // Best effort: the conversation rows are already deleted, so failing the clear here
-          // would help nothing — a failed purge only leaves stale summaries recallable.
+          // would help nothing. A failed purge only leaves stale summaries recallable.
           try {
             const purged = await configuredMemory.provider.purgeHistory(
               {
@@ -1225,6 +1243,10 @@ export function createRouter(deps: RouterDeps) {
             controlLeaseExpiresAt: expiresAt,
             controlBotId: bot.id,
             controlRunId: waitingForTakeover ? executionLease?.runId : null,
+            controlUserId: context.actor.userId,
+            controlActorType: "client",
+            controlActorName: context.actor.email,
+            controlStartedAt: new Date(),
             state: "running",
           },
         });
@@ -1590,6 +1612,9 @@ export function createRouter(deps: RouterDeps) {
           });
         }
         const bot = await repos.getBot(context.actor, input.botId);
+        const managedBot = bot.managedByBrandWell
+          ? await requireManagedBotOwner(deps.prisma, context.actor, bot.id)
+          : null;
         // Validate every recurring cron even when inactive; @once has no next date.
         let nextRunAt: Date | null = null;
         if (!isOneShotRoutineCrons(input.crons)) {
@@ -1601,6 +1626,7 @@ export function createRouter(deps: RouterDeps) {
             workspaceId: context.actor.workspaceId,
             botId: input.botId,
             userId: context.actor.userId,
+            serviceIdentityId: managedBot?.serviceIdentityId ?? null,
             name: input.name,
             prompt: input.prompt,
             crons: input.crons,
@@ -1629,10 +1655,15 @@ export function createRouter(deps: RouterDeps) {
           where: {
             id: input.routineId,
             workspaceId: context.actor.workspaceId,
-            userId: context.actor.userId,
           },
         });
         if (!existing) throw new IsolationError();
+        const existingBot = await repos.getBot(context.actor, existing.botId);
+        if (existingBot.managedByBrandWell) {
+          await requireManagedBotOwner(deps.prisma, context.actor, existingBot.id);
+        } else if (existing.userId !== context.actor.userId) {
+          throw new IsolationError();
+        }
         const active = input.active ?? existing.active;
         const crons = input.crons ?? existing.crons;
         const timezone = input.timezone ?? existing.timezone;
@@ -1707,6 +1738,12 @@ export function createRouter(deps: RouterDeps) {
           where: { id: input.routineId, workspaceId: context.actor.workspaceId },
         });
         if (!existing) throw new IsolationError();
+        const bot = await repos.getBot(context.actor, existing.botId);
+        if (bot.managedByBrandWell) {
+          await requireManagedBotOwner(deps.prisma, context.actor, bot.id);
+        } else if (existing.userId !== context.actor.userId) {
+          throw new IsolationError();
+        }
         await deps.prisma.routine.delete({ where: { id: existing.id } });
         await deps.jobs.cancel(routineJobKey(existing.id));
         return { ok: true as const };
@@ -1716,11 +1753,15 @@ export function createRouter(deps: RouterDeps) {
           where: {
             id: input.routineId,
             workspaceId: context.actor.workspaceId,
-            userId: context.actor.userId,
           },
         });
         if (!routine) throw new IsolationError();
         const bot = await repos.getBot(context.actor, routine.botId);
+        if (bot.managedByBrandWell) {
+          await requireManagedBotOwner(deps.prisma, context.actor, bot.id);
+        } else if (routine.userId !== context.actor.userId) {
+          throw new IsolationError();
+        }
         if (!bot.thread) throw new IsolationError();
         const threadId = bot.thread.id;
         const nonce = input.clientNonce ? `routine-test:${input.clientNonce}` : undefined;
@@ -1764,6 +1805,7 @@ export function createRouter(deps: RouterDeps) {
                 status: "queued",
                 trigger: "routine",
                 routineId: routine.id,
+                serviceIdentityId: routine.serviceIdentityId,
                 clientNonce: nonce,
               },
               select: { id: true },
@@ -1780,7 +1822,7 @@ export function createRouter(deps: RouterDeps) {
           throw error;
         }
         // Keep enqueue outside the nonce-collision catch. The queued run is durable;
-        // log enqueue failures and still return success — the reconciler repairs a missed wake.
+        // Log enqueue failures and still return success. The reconciler repairs a missed wake.
         await deps.jobs.enqueue(runContinueJob(run.id)).catch((error) => {
           console.error("routine testRun enqueue", error);
         });
@@ -2438,11 +2480,8 @@ export function createRouter(deps: RouterDeps) {
     },
     connections: {
       catalog: authed.connections.catalog.handler(async ({ context, input }) => {
-        const adapterContext = connectionContext(
-          context.actor,
-          "connections.catalog",
-          context.signal,
-        );
+        const owner = await resolveConnectionOwner(deps.prisma, context.actor);
+        const adapterContext = connectionContext(owner, "connections.catalog", context.signal);
         const providers = input.connectorId
           ? [deps.connectors.managed(input.connectorId)].filter(
               (provider): provider is NonNullable<typeof provider> => Boolean(provider),
@@ -2456,7 +2495,7 @@ export function createRouter(deps: RouterDeps) {
               if (nowConnected.length > 0) {
                 await reconcilePendingConnections(
                   deps.prisma,
-                  context.actor,
+                  owner,
                   provider.describe().id,
                   nowConnected,
                 ).catch((error) => {
@@ -2475,8 +2514,9 @@ export function createRouter(deps: RouterDeps) {
         return catalogs.flat();
       }),
       list: authed.connections.list.handler(async ({ context }) => {
+        const owner = await resolveConnectionOwner(deps.prisma, context.actor);
         const rows = await deps.prisma.connection.findMany({
-          where: { workspaceId: context.actor.workspaceId, userId: context.actor.userId },
+          where: connectionOwnerWhere(owner),
         });
         return rows.map((row) => ({
           id: row.id,
@@ -2489,6 +2529,7 @@ export function createRouter(deps: RouterDeps) {
         }));
       }),
       begin: authed.connections.begin.handler(async ({ context, input }) => {
+        const owner = await resolveConnectionOwner(deps.prisma, context.actor);
         const connector = deps.connectors.managed(input.connectorId);
         if (!connector) {
           throw new ORPCError("BAD_REQUEST", {
@@ -2497,8 +2538,10 @@ export function createRouter(deps: RouterDeps) {
         }
         const row = await deps.prisma.connection.create({
           data: {
-            workspaceId: context.actor.workspaceId,
-            userId: context.actor.userId,
+            workspaceId: owner.workspaceId,
+            userId: owner.userId,
+            ownerType: owner.ownerType,
+            serviceIdentityId: owner.serviceIdentityId,
             connectorId: input.connectorId,
             provider: input.provider,
             displayName: input.displayName,
@@ -2508,7 +2551,7 @@ export function createRouter(deps: RouterDeps) {
         try {
           const auth = await connector.begin(
             { provider: input.provider, redirectUrl: `${deps.env.webOrigin}/app` },
-            connectionContext(context.actor, "connections.begin", context.signal),
+            connectionContext(owner, "connections.begin", context.signal),
           );
           await deps.prisma.connection.update({
             where: { id: row.id },
@@ -2528,11 +2571,11 @@ export function createRouter(deps: RouterDeps) {
         }
       }),
       complete: authed.connections.complete.handler(async ({ context, input }) => {
+        const owner = await resolveConnectionOwner(deps.prisma, context.actor);
         const existing = await deps.prisma.connection.findFirst({
           where: {
             id: input.connectionId,
-            workspaceId: context.actor.workspaceId,
-            userId: context.actor.userId,
+            ...connectionOwnerWhere(owner),
           },
         });
         if (!existing) throw new IsolationError();
@@ -2549,14 +2592,14 @@ export function createRouter(deps: RouterDeps) {
             try {
               await connector.complete(
                 { state, code: input.code },
-                connectionContext(context.actor, "connections.complete", context.signal),
+                connectionContext(owner, "connections.complete", context.signal),
               );
             } catch (error) {
               throw new ORPCError("BAD_REQUEST", { message: sanitizeComposioError(error) });
             }
           }
           const ready = await connector.connectionReady(
-            connectionContext(context.actor, "connections.complete", context.signal),
+            connectionContext(owner, "connections.complete", context.signal),
             existing.provider,
           );
           if (ready) {
@@ -2577,11 +2620,11 @@ export function createRouter(deps: RouterDeps) {
         };
       }),
       revoke: authed.connections.revoke.handler(async ({ context, input }) => {
+        const owner = await resolveConnectionOwner(deps.prisma, context.actor);
         const row = await deps.prisma.connection.findFirst({
           where: {
             id: input.connectionId,
-            workspaceId: context.actor.workspaceId,
-            userId: context.actor.userId,
+            ...connectionOwnerWhere(owner),
           },
         });
         if (row) {
@@ -2594,7 +2637,7 @@ export function createRouter(deps: RouterDeps) {
           try {
             await connector.revoke(
               row.provider,
-              connectionContext(context.actor, "connections.revoke", context.signal),
+              connectionContext(owner, "connections.revoke", context.signal),
             );
           } catch (error) {
             throw new ORPCError("BAD_REQUEST", { message: sanitizeComposioError(error) });
@@ -2603,8 +2646,7 @@ export function createRouter(deps: RouterDeps) {
         await deps.prisma.connection.updateMany({
           where: {
             id: input.connectionId,
-            workspaceId: context.actor.workspaceId,
-            userId: context.actor.userId,
+            ...connectionOwnerWhere(owner),
           },
           data: { status: "revoked" },
         });
@@ -2669,13 +2711,15 @@ export function createRouter(deps: RouterDeps) {
     },
     artifacts: {
       list: authed.artifacts.list.handler(async ({ context, input }) => {
-        await repos.getBot(context.actor, input.botId);
+        const bot = await repos.getBot(context.actor, input.botId);
         const rows = await deps.prisma.artifact.findMany({
           where: {
             botId: input.botId,
             groupId: null,
             workspaceId: context.actor.workspaceId,
-            userId: context.actor.userId,
+            ...(bot.ownerType === "workspace" && bot.visibility === "workspace"
+              ? {}
+              : { userId: context.actor.userId }),
           },
         });
         return rows.map((row) => ({
@@ -2714,11 +2758,13 @@ export function createRouter(deps: RouterDeps) {
             contextBotId,
           });
         }
-        await repos.getBot(context.actor, input.botId!);
+        const bot = await repos.getBot(context.actor, input.botId!);
         try {
           return await getOwnedArtifact(deps, context.actor, {
             botId: input.botId!,
             artifactId: input.artifactId,
+            allowWorkspaceBotAccess:
+              bot.ownerType === "workspace" && bot.visibility === "workspace",
           });
         } catch (error) {
           if (error instanceof IsolationError) throw error;
@@ -2813,6 +2859,47 @@ export function createRouter(deps: RouterDeps) {
       registerPush: authed.notifications.registerPush.handler(async ({ context, input }) => {
         await savePushToken(deps.dataDir, context.actor.userId, input.token);
         return { ok: true as const };
+      }),
+      list: authed.notifications.list.handler(async ({ context, input }) => {
+        const rows = await deps.prisma.brandwellClientNotification.findMany({
+          where: {
+            workspaceId: context.actor.workspaceId,
+            ...(input.includeResolved ? {} : { resolvedAt: null }),
+          },
+          orderBy: [{ requiresAction: "desc" }, { readAt: "asc" }, { createdAt: "desc" }],
+          take: 50,
+        });
+        return rows.map(brandwellClientNotificationDto);
+      }),
+      markRead: authed.notifications.markRead.handler(async ({ context, input }) => {
+        const row = await deps.prisma.brandwellClientNotification.findFirst({
+          where: { id: input.notificationId, workspaceId: context.actor.workspaceId },
+        });
+        if (!row) throw new ORPCError("NOT_FOUND");
+        const updated = row.readAt
+          ? row
+          : await deps.prisma.brandwellClientNotification.update({
+              where: { id: row.id },
+              data: { readAt: new Date() },
+            });
+        return brandwellClientNotificationDto(updated);
+      }),
+      resolve: authed.notifications.resolve.handler(async ({ context, input }) => {
+        const row = await deps.prisma.brandwellClientNotification.findFirst({
+          where: { id: input.notificationId, workspaceId: context.actor.workspaceId },
+        });
+        if (!row) throw new ORPCError("NOT_FOUND");
+        const updated = row.resolvedAt
+          ? row
+          : await deps.prisma.brandwellClientNotification.update({
+              where: { id: row.id },
+              data: {
+                readAt: row.readAt ?? new Date(),
+                resolvedAt: new Date(),
+                resolvedBy: context.actor.userId,
+              },
+            });
+        return brandwellClientNotificationDto(updated);
       }),
     },
     search: {
@@ -2912,26 +2999,64 @@ export function createRouter(deps: RouterDeps) {
 }
 
 async function meDto(deps: RouterDeps, actor: Actor): Promise<Me> {
-  const [user, cred, settings] = await Promise.all([
+  const [user, cred, settings, member, brandwell, managedCredential] = await Promise.all([
     deps.prisma.user.findUniqueOrThrow({ where: { id: actor.userId } }),
     findDefaultModelCredential(deps.prisma, actor),
     deps.prisma.deploymentSettings.findUnique({ where: { id: "default" } }),
+    deps.prisma.member.findFirst({
+      where: { organizationId: actor.workspaceId, userId: actor.userId },
+      select: { role: true },
+    }),
+    deps.prisma.brandwellAiWorkspace.findUnique({
+      where: { rakazoWorkspaceId: actor.workspaceId },
+      select: {
+        plan: true,
+        subscriptionStatus: true,
+        provisioningStatus: true,
+        primaryBotId: true,
+      },
+    }),
+    deps.prisma.brandwellWorkspaceModelCredential.findUnique({
+      where: { workspaceId: actor.workspaceId },
+      select: { provider: true, preferredModel: true, status: true, disabledAt: true },
+    }),
   ]);
   const hasDeployment = Boolean(
     settings?.deploymentModelCredentialCipher || deps.env.deploymentModelKey,
   );
+  const activeManagedCredential =
+    managedCredential?.status === "active" && !managedCredential.disabledAt
+      ? managedCredential
+      : null;
   return {
     userId: actor.userId,
     email: user.email,
     name: user.name,
     workspaceId: actor.workspaceId,
     isDeploymentOwner: actor.isDeploymentOwner,
-    needsModel: !cred && !hasDeployment,
-    defaultProvider: cred?.provider ?? settings?.defaultModelProvider ?? deps.env.defaultProvider,
-    defaultModel: cred?.defaultModel ?? settings?.defaultModelId ?? deps.env.defaultModel,
+    needsModel: brandwell ? false : !cred && !hasDeployment,
+    defaultProvider:
+      activeManagedCredential?.provider ??
+      cred?.provider ??
+      settings?.defaultModelProvider ??
+      deps.env.defaultProvider,
+    defaultModel:
+      activeManagedCredential?.preferredModel ??
+      cred?.defaultModel ??
+      settings?.defaultModelId ??
+      deps.env.defaultModel,
     computerHost: computerHostFor(settings?.computerHost, deps.env.sandboxProvider),
     canChooseHostComputer: actor.isDeploymentOwner && deps.env.sandboxProvider === "docker",
     avatarStyle: user.avatarStyle === "organic" ? "organic" : "robot",
+    workspaceRole: member?.role ?? "member",
+    brandwell: brandwell
+      ? {
+          plan: brandwell.plan,
+          subscriptionStatus: brandwell.subscriptionStatus,
+          provisioningStatus: brandwell.provisioningStatus,
+          primaryBotId: brandwell.primaryBotId,
+        }
+      : null,
   };
 }
 
@@ -3155,6 +3280,44 @@ async function requireWorkspaceOwner(prisma: PrismaClient, actor: Actor): Promis
   if (!roles?.includes("owner")) throw new ORPCError("FORBIDDEN");
 }
 
+async function requireManagedBotOwner(prisma: PrismaClient, actor: Actor, botId: string) {
+  await requireWorkspaceOwner(prisma, actor);
+  const bot = await prisma.bot.findFirst({
+    where: {
+      id: botId,
+      workspaceId: actor.workspaceId,
+      ownerType: "workspace",
+      visibility: "workspace",
+      managedByBrandWell: true,
+    },
+    select: { serviceIdentityId: true },
+  });
+  if (!bot) throw new IsolationError();
+  if (!bot.serviceIdentityId) {
+    throw new ORPCError("PRECONDITION_FAILED", {
+      message: "This AI employee is still being provisioned.",
+    });
+  }
+  return bot;
+}
+
+function rejectManagedBotLifecycleChange(
+  bot: { managedByBrandWell: boolean },
+  action: "duplicate" | "archive" | "restore" | "remove",
+) {
+  if (!bot.managedByBrandWell) return;
+  throw new ORPCError("FORBIDDEN", {
+    message: `BrandWell manages this AI employee. It cannot be ${managedBotActionLabel(action)} here.`,
+  });
+}
+
+function managedBotActionLabel(action: "duplicate" | "archive" | "restore" | "remove") {
+  if (action === "duplicate") return "duplicated";
+  if (action === "archive") return "archived";
+  if (action === "restore") return "restored";
+  return "removed";
+}
+
 export async function persistMemoryProviderConfig(
   deps: RouterDeps,
   actor: Actor,
@@ -3246,6 +3409,38 @@ function serializeWorkspaceMemoryConfig(config: {
     settings: toStringRecord(config.settings),
     defaultMemoryScope: config.defaultMemoryScope as "isolated" | "shared",
     updatedAt: config.updatedAt.toISOString(),
+  };
+}
+
+function brandwellClientNotificationDto(row: {
+  id: string;
+  botId: string | null;
+  runId: string | null;
+  type: string;
+  title: string;
+  body: string;
+  severity: string;
+  requiresAction: boolean;
+  actionType: string | null;
+  actionTarget: string | null;
+  createdAt: Date;
+  readAt: Date | null;
+  resolvedAt: Date | null;
+}) {
+  return {
+    id: row.id,
+    botId: row.botId,
+    runId: row.runId,
+    type: row.type,
+    title: row.title,
+    body: row.body,
+    severity: row.severity,
+    requiresAction: row.requiresAction,
+    actionType: row.actionType,
+    actionTarget: row.actionTarget,
+    createdAt: row.createdAt.toISOString(),
+    readAt: row.readAt?.toISOString() ?? null,
+    resolvedAt: row.resolvedAt?.toISOString() ?? null,
   };
 }
 

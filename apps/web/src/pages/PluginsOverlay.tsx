@@ -31,10 +31,12 @@ export function PluginsOverlay({
   onClose,
   onOpenMcp,
   activeBotId,
+  managed = false,
 }: {
   onClose: () => void;
   onOpenMcp?: () => void;
   activeBotId?: string;
+  managed?: boolean;
 }) {
   const { t } = useLingui();
   const [query, setQuery] = useState("");
@@ -233,8 +235,15 @@ export function PluginsOverlay({
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-[rgba(4,4,5,.62)] p-10">
       <div className="flex h-[760px] w-[1080px] max-w-full flex-col overflow-hidden rounded-[26px] border border-[#232326] bg-[#141416] shadow-[0_40px_90px_rgba(0,0,0,.55)]">
         <div className="flex items-start justify-between px-8 pt-7">
-          <div className="text-2xl font-medium text-[#F1F1F2]">
-            <Trans>Integrations</Trans>
+          <div>
+            <div className="text-2xl font-medium text-[#F1F1F2]">
+              {managed ? "Connect apps" : <Trans>Integrations</Trans>}
+            </div>
+            {managed ? (
+              <p className="mt-1 text-[13px] text-[#85858A]">
+                Connect the apps AIMEE can use for this workspace.
+              </p>
+            ) : null}
           </div>
           <button
             type="button"
@@ -394,193 +403,202 @@ export function PluginsOverlay({
             </div>
           ) : null}
 
-          <details
-            data-testid="integrations-advanced"
-            className="group mt-8"
-            onToggle={(event) => {
-              if (!(event.currentTarget as HTMLDetailsElement).open) {
-                setSourceKind(null);
-                setSourceError(null);
-                setSourceName("");
-                setSourceUrl("");
-                setCredential("");
-                setAuthType("none");
-                setAuthName("x-api-key");
-              }
-            }}
-          >
-            <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[14px] text-[#85858A]">
-              <span className="text-[#85858A]">
-                <Trans>Advanced</Trans>
-              </span>
-              <span aria-hidden="true" className="transition-transform group-open:rotate-90">
-                ›
-              </span>
-            </summary>
+          {!managed ? (
+            <details
+              data-testid="integrations-advanced"
+              className="group mt-8"
+              onToggle={(event) => {
+                if (!(event.currentTarget as HTMLDetailsElement).open) {
+                  setSourceKind(null);
+                  setSourceError(null);
+                  setSourceName("");
+                  setSourceUrl("");
+                  setCredential("");
+                  setAuthType("none");
+                  setAuthName("x-api-key");
+                }
+              }}
+            >
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[14px] text-[#85858A]">
+                <span className="text-[#85858A]">
+                  <Trans>Advanced</Trans>
+                </span>
+                <span aria-hidden="true" className="transition-transform group-open:rotate-90">
+                  ›
+                </span>
+              </summary>
 
-            <div className="mt-4 space-y-4">
-              {onOpenMcp ? (
-                <button
-                  type="button"
-                  onClick={onOpenMcp}
-                  className="rounded-full border border-[#383844] px-3 py-1.5 text-xs text-[#C9C9CE] hover:bg-[#232327]"
-                >
-                  <Trans>MCP servers</Trans>
-                </button>
-              ) : null}
-
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="pill" size="sm" onClick={() => beginSource("mcp")}>
-                  <Trans>Add MCP server</Trans>
-                </Button>
-                <Button type="button" variant="pill" size="sm" onClick={() => beginSource("api")}>
-                  <Trans>Add OpenAPI</Trans>
-                </Button>
-                <Button type="button" variant="pill" size="sm" onClick={() => beginSource("treg")}>
-                  <Trans>Add Treg</Trans>
-                </Button>
-              </div>
-
-              {sourceError ? <p className="text-sm text-[#C94244]">{sourceError}</p> : null}
-
-              {sourceKind ? (
-                <div className="space-y-3 rounded-[16px] border border-[#2C2C30] bg-[#101012] p-5">
-                  <div className="text-base font-medium text-[#ECECEE]">
-                    {sourceKind === "treg" ? (
-                      <Trans>Connect Treg</Trans>
-                    ) : sourceKind === "mcp" ? (
-                      <Trans>Add remote MCP server</Trans>
-                    ) : (
-                      <Trans>Import OpenAPI JSON</Trans>
-                    )}
-                  </div>
-                  <input
-                    value={sourceName}
-                    onChange={(event) => setSourceName(event.target.value)}
-                    placeholder={t`Display name`}
-                    className="w-full rounded-xl border border-[#2C2C30] bg-[#171719] px-3 py-2.5 text-sm text-[#ECECEE] outline-none"
-                  />
-                  {sourceKind !== "treg" ? (
-                    <input
-                      value={sourceUrl}
-                      onChange={(event) => setSourceUrl(event.target.value)}
-                      placeholder={
-                        sourceKind === "mcp"
-                          ? "https://example.com/mcp"
-                          : "https://example.com/openapi.json"
-                      }
-                      className="w-full rounded-xl border border-[#2C2C30] bg-[#171719] px-3 py-2.5 text-sm text-[#ECECEE] outline-none"
-                    />
-                  ) : null}
-                  {sourceKind !== "treg" ? (
-                    <select
-                      value={authType}
-                      onChange={(event) => setAuthType(event.target.value as typeof authType)}
-                      className="w-full rounded-xl border border-[#2C2C30] bg-[#171719] px-3 py-2.5 text-sm text-[#ECECEE] outline-none"
-                    >
-                      <option value="none">
-                        <Trans>No authentication</Trans>
-                      </option>
-                      <option value="bearer">
-                        <Trans>Bearer token</Trans>
-                      </option>
-                      <option value="header">
-                        <Trans>API key header</Trans>
-                      </option>
-                    </select>
-                  ) : null}
-                  {authType === "header" && sourceKind !== "treg" ? (
-                    <input
-                      value={authName}
-                      onChange={(event) => setAuthName(event.target.value)}
-                      placeholder={t`Header name`}
-                      className="w-full rounded-xl border border-[#2C2C30] bg-[#171719] px-3 py-2.5 text-sm text-[#ECECEE] outline-none"
-                    />
-                  ) : null}
-                  {sourceKind === "treg" || authType !== "none" ? (
-                    <input
-                      type="password"
-                      autoComplete="new-password"
-                      value={credential}
-                      onChange={(event) => setCredential(event.target.value)}
-                      placeholder={sourceKind === "treg" ? t`Treg token` : t`Credential`}
-                      className="w-full rounded-xl border border-[#2C2C30] bg-[#171719] px-3 py-2.5 text-sm text-[#ECECEE] outline-none"
-                    />
-                  ) : null}
-                  <p className="text-xs leading-5 text-[#707077]">
-                    <Trans>
-                      Rakazo verifies the source before saving it. Credentials are encrypted and are
-                      never returned to clients or exposed to the model.
-                    </Trans>
-                  </p>
-                  <div className="flex gap-2">
-                    <Button
-                      type="button"
-                      variant="pill"
-                      size="sm"
-                      disabled={pending === "install-source"}
-                      onClick={() => void installSource()}
-                    >
-                      {pending === "install-source" ? (
-                        <Trans>Verifying…</Trans>
-                      ) : (
-                        <Trans>Verify and add</Trans>
-                      )}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="pill"
-                      size="sm"
-                      onClick={() => setSourceKind(null)}
-                    >
-                      <Trans>Cancel</Trans>
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-
-              <div>
-                <div className="mb-3 text-sm font-medium text-[#A8A8AD]">
-                  <Trans>Tool sources</Trans>
-                </div>
-                {sources.length === 0 && !sourceKind ? (
-                  <p className="text-[#6C6C70]">
-                    <Trans>No MCP or API tool sources installed yet.</Trans>
-                  </p>
-                ) : null}
-                {sources.map((source) => (
-                  <div
-                    key={source.id}
-                    className="flex items-center gap-4 rounded-[13px] px-3 py-2.5"
+              <div className="mt-4 space-y-4">
+                {onOpenMcp ? (
+                  <button
+                    type="button"
+                    onClick={onOpenMcp}
+                    className="rounded-full border border-[#383844] px-3 py-1.5 text-xs text-[#C9C9CE] hover:bg-[#232327]"
                   >
-                    <div className="grid h-[42px] w-[42px] place-items-center rounded-xl bg-[#2C2C30] font-semibold uppercase text-[#ECECEE]">
-                      {source.kind === "mcp" ? "M" : "A"}
+                    <Trans>MCP servers</Trans>
+                  </button>
+                ) : null}
+
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="pill" size="sm" onClick={() => beginSource("mcp")}>
+                    <Trans>Add MCP server</Trans>
+                  </Button>
+                  <Button type="button" variant="pill" size="sm" onClick={() => beginSource("api")}>
+                    <Trans>Add OpenAPI</Trans>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="pill"
+                    size="sm"
+                    onClick={() => beginSource("treg")}
+                  >
+                    <Trans>Add Treg</Trans>
+                  </Button>
+                </div>
+
+                {sourceError ? <p className="text-sm text-[#C94244]">{sourceError}</p> : null}
+
+                {sourceKind ? (
+                  <div className="space-y-3 rounded-[16px] border border-[#2C2C30] bg-[#101012] p-5">
+                    <div className="text-base font-medium text-[#ECECEE]">
+                      {sourceKind === "treg" ? (
+                        <Trans>Connect Treg</Trans>
+                      ) : sourceKind === "mcp" ? (
+                        <Trans>Add remote MCP server</Trans>
+                      ) : (
+                        <Trans>Import OpenAPI JSON</Trans>
+                      )}
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-[15.5px] font-medium text-[#ECECEE]">{source.name}</div>
-                      <div className="truncate text-[13.5px] text-[#7A7A80]">
-                        {source.kind.toUpperCase()} · {source.source} ·{" "}
-                        {source.secretConfigured ? (
-                          <Trans>credential saved</Trans>
+                    <input
+                      value={sourceName}
+                      onChange={(event) => setSourceName(event.target.value)}
+                      placeholder={t`Display name`}
+                      className="w-full rounded-xl border border-[#2C2C30] bg-[#171719] px-3 py-2.5 text-sm text-[#ECECEE] outline-none"
+                    />
+                    {sourceKind !== "treg" ? (
+                      <input
+                        value={sourceUrl}
+                        onChange={(event) => setSourceUrl(event.target.value)}
+                        placeholder={
+                          sourceKind === "mcp"
+                            ? "https://example.com/mcp"
+                            : "https://example.com/openapi.json"
+                        }
+                        className="w-full rounded-xl border border-[#2C2C30] bg-[#171719] px-3 py-2.5 text-sm text-[#ECECEE] outline-none"
+                      />
+                    ) : null}
+                    {sourceKind !== "treg" ? (
+                      <select
+                        value={authType}
+                        onChange={(event) => setAuthType(event.target.value as typeof authType)}
+                        className="w-full rounded-xl border border-[#2C2C30] bg-[#171719] px-3 py-2.5 text-sm text-[#ECECEE] outline-none"
+                      >
+                        <option value="none">
+                          <Trans>No authentication</Trans>
+                        </option>
+                        <option value="bearer">
+                          <Trans>Bearer token</Trans>
+                        </option>
+                        <option value="header">
+                          <Trans>API key header</Trans>
+                        </option>
+                      </select>
+                    ) : null}
+                    {authType === "header" && sourceKind !== "treg" ? (
+                      <input
+                        value={authName}
+                        onChange={(event) => setAuthName(event.target.value)}
+                        placeholder={t`Header name`}
+                        className="w-full rounded-xl border border-[#2C2C30] bg-[#171719] px-3 py-2.5 text-sm text-[#ECECEE] outline-none"
+                      />
+                    ) : null}
+                    {sourceKind === "treg" || authType !== "none" ? (
+                      <input
+                        type="password"
+                        autoComplete="new-password"
+                        value={credential}
+                        onChange={(event) => setCredential(event.target.value)}
+                        placeholder={sourceKind === "treg" ? t`Treg token` : t`Credential`}
+                        className="w-full rounded-xl border border-[#2C2C30] bg-[#171719] px-3 py-2.5 text-sm text-[#ECECEE] outline-none"
+                      />
+                    ) : null}
+                    <p className="text-xs leading-5 text-[#707077]">
+                      <Trans>
+                        Rakazo verifies the source before saving it. Credentials are encrypted and
+                        are never returned to clients or exposed to the model.
+                      </Trans>
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        type="button"
+                        variant="pill"
+                        size="sm"
+                        disabled={pending === "install-source"}
+                        onClick={() => void installSource()}
+                      >
+                        {pending === "install-source" ? (
+                          <Trans>Verifying…</Trans>
                         ) : (
-                          <Trans>no auth</Trans>
+                          <Trans>Verify and add</Trans>
                         )}
-                      </div>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="pill"
+                        size="sm"
+                        onClick={() => setSourceKind(null)}
+                      >
+                        <Trans>Cancel</Trans>
+                      </Button>
                     </div>
-                    <Button
-                      type="button"
-                      variant="pill"
-                      size="sm"
-                      disabled={pending === source.id}
-                      onClick={() => void removeSource(source)}
-                    >
-                      {pending === source.id ? <Trans>Removing…</Trans> : <Trans>Remove</Trans>}
-                    </Button>
                   </div>
-                ))}
+                ) : null}
+
+                <div>
+                  <div className="mb-3 text-sm font-medium text-[#A8A8AD]">
+                    <Trans>Tool sources</Trans>
+                  </div>
+                  {sources.length === 0 && !sourceKind ? (
+                    <p className="text-[#6C6C70]">
+                      <Trans>No MCP or API tool sources installed yet.</Trans>
+                    </p>
+                  ) : null}
+                  {sources.map((source) => (
+                    <div
+                      key={source.id}
+                      className="flex items-center gap-4 rounded-[13px] px-3 py-2.5"
+                    >
+                      <div className="grid h-[42px] w-[42px] place-items-center rounded-xl bg-[#2C2C30] font-semibold uppercase text-[#ECECEE]">
+                        {source.kind === "mcp" ? "M" : "A"}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[15.5px] font-medium text-[#ECECEE]">
+                          {source.name}
+                        </div>
+                        <div className="truncate text-[13.5px] text-[#7A7A80]">
+                          {source.kind.toUpperCase()} · {source.source} ·{" "}
+                          {source.secretConfigured ? (
+                            <Trans>credential saved</Trans>
+                          ) : (
+                            <Trans>no auth</Trans>
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="pill"
+                        size="sm"
+                        disabled={pending === source.id}
+                        onClick={() => void removeSource(source)}
+                      >
+                        {pending === source.id ? <Trans>Removing…</Trans> : <Trans>Remove</Trans>}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
               </div>
-            </div>
-          </details>
+            </details>
+          ) : null}
         </div>
       </div>
     </div>

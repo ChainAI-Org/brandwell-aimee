@@ -39,7 +39,7 @@ describe.each([
       return new DesktopSandboxProvider({ root: await realpath(root) });
     },
   ],
-] as const)("%s sandbox negative contract", (_name, makeProvider) => {
+] as const)("%s sandbox negative contract", (name, makeProvider) => {
   it("rejects traversal through every portable workspace entry point", async () => {
     const provider = await makeProvider();
     const computer = await provisionPrepared(
@@ -182,7 +182,12 @@ describe.each([
       "injected exportWorkspace failure",
     );
     const exported = await collect(faulted.exportWorkspace(computer, context));
-    expect(exported).toEqual([file]);
+    expect(exported).toEqual([
+      {
+        ...file,
+        executable: !(process.platform === "win32" && name === "desktop"),
+      },
+    ]);
   });
 });
 
@@ -220,12 +225,14 @@ describe("portable workspace transfer", () => {
         await target.importWorkspace(targetComputer, portableFiles(exported), context);
 
         expect(await target.readFile(targetComputer, "bin/tool", context)).toEqual(binary);
+        const executable =
+          process.platform !== "win32" || (sourceName !== "desktop" && targetName !== "desktop");
         expect(await target.listFiles(targetComputer, "bin", context)).toEqual([
           {
             path: "bin/tool",
             kind: "file",
             size: binary.byteLength,
-            executable: true,
+            ...(executable ? { executable: true } : {}),
           },
         ]);
       }

@@ -51,6 +51,49 @@ describe("toComputerStatus", () => {
       }).updateAvailable,
     ).toBe(true);
   });
+
+  it("returns auditable control and last-view metadata", () => {
+    const controlStartedAt = new Date("2026-08-27T18:00:00.000Z");
+    const lastScreenshotAt = new Date("2026-08-27T17:59:00.000Z");
+    const lastComputerActivityAt = new Date("2026-08-27T17:58:00.000Z");
+    const status = toComputerStatus("bot-1", {
+      kind: "e2b",
+      state: "running",
+      scope: "team",
+      controlHolder: "user",
+      controlBotId: "bot-1",
+      controlRunId: null,
+      homeRevision: "r1",
+      controlUserId: "user-1",
+      controlActorType: "client",
+      controlActorName: "Alex Client",
+      controlStartedAt,
+      lastScreenshotAt,
+      lastComputerActivityAt,
+    });
+
+    expect(status).toMatchObject({
+      controlUserId: "user-1",
+      controlActorType: "client",
+      controlActorName: "Alex Client",
+      controlStartedAt: controlStartedAt.toISOString(),
+      lastScreenshotAt: lastScreenshotAt.toISOString(),
+      lastComputerActivityAt: lastComputerActivityAt.toISOString(),
+    });
+  });
+
+  it("does not expose an unrecognized control actor type", () => {
+    const status = toComputerStatus("bot-1", {
+      kind: "fake",
+      state: "running",
+      scope: "team",
+      controlHolder: "user",
+      homeRevision: "r1",
+      controlActorType: "unexpected",
+    });
+
+    expect(status.controlActorType).toBeNull();
+  });
 });
 
 describe("executionBlocksUserTakeover", () => {

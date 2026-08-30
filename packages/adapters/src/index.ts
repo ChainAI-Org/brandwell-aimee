@@ -3,6 +3,7 @@ export * from "./background-job-handlers.js";
 export * from "./bot-messages.js";
 export * from "./box-emulator.js";
 export * from "./box-sandbox.js";
+export * from "./brandwell-native-connector.js";
 export * from "./builtin-skills.js";
 export * from "./builtin-tools.js";
 export * from "./cartesia-voice.js";

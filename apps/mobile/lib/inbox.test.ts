@@ -80,5 +80,9 @@ function bot(id: string, name: string, title: string, preview: string) {
     archivedAt: null,
     unread: false,
     updatedAt: now.toISOString(),
+    ownerType: "user" as const,
+    visibility: "private" as const,
+    managedByBrandWell: false,
+    managedStatus: "active",
   };
 }

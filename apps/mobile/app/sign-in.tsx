@@ -1,17 +1,21 @@
+import { BRANDWELL_BRAND } from "@brandwell/aimee/brand-config";
 import { Redirect, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
+  StyleSheet,
   Text,
   TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
+  allowsCustomApiBase,
   apiBaseWarning,
   currentApiBase,
   defaultApiBase,
@@ -35,6 +39,7 @@ export default function SignIn() {
   const [hasSession, setHasSession] = useState(false);
   const [apiBase, setApiBase] = useState(() => currentApiBase());
   const [serverOpen, setServerOpen] = useState(false);
+  const emailInput = useRef<TextInput>(null);
 
   useEffect(() => {
     void loadSessionToken().then((token) => {
@@ -43,10 +48,18 @@ export default function SignIn() {
     });
   }, []);
 
+  useEffect(() => {
+    if (ready && !hasSession) {
+      const timer = setTimeout(() => emailInput.current?.focus(), 250);
+      return () => clearTimeout(timer);
+    }
+    return undefined;
+  }, [hasSession, ready]);
+
   if (!ready) {
     return (
-      <View style={{ flex: 1, backgroundColor: "#F7F7F4", justifyContent: "center", padding: 24 }}>
-        <Text style={{ color: "#6E6E68", textAlign: "center" }}>Loading…</Text>
+      <View style={[styles.screen, styles.centered]}>
+        <Text style={styles.muted}>Loading...</Text>
       </View>
     );
   }
@@ -66,83 +79,86 @@ export default function SignIn() {
   }
 
   const custom = usesCustomApiBase(apiBase);
+  const allowCustomServer = allowsCustomApiBase();
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: "#F7F7F4" }}>
-      <StatusBar style="dark" />
-      <View style={{ flex: 1, justifyContent: "center", paddingHorizontal: 24 }}>
-        <Text style={{ color: "#1B1B1E", fontSize: 32, fontWeight: "500", textAlign: "center" }}>
-          Sign in to Rakazo
-        </Text>
-        <Text style={{ color: "#6E6E68", marginTop: 8, textAlign: "center" }}>
-          Same Better Auth session as the web app.
-        </Text>
-        <TextInput
-          autoCapitalize="none"
-          keyboardType="email-address"
-          placeholder="Email"
-          placeholderTextColor="#8C8C86"
-          value={email}
-          onChangeText={setEmail}
-          style={{
-            marginTop: 28,
-            backgroundColor: "#F1F1ED",
-            borderRadius: 13,
-            padding: 16,
-            color: "#1B1B1E",
-          }}
-        />
-        <TextInput
-          placeholder="Password"
-          placeholderTextColor="#8C8C86"
-          secureTextEntry
-          value={password}
-          onChangeText={setPassword}
-          style={{
-            marginTop: 12,
-            backgroundColor: "#F1F1ED",
-            borderRadius: 13,
-            padding: 16,
-            color: "#1B1B1E",
-          }}
-        />
-        {error ? <Text style={{ color: "#C94244", marginTop: 12 }}>{error}</Text> : null}
-        <Pressable
-          onPress={() => void submit()}
-          disabled={pending}
-          style={{
-            marginTop: 16,
-            backgroundColor: "#121215",
-            borderRadius: 13,
-            padding: 18,
-            alignItems: "center",
-          }}
-        >
-          <Text style={{ color: "#FBFBF9", fontSize: 17 }}>
-            {pending ? "Working…" : "Continue with email"}
-          </Text>
-        </Pressable>
-      </View>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={
-          custom ? `Custom server ${displayApiHost(apiBase)}` : "Use a custom server"
-        }
-        hitSlop={12}
-        onPress={() => setServerOpen(true)}
-        style={{ alignItems: "center", paddingHorizontal: 24, paddingBottom: 12, paddingTop: 8 }}
+    <SafeAreaView style={styles.screen}>
+      <StatusBar style="light" />
+      <KeyboardAvoidingView
+        style={styles.keyboard}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
-        {custom ? (
-          <>
-            <Text style={{ color: "#A8A8A2", fontSize: 12 }}>Custom server</Text>
-            <Text style={{ color: "#6E6E68", fontSize: 13, marginTop: 2 }}>
-              {displayApiHost(apiBase)}
+        <View style={styles.formWrap}>
+          <Image
+            accessibilityLabel="BrandWell"
+            resizeMode="contain"
+            source={require("../assets/brandwell-wordmark.png")}
+            style={styles.logo}
+          />
+          <View style={styles.card}>
+            <Text style={styles.eyebrow}>YOUR AI GTM EMPLOYEE</Text>
+            <Text style={styles.heading}>Welcome back</Text>
+            <Text style={styles.subheading}>
+              Sign in to chat with AIMEE, review activity, and open your computer.
             </Text>
-          </>
-        ) : (
-          <Text style={{ color: "#A8A8A2", fontSize: 13 }}>Use a custom server</Text>
-        )}
-      </Pressable>
+            <TextInput
+              ref={emailInput}
+              accessibilityLabel="Email"
+              autoCapitalize="none"
+              keyboardType="email-address"
+              placeholder="you@company.com"
+              placeholderTextColor="#747582"
+              returnKeyType="next"
+              value={email}
+              onChangeText={setEmail}
+              style={styles.input}
+            />
+            <TextInput
+              accessibilityLabel="Password"
+              placeholder="Password"
+              placeholderTextColor="#747582"
+              returnKeyType="go"
+              secureTextEntry
+              value={password}
+              onChangeText={setPassword}
+              onSubmitEditing={() => void submit()}
+              style={styles.input}
+            />
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+            <Pressable
+              onPress={() => void submit()}
+              disabled={pending || !email.trim() || !password}
+              style={({ pressed }) => [
+                styles.button,
+                (pending || !email.trim() || !password) && styles.buttonDisabled,
+                pressed && styles.buttonPressed,
+              ]}
+            >
+              <Text style={styles.buttonText}>{pending ? "Signing in..." : "Sign in"}</Text>
+            </Pressable>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+      {allowCustomServer ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            custom ? `Custom server ${displayApiHost(apiBase)}` : "Use a custom server"
+          }
+          hitSlop={12}
+          onPress={() => setServerOpen(true)}
+          style={styles.serverButton}
+        >
+          {custom ? (
+            <>
+              <Text style={styles.serverLabel}>Development server</Text>
+              <Text style={styles.serverHost}>{displayApiHost(apiBase)}</Text>
+            </>
+          ) : (
+            <Text style={styles.serverLabel}>Use a development server</Text>
+          )}
+        </Pressable>
+      ) : null}
       <ServerSheet
         visible={serverOpen}
         current={apiBase}
@@ -155,6 +171,61 @@ export default function SignIn() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: BRANDWELL_BRAND.colors.background },
+  centered: { justifyContent: "center", alignItems: "center" },
+  keyboard: { flex: 1 },
+  formWrap: { flex: 1, justifyContent: "center", paddingHorizontal: 24 },
+  logo: { width: 190, height: 44, alignSelf: "center", marginBottom: 28 },
+  card: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: "#30313A",
+    backgroundColor: BRANDWELL_BRAND.colors.surface,
+    padding: 22,
+    gap: 12,
+  },
+  eyebrow: {
+    color: BRANDWELL_BRAND.colors.accent,
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 1.5,
+  },
+  heading: { color: BRANDWELL_BRAND.colors.text, fontSize: 30, fontWeight: "800" },
+  subheading: {
+    color: BRANDWELL_BRAND.colors.muted,
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 8,
+  },
+  input: {
+    minHeight: 54,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#343540",
+    backgroundColor: "#121318",
+    color: BRANDWELL_BRAND.colors.text,
+    paddingHorizontal: 16,
+    fontSize: 16,
+  },
+  error: { color: "#FF7A8F", fontSize: 14, lineHeight: 20 },
+  button: {
+    minHeight: 54,
+    borderRadius: 14,
+    backgroundColor: BRANDWELL_BRAND.colors.accent,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 4,
+  },
+  buttonDisabled: { opacity: 0.45 },
+  buttonPressed: { opacity: 0.78 },
+  buttonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
+  muted: { color: BRANDWELL_BRAND.colors.muted, textAlign: "center" },
+  serverButton: { alignItems: "center", paddingHorizontal: 24, paddingBottom: 12, paddingTop: 8 },
+  serverLabel: { color: "#8B8C96", fontSize: 12 },
+  serverHost: { color: "#686973", fontSize: 13, marginTop: 2 },
+});
 
 function ServerSheet({
   visible,
@@ -246,7 +317,7 @@ function ServerSheet({
             </Pressable>
           </View>
           <Text style={{ color: "#6E6E68", marginTop: 28, fontSize: 15, lineHeight: 22 }}>
-            Point this app at your self-hosted Rakazo origin — the same HTTPS URL you open in a
+            Point this app at your self-hosted Rakazo origin, the same HTTPS URL you open in a
             browser.
           </Text>
           <TextInput

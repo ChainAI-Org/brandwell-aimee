@@ -1,13 +1,10 @@
 import type { ConfigContext, ExpoConfig } from "expo/config";
 
+const OFFICIAL_API_URL = "https://ai.brandwell.ai";
+
 export default ({ config }: ConfigContext): ExpoConfig => {
   if (process.env.EAS_BUILD_PROFILE === "production") {
-    const apiUrl = process.env.EXPO_PUBLIC_API_URL;
-    if (!apiUrl) {
-      throw new Error(
-        "EXPO_PUBLIC_API_URL must be set in the EAS production environment before building for the App Store.",
-      );
-    }
+    const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? OFFICIAL_API_URL;
 
     let parsed: URL;
     try {
@@ -20,5 +17,11 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     }
   }
 
-  return config as ExpoConfig;
+  return {
+    ...config,
+    extra: {
+      ...config.extra,
+      officialApiUrl: OFFICIAL_API_URL,
+    },
+  } as ExpoConfig;
 };

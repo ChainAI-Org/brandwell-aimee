@@ -16,6 +16,13 @@ export interface SandboxProviderOptions {
   daytonaApiKey?: string;
   daytonaApiUrl?: string;
   daytonaTarget?: string;
+  daytonaSnapshot?: string;
+  daytonaAutoStopInterval?: number;
+  daytonaAutoArchiveInterval?: number;
+  daytonaAutoDeleteInterval?: number;
+  daytonaVncResolution?: string;
+  daytonaLocale?: string;
+  daytonaTimezone?: string;
   boxApiKey?: string;
   boxApiUrl?: string;
   dataDir?: string;
@@ -34,6 +41,13 @@ export function createSandboxProvider(kind: string, opts: SandboxProviderOptions
         apiKey: opts.daytonaApiKey,
         apiUrl: opts.daytonaApiUrl,
         target: opts.daytonaTarget,
+        snapshot: opts.daytonaSnapshot,
+        autoStopInterval: opts.daytonaAutoStopInterval,
+        autoArchiveInterval: opts.daytonaAutoArchiveInterval,
+        autoDeleteInterval: opts.daytonaAutoDeleteInterval,
+        vncResolution: opts.daytonaVncResolution,
+        locale: opts.daytonaLocale,
+        timezone: opts.daytonaTimezone,
       });
     case "box":
       if (!opts.boxApiKey) throw new Error("BOX_API_KEY is required for the box sandbox provider");

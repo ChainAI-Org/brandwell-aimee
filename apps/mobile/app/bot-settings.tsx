@@ -8,7 +8,7 @@ import {
 } from "@rakazo/contracts";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Pressable, ScrollView, Text, TextInput } from "react-native";
+import { Pressable, ScrollView, Text, TextInput, View } from "react-native";
 import { ComputerMaintenanceActions } from "../components/computer-maintenance-actions";
 import { ComputerModePicker } from "../components/computer-mode-picker";
 import { type MobileBot, rpc } from "../lib/api";
@@ -66,7 +66,7 @@ export default function BotSettingsScreen() {
         // Keep instructions in sync with description (same as web BotSettings).
         input.instructions = profile.instructions;
       }
-      if (computerMode !== bot.computerMode) {
+      if (!bot.managedByBrandWell && computerMode !== bot.computerMode) {
         await rpc("bots/setComputer", { botId, mode: computerMode });
       }
       // Use key presence so clearing title/description to "" still persists.
@@ -83,13 +83,35 @@ export default function BotSettingsScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: "Chat settings" }} />
+      <Stack.Screen
+        options={{ title: bot?.managedByBrandWell ? "AIMEE settings" : "Chat settings" }}
+      />
       <ScrollView
         style={{ flex: 1, backgroundColor: "#050506" }}
         contentContainerStyle={{ padding: 24 }}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
       >
+        {bot?.managedByBrandWell ? (
+          <View
+            style={{
+              borderRadius: 14,
+              borderWidth: 1,
+              borderColor: "#3B2B48",
+              backgroundColor: "#211827",
+              padding: 16,
+              marginBottom: 18,
+            }}
+          >
+            <Text style={{ color: "#F1F1F4", fontSize: 15, fontWeight: "700" }}>
+              BrandWell manages AIMEE's computer and model
+            </Text>
+            <Text style={{ color: "#A6A7B1", fontSize: 13, lineHeight: 19, marginTop: 5 }}>
+              You can update how AIMEE is presented here. BrandWell keeps its model, memory, and
+              computer configuration secure and up to date.
+            </Text>
+          </View>
+        ) : null}
         <Text style={{ color: "#85858A", fontSize: 14 }}>Name</Text>
         <TextInput
           value={name}
@@ -138,15 +160,19 @@ export default function BotSettingsScreen() {
             textAlignVertical: "top",
           }}
         />
-        <ComputerModePicker value={computerMode} onChange={setComputerMode} />
-        <ComputerMaintenanceActions
-          botId={botId}
-          computer={computer}
-          onChanged={async () => {
-            const status = await rpc<ComputerStatus>("computer/status", { botId });
-            setComputer(status);
-          }}
-        />
+        {!bot?.managedByBrandWell ? (
+          <>
+            <ComputerModePicker value={computerMode} onChange={setComputerMode} />
+            <ComputerMaintenanceActions
+              botId={botId}
+              computer={computer}
+              onChanged={async () => {
+                const status = await rpc<ComputerStatus>("computer/status", { botId });
+                setComputer(status);
+              }}
+            />
+          </>
+        ) : null}
         {error ? <Text style={{ color: "#E65707", marginTop: 16 }}>{error}</Text> : null}
         <Pressable
           onPress={() => void save()}

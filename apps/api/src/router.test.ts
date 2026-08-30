@@ -5,7 +5,23 @@ import { describe, expect, it, vi } from "vitest";
 import { createRouter, type RouterDeps } from "./router.js";
 
 describe("account preferences", () => {
-  function preferencesDeps(avatarStyle: string) {
+  function preferencesDeps(
+    avatarStyle: string,
+    options: {
+      brandwell?: {
+        plan: string;
+        subscriptionStatus: string;
+        provisioningStatus: string;
+        primaryBotId: string | null;
+      } | null;
+      managedCredential?: {
+        provider: string;
+        preferredModel: string;
+        status: string;
+        disabledAt: Date | null;
+      } | null;
+    } = {},
+  ) {
     const update = vi.fn().mockResolvedValue({});
     const prisma = {
       user: {
@@ -18,6 +34,13 @@ describe("account preferences", () => {
       },
       userModelCredential: { findFirst: vi.fn().mockResolvedValue(null) },
       deploymentSettings: { findUnique: vi.fn().mockResolvedValue(null) },
+      member: { findFirst: vi.fn().mockResolvedValue({ role: "owner" }) },
+      brandwellAiWorkspace: {
+        findUnique: vi.fn().mockResolvedValue(options.brandwell ?? null),
+      },
+      brandwellWorkspaceModelCredential: {
+        findUnique: vi.fn().mockResolvedValue(options.managedCredential ?? null),
+      },
     } as unknown as PrismaClient;
     const deps = {
       prisma,
@@ -93,6 +116,149 @@ describe("account preferences", () => {
     await expect(response.json()).resolves.toEqual({
       json: expect.objectContaining({ avatarStyle: "robot" }),
     });
+  });
+
+  it("returns managed BrandWell workspace metadata without asking the client for a model key", async () => {
+    const { actor, handler } = preferencesDeps("robot", {
+      brandwell: {
+        plan: "aimee",
+        subscriptionStatus: "active",
+        provisioningStatus: "ready",
+        primaryBotId: "bot-aimee",
+      },
+      managedCredential: {
+        provider: "openrouter",
+        preferredModel: "anthropic/claude-sonnet-4.5",
+        status: "active",
+        disabledAt: null,
+      },
+    });
+
+    const { response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/me", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: null }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      json: expect.objectContaining({
+        needsModel: false,
+        defaultProvider: "openrouter",
+        defaultModel: "anthropic/claude-sonnet-4.5",
+        workspaceRole: "owner",
+        brandwell: {
+          plan: "aimee",
+          subscriptionStatus: "active",
+          provisioningStatus: "ready",
+          primaryBotId: "bot-aimee",
+        },
+      }),
+    });
+  });
+});
+
+describe("BrandWell client notifications", () => {
+  const actor = {
+    workspaceId: "workspace-1",
+    userId: "client-user-1",
+    email: "client@example.com",
+    isDeploymentOwner: false,
+  } satisfies Actor;
+  const row = {
+    id: "notice-1",
+    workspaceId: "workspace-1",
+    botId: "bot-1",
+    runId: "run-1",
+    dedupeKey: "alert:login",
+    type: "LOGIN_REQUIRED",
+    title: "AIMEE needs your help",
+    body: "Complete the login so AIMEE can continue.",
+    severity: "WARNING",
+    requiresAction: true,
+    actionType: "OPEN_COMPUTER",
+    actionTarget: "/computer?botId=bot-1",
+    createdAt: new Date("2026-08-27T18:00:00.000Z"),
+    readAt: null,
+    resolvedAt: null,
+    resolvedBy: null,
+  };
+
+  function notificationHandler(prisma: object) {
+    const deps = {
+      prisma,
+      env: {
+        defaultProvider: "fake",
+        defaultModel: "fake-model",
+        webOrigin: "http://127.0.0.1:5173",
+        screenProxySecret: "fake-test-secret",
+        sandboxProvider: "fake",
+      },
+      dataDir: "/tmp/rakazo-router-test",
+    } as unknown as RouterDeps;
+    return new RPCHandler(createRouter(deps));
+  }
+
+  it("lists only the signed-in workspace notifications", async () => {
+    const findMany = vi.fn().mockResolvedValue([row]);
+    const handler = notificationHandler({ brandwellClientNotification: { findMany } });
+    const { response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/notifications/list", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: { includeResolved: false } }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+    expect(response.status).toBe(200);
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { workspaceId: "workspace-1", resolvedAt: null },
+      }),
+    );
+    await expect(response.json()).resolves.toEqual({
+      json: [
+        expect.objectContaining({
+          id: "notice-1",
+          actionTarget: "/computer?botId=bot-1",
+          createdAt: "2026-08-27T18:00:00.000Z",
+        }),
+      ],
+    });
+  });
+
+  it("resolves a notification only after a workspace-scoped lookup", async () => {
+    const update = vi.fn().mockResolvedValue({
+      ...row,
+      readAt: new Date("2026-08-27T18:05:00.000Z"),
+      resolvedAt: new Date("2026-08-27T18:05:00.000Z"),
+      resolvedBy: "client-user-1",
+    });
+    const findFirst = vi.fn().mockResolvedValue(row);
+    const handler = notificationHandler({
+      brandwellClientNotification: { findFirst, update },
+    });
+    const { response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/notifications/resolve", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: { notificationId: "notice-1" } }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+    expect(response.status).toBe(200);
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { id: "notice-1", workspaceId: "workspace-1" },
+    });
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "notice-1" },
+        data: expect.objectContaining({ resolvedBy: "client-user-1" }),
+      }),
+    );
   });
 });
 
@@ -230,6 +396,9 @@ describe("connections.complete", () => {
       createdAt: new Date("2026-08-26T00:00:00.000Z"),
     });
     const prisma = {
+      brandwellAiWorkspace: {
+        findUnique: vi.fn().mockResolvedValue(null),
+      },
       connection: {
         findFirst: vi.fn().mockResolvedValue({
           id: "conn-1",

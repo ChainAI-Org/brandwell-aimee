@@ -35,7 +35,7 @@ export interface UpdaterConfig {
  */
 export function resolveUpdaterConfig(env: NodeJS.ProcessEnv): UpdaterConfig {
   const deployDir = env.RAKAZO_DEPLOY_DIR?.trim() ?? "";
-  if (deployDir === "" || !path.posix.isAbsolute(deployDir)) {
+  if (deployDir === "" || !path.isAbsolute(deployDir)) {
     throw new Error("Set RAKAZO_DEPLOY_DIR to the absolute path of the deployment directory.");
   }
   const image = env.RAKAZO_IMAGE?.trim() || OFFICIAL_SERVER_IMAGE;

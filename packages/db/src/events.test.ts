@@ -152,6 +152,10 @@ describe("finalizeComputerControlRelease", () => {
         controlLeaseExpiresAt: null,
         controlBotId: null,
         controlRunId: null,
+        controlUserId: null,
+        controlActorType: null,
+        controlActorName: null,
+        controlStartedAt: null,
       },
     });
     expect(tx.run.updateMany).toHaveBeenCalledWith({

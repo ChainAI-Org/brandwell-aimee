@@ -98,6 +98,8 @@ the shell somewhere else without changing the saved instance, or `RAKAZO_FORCE_S
 setup again.
 
 Mobile build and release instructions live in [docs/mobile-release.md](./docs/mobile-release.md).
+BrandWell operators should also use the dedicated [AIMEE deployment runbook](./docs/brandwell-deployment.md)
+and [AIMEE mobile release runbook](./docs/brandwell-mobile-release.md).
 
 ## Web UI language
 
@@ -147,6 +149,8 @@ COMPUTER_E2E_MODEL=<vision-capable-openrouter-model-id> pnpm test:computer
 - [Self-hosting](./docs/self-host.md)
 - [Computer runtime and isolation](./docs/computer-runtime.md)
 - [Mobile releases](./docs/mobile-release.md)
+- [BrandWell AIMEE deployment](./docs/brandwell-deployment.md)
+- [BrandWell AIMEE mobile releases](./docs/brandwell-mobile-release.md)
 - [Performance testing](./docs/performance.md)
 
 ## Contributing

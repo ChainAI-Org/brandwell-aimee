@@ -108,13 +108,20 @@ describe("desktop sandbox write containment without O_NOFOLLOW", () => {
       await symlink(outside, target);
     };
 
-    await desktop.writeFile(computer, {
+    const write = desktop.writeFile(computer, {
       path: "result.txt",
       content: new TextEncoder().encode("after"),
     });
+    if (process.platform === "win32") {
+      await expect(write).rejects.toThrow("Path escapes the computer workspace");
+    } else {
+      await write;
+    }
     expect(swapped).toBe(true);
     expect(await readFile(outside, "utf8")).toBe("outside-before");
-    expect(await readFile(displaced, "utf8")).toBe("after");
+    expect(await readFile(displaced, "utf8")).toBe(
+      process.platform === "win32" ? "inside-before" : "after",
+    );
   });
 
   it("rejects a parent symlink that resolves outside the workspace", async () => {

@@ -11,7 +11,7 @@ import { WebView } from "react-native-webview";
 import { ComputerMaintenanceActions } from "../components/computer-maintenance-actions";
 import { ComputerModePicker } from "../components/computer-mode-picker";
 import { NativeSymbol } from "../components/native-symbol";
-import { currentApiBase, rpc } from "../lib/api";
+import { currentApiBase, type MobileBot, rpc } from "../lib/api";
 import {
   COMPUTER_HEARTBEAT_MS,
   type ComputerStatus,
@@ -35,6 +35,7 @@ export default function Computer() {
   const [booting, setBooting] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [computerOpen, setComputerOpen] = useState(false);
+  const [managed, setManaged] = useState(false);
   const autoBooted = useRef<string | null>(null);
 
   const embeddedScreenUrl = embeddableScreenUrl(screenUrl, currentApiBase());
@@ -66,6 +67,13 @@ export default function Computer() {
     setReady(true);
     return status;
   }
+
+  useEffect(() => {
+    if (!botId) return;
+    void rpc<MobileBot>("bots/get", { botId })
+      .then((bot) => setManaged(bot.managedByBrandWell))
+      .catch(() => undefined);
+  }, [botId]);
 
   useEffect(() => {
     void refresh().catch((err: Error) => {
@@ -234,9 +242,10 @@ export default function Computer() {
           </Pressable>
         )}
       </View>
-      {computer?.state === "error" ||
-      computer?.state === "stopped" ||
-      (computer?.state === "running" && !embeddedScreenUrl) ? (
+      {!managed &&
+      (computer?.state === "error" ||
+        computer?.state === "stopped" ||
+        (computer?.state === "running" && !embeddedScreenUrl)) ? (
         <ComputerMaintenanceActions
           botId={botId ?? ""}
           computer={computer}
@@ -245,27 +254,31 @@ export default function Computer() {
           }}
         />
       ) : null}
-      <ComputerModePicker
-        value={computer?.mode}
-        disabled={switching}
-        onChange={(mode) => void setComputerMode(mode)}
-      />
-      <View
-        style={{
-          marginTop: 18,
-          borderRadius: 12,
-          borderWidth: 1,
-          borderColor: "#232326",
-          padding: 14,
-          gap: 8,
-        }}
-      >
-        <Text style={{ color: "#85858A", fontSize: 14 }}>Teach a task</Text>
-        <Text style={{ color: "#6C6C70", fontSize: 13.5, lineHeight: 20 }}>
-          Recording a live demonstration needs desktop or web with the full computer view. You can
-          still ask this bot to run saved skills from chat.
-        </Text>
-      </View>
+      {!managed ? (
+        <ComputerModePicker
+          value={computer?.mode}
+          disabled={switching}
+          onChange={(mode) => void setComputerMode(mode)}
+        />
+      ) : null}
+      {!managed ? (
+        <View
+          style={{
+            marginTop: 18,
+            borderRadius: 12,
+            borderWidth: 1,
+            borderColor: "#232326",
+            padding: 14,
+            gap: 8,
+          }}
+        >
+          <Text style={{ color: "#85858A", fontSize: 14 }}>Teach a task</Text>
+          <Text style={{ color: "#6C6C70", fontSize: 13.5, lineHeight: 20 }}>
+            Recording a live demonstration needs desktop or web with the full computer view. You can
+            still ask this bot to run saved skills from chat.
+          </Text>
+        </View>
+      ) : null}
 
       <Modal
         visible={booting || computerOpen}

@@ -51,9 +51,10 @@ services:
       - ../../.env
     environment:
       NODE_ENV: production
+      GIT_SHA: ${GIT_SHA:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-rakazo}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-rakazo}
       DATA_DIR: /data
-      SANDBOX_PROVIDER: e2b
+      SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-e2b}
       WAKEUP_DRIVER: graphile
       AGENT_RUNTIME: pi
       RAKAZO_UPDATER_URL: http://updater:7092
@@ -100,7 +101,7 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgres://${POSTGRES_USER:-rakazo}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-rakazo}
       DATA_DIR: /data
-      SANDBOX_PROVIDER: e2b
+      SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-e2b}
       WAKEUP_DRIVER: graphile
       AGENT_RUNTIME: pi
     volumes:
@@ -146,7 +147,7 @@ services:
 
   # The updater holds the Docker socket, which is root-equivalent on the host, so it is opt-in and
   # deliberately the narrowest service here: no `ports` (nothing on the host), only the dedicated
-  # `control` network shared with the API, and no `env_file` — secrets stay in the bind-mounted
+  # `control` network shared with the API, and no `env_file`. Secrets stay in the bind-mounted
   # `.env` that Compose reads for interpolation, not in this process. Caddy has no route to it. The
   # API reaches it as http://updater:7092 with the shared token. It is also the one service the
   # update never recreates, because it is the process performing the update.

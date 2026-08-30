@@ -106,4 +106,11 @@ describe("the updater compose service", () => {
     expect(compose.services.api?.volumes ?? []).not.toContain("/var/run/docker.sock");
     expect(compose.services.api?.environment?.RAKAZO_UPDATER_URL).toBe("http://updater:7092");
   });
+
+  it("uses the configured sandbox provider consistently in the api and worker", () => {
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: this is the literal Compose expression
+    const configuredProvider = "${SANDBOX_PROVIDER:-e2b}";
+    expect(compose.services.api?.environment?.SANDBOX_PROVIDER).toBe(configuredProvider);
+    expect(compose.services.worker?.environment?.SANDBOX_PROVIDER).toBe(configuredProvider);
+  });
 });

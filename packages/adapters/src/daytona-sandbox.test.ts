@@ -13,7 +13,19 @@ const context = {
 describe("DaytonaSandboxProvider", () => {
   it("implements the portable command, file, screen, and computer-use contract", async () => {
     const fixture = daytonaFixture();
-    const provider = new DaytonaSandboxProvider({ apiKey: "test-key" }, fixture.client);
+    const provider = new DaytonaSandboxProvider(
+      {
+        apiKey: "test-key",
+        snapshot: "brandwell-aimee-browser-v1",
+        autoStopInterval: 15,
+        autoArchiveInterval: 10_080,
+        autoDeleteInterval: -1,
+        vncResolution: "1440x900",
+        locale: "en_US.UTF-8",
+        timezone: "UTC",
+      },
+      fixture.client,
+    );
     const computer = await provider.provision({ botId: "bot-a", homePath: "/unused" }, context);
     await provider.prepare(computer, context);
 
@@ -26,7 +38,16 @@ describe("DaytonaSandboxProvider", () => {
     expect(fixture.create).toHaveBeenCalledWith(
       expect.objectContaining({
         labels: { botId: "bot-a", rakazo: "computer" },
-        envVars: { VNC_RESOLUTION: "1280x800" },
+        snapshot: "brandwell-aimee-browser-v1",
+        envVars: {
+          VNC_RESOLUTION: "1440x900",
+          LANG: "en_US.UTF-8",
+          LC_ALL: "en_US.UTF-8",
+          TZ: "UTC",
+        },
+        autoStopInterval: 15,
+        autoArchiveInterval: 10_080,
+        autoDeleteInterval: -1,
       }),
       { timeout: 120 },
     );
@@ -83,16 +104,22 @@ describe("DaytonaSandboxProvider", () => {
           { kind: "key", key: "enter" },
           { kind: "clipboard", text: "hello" },
           { kind: "scroll", direction: "down", amount: 2 },
+          { kind: "open", path: "https://example.com" },
         ],
         observe: false,
       },
       context,
     );
-    expect(result).toEqual({ completed: 5 });
+    expect(result).toEqual({ completed: 6 });
     expect(fixture.drag).toHaveBeenCalledWith(10, 20, 30, 40, "left");
     expect(fixture.press).toHaveBeenCalledWith("enter", undefined);
     expect(fixture.type).toHaveBeenCalledWith("hello");
     expect(fixture.scroll).toHaveBeenCalledWith(10, 20, "down", 2);
+    expect(
+      fixture.executeCommand.mock.calls.some(([command]) =>
+        String(command).includes("export DISPLAY=':0'"),
+      ),
+    ).toBe(true);
 
     const [screen, interactiveScreen] = await Promise.all([
       provider.connectScreen(computer, { view: "stream", interactive: false }, context),
@@ -180,6 +207,20 @@ describe("DaytonaSandboxProvider", () => {
       /could not create Daytona workspace/,
     );
     expect(fixture.deleteSandbox).not.toHaveBeenCalled();
+  });
+
+  it("retries transient Daytona screenshot failures", async () => {
+    const fixture = daytonaFixture();
+    const provider = new DaytonaSandboxProvider({ apiKey: "test-key" }, fixture.client);
+    const computer = await provider.provision({ botId: "bot-a", homePath: "/unused" }, context);
+    fixture.takeFullScreen.mockRejectedValueOnce({ statusCode: 500, message: "unexpected EOF" });
+
+    await expect(provider.observe(computer, context)).resolves.toMatchObject({
+      mimeType: "image/png",
+      width: 1280,
+      height: 800,
+    });
+    expect(fixture.takeFullScreen).toHaveBeenCalledTimes(2);
   });
 
   it("surfaces transient stop failures so cleanup can retry", async () => {
@@ -309,6 +350,7 @@ function daytonaFixture(options: { id?: string; state?: string; prepareFails?: b
       const registryResult = screenRegistry(command);
       if (registryResult) return registryResult;
       if (command === "'echo' 'hello'") return { exitCode: 0, result: "hello\n" };
+      if (command.includes("/tmp/.X11-unix/X*")) return { exitCode: 0, result: ":0\n" };
       if (options.prepareFails && command.startsWith("mkdir -p -- ")) {
         return { exitCode: 1, result: "could not create Daytona workspace" };
       }
@@ -347,6 +389,9 @@ function daytonaFixture(options: { id?: string; state?: string; prepareFails?: b
   const press = vi.fn(async () => undefined);
   const type = vi.fn(async () => undefined);
   const scroll = vi.fn(async () => true);
+  const takeFullScreen = vi.fn(async () => ({
+    screenshot: Buffer.from([1, 2, 3]).toString("base64"),
+  }));
   const getSignedPreviewUrl = vi.fn(async (_port: number) => ({
     url: "https://6080-preview.proxy.daytona.test",
     token: "preview-token",
@@ -367,9 +412,7 @@ function daytonaFixture(options: { id?: string; state?: string; prepareFails?: b
       start: vi.fn(async () => ({ message: "started" })),
       stop: vi.fn(async () => ({ message: "stopped" })),
       screenshot: {
-        takeFullScreen: vi.fn(async () => ({
-          screenshot: Buffer.from([1, 2, 3]).toString("base64"),
-        })),
+        takeFullScreen,
       },
       display: {
         getInfo: vi.fn(async () => ({
@@ -416,6 +459,7 @@ function daytonaFixture(options: { id?: string; state?: string; prepareFails?: b
     press,
     type,
     scroll,
+    takeFullScreen,
   };
 }
 
