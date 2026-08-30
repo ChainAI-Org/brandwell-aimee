@@ -10,8 +10,9 @@
   },
   "scripts": {
     "dev": "cross-env COREPACK_ENABLE_DOWNLOAD_PROMPT=0 turbo dev --filter=@rakazo/api --filter=@rakazo/worker --filter=@rakazo/web --filter=@rakazo/sandbox-supervisor",
-    "build": "turbo build",
-    "check": "turbo check",
+    "build": "pnpm brand:check && turbo build",
+    "check": "pnpm brand:check && turbo check",
+    "brand:check": "node scripts/check-aimee-branding.mjs",
     "lint": "biome check .",
     "format": "biome check --write .",
     "db:generate": "pnpm --filter @rakazo/db generate",

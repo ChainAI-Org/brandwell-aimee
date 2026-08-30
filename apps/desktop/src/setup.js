@@ -51,7 +51,7 @@
       const result = await bridge.test(value);
       if (result.ok) {
         activeField().value = result.url;
-        setStatus(`Rakazo answered at ${result.url}.`, "ok");
+        setStatus(`AIMEE answered at ${result.url}.`, "ok");
       } else {
         setStatus(result.error ?? "Could not reach that address.", "error");
       }
@@ -118,7 +118,7 @@
       if (state.error) setStatus(state.error, "error");
       activeField().focus();
     } catch {
-      setStatus("Setup could not start. Quit Rakazo and try again.", "error");
+      setStatus("Setup could not start. Quit BrandWell's AIMEE and try again.", "error");
       setBusy(true);
     }
   }

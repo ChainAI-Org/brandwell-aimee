@@ -72,7 +72,7 @@ export async function signup(
 ) {
   await page.goto("/sign-up");
   await expect(
-    page.getByRole("heading", { name: /Create your Rakazo|Activate your AIMEE access/ }),
+    page.getByRole("heading", { name: /Create your AIMEE|Activate your AIMEE access/ }),
   ).toBeVisible();
   if (testInfo) await captureScreenshot(page, testInfo, "01-sign-up");
   await page.getByPlaceholder("Your name").fill(name);

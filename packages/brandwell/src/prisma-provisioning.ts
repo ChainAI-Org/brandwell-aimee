@@ -293,7 +293,7 @@ export function createPrismaBrandwellProvisioningRunner(
           });
           if (existing) return { resourceId: existing.id, metadata: { created: false } };
           const serviceIdentityId = await requireServiceIdentityId(options.prisma, workspaceId);
-          // OpenRouter workspace_id is a provider-owned UUID, not Rakazo's
+          // OpenRouter workspace_id is a provider-owned UUID, not AIMEE's
           // workspace ID. A unique child key still isolates spend and revocation
           // for this BrandWell client inside the configured OpenRouter workspace.
           const createdKey = await options.openRouter.createKey({

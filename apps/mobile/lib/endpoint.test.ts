@@ -78,7 +78,7 @@ describe("probeApiBase", () => {
     );
   });
 
-  it("rejects a host that is up but is not Rakazo", async () => {
+  it("rejects a host that is up but is not AIMEE", async () => {
     const fetchImpl = vi.fn(
       async () => new Response("ok", { status: 200 }),
     ) as unknown as typeof fetch;

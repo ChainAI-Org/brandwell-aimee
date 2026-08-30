@@ -1,6 +1,6 @@
 export const BRANDWELL_BRAND = {
-  productName: "AIMEE",
-  fullProductName: "BrandWell AI GTM Employee",
+  productName: "BrandWell's AIMEE",
+  fullProductName: "BrandWell's AIMEE",
   companyName: "BrandWell",
   supportEmail: "support@brandwell.ai",
   apiUrl: "https://ai.brandwell.ai",
