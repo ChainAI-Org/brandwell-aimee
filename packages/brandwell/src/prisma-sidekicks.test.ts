@@ -10,6 +10,8 @@ function lifecyclePrisma(
     workspaceAccessManaged?: boolean;
     otherActiveSidekicks?: number;
     memberRole?: string | null;
+    commercialStatus?: string;
+    subscriptionStatus?: string;
   } = {},
 ) {
   const deleteCredential = vi.fn(async () => ({}));
@@ -29,6 +31,10 @@ function lifecyclePrisma(
         invitationId: null,
         workspaceAccessManaged: options.workspaceAccessManaged ?? true,
         pausedAt: null,
+        aiWorkspace: {
+          commercialStatus: options.commercialStatus ?? "active",
+          subscriptionStatus: options.subscriptionStatus ?? "active",
+        },
         modelCredential: {
           id: "credential-sidekick-1",
           secretId: "secret-sidekick-1",
@@ -130,6 +136,20 @@ describe("BrandWell Sidekick model-key lifecycle", () => {
       },
     });
     expect(deleteCredential).not.toHaveBeenCalled();
+  });
+
+  it("does not re-enable a Sidekick key while the client entitlement is inactive", async () => {
+    const { prisma, updateCredential } = lifecyclePrisma({ commercialStatus: "paused" });
+    const updateKey = vi.fn();
+
+    await expect(
+      setBrandwellSidekickLifecycleWithPrisma("portal-sidekick-1", "resume", {
+        prisma,
+        openRouter: { deleteKey: vi.fn(), updateKey },
+      }),
+    ).rejects.toMatchObject({ code: "workspace_inactive", statusCode: 409 });
+    expect(updateKey).not.toHaveBeenCalled();
+    expect(updateCredential).not.toHaveBeenCalled();
   });
 
   it("does not recreate a key for a canceled Sidekick provisioning identity", async () => {

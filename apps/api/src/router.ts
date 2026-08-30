@@ -423,6 +423,7 @@ export function createRouter(deps: RouterDeps) {
         });
       }),
       connect: authed.models.connect.handler(async ({ context, input }) => {
+        await rejectManagedWorkspaceSelfService(deps.prisma, context.actor);
         let plaintext: string;
         try {
           plaintext = buildModelConnectPlaintext(input);
@@ -452,6 +453,7 @@ export function createRouter(deps: RouterDeps) {
         },
       ),
       beginOAuth: authed.models.beginOAuth.handler(async ({ context, input }) => {
+        await rejectManagedWorkspaceSelfService(deps.prisma, context.actor);
         return deps.oauthLogins.begin({
           userId: context.actor.userId,
           workspaceId: context.actor.workspaceId,
@@ -472,6 +474,7 @@ export function createRouter(deps: RouterDeps) {
         return result.status === "connected" ? { status: "ready" as const } : result;
       }),
       finishOAuth: authed.models.finishOAuth.handler(async ({ context, input }) => {
+        await rejectManagedWorkspaceSelfService(deps.prisma, context.actor);
         throwIfAborted(context.signal);
         const result = await deps.oauthLogins.finish(
           input.loginId,
@@ -499,6 +502,7 @@ export function createRouter(deps: RouterDeps) {
         return { ok: true as const };
       }),
       setDefault: authed.models.setDefault.handler(async ({ context, input }) => {
+        await rejectManagedWorkspaceSelfService(deps.prisma, context.actor);
         await withSerializableRetry(() =>
           deps.prisma.$transaction(
             async (tx) => {
@@ -543,9 +547,10 @@ export function createRouter(deps: RouterDeps) {
         if (!found) throw new IsolationError();
         return found;
       }),
-      create: authed.bots.create.handler(async ({ context, input }) =>
-        repos.createBot(context.actor, input),
-      ),
+      create: authed.bots.create.handler(async ({ context, input }) => {
+        await rejectManagedWorkspaceSelfService(deps.prisma, context.actor);
+        return repos.createBot(context.actor, input);
+      }),
       duplicate: authed.bots.duplicate.handler(async ({ context, input }) => {
         const source = await repos.getBot(context.actor, input.botId);
         rejectManagedBotLifecycleChange(source, "duplicate");
@@ -3278,6 +3283,20 @@ async function requireWorkspaceOwner(prisma: PrismaClient, actor: Actor): Promis
   });
   const roles = member?.role.split(",").map((role) => role.trim());
   if (!roles?.includes("owner")) throw new ORPCError("FORBIDDEN");
+}
+
+async function rejectManagedWorkspaceSelfService(
+  prisma: PrismaClient,
+  actor: Pick<Actor, "workspaceId">,
+): Promise<void> {
+  const managedWorkspace = await prisma.brandwellAiWorkspace.findUnique({
+    where: { rakazoWorkspaceId: actor.workspaceId },
+    select: { id: true },
+  });
+  if (!managedWorkspace) return;
+  throw new ORPCError("FORBIDDEN", {
+    message: "BrandWell manages AI employees and model access for this AIMEE workspace.",
+  });
 }
 
 async function requireManagedBotOwner(prisma: PrismaClient, actor: Actor, botId: string) {

@@ -24,6 +24,7 @@ export type BrandwellManagedModelResolution = {
 };
 
 export type BrandwellManagedRunBlockReason =
+  | "unmanaged_bot"
   | "bot_paused"
   | "workspace_inactive"
   | "service_identity_missing"
@@ -62,14 +63,24 @@ export function createBrandwellManagedModelResolver(prisma: PrismaClient) {
       where: {
         id: scope.botId,
         workspaceId: scope.workspaceId,
-        managedByBrandWell: true,
       },
       select: {
+        managedByBrandWell: true,
         managedStatus: true,
         serviceIdentityId: true,
       },
     });
     if (!bot) return null;
+    if (!bot.managedByBrandWell) {
+      const managedWorkspace = await prisma.brandwellAiWorkspace.findUnique({
+        where: { rakazoWorkspaceId: scope.workspaceId },
+        select: { id: true },
+      });
+      if (managedWorkspace) {
+        throw new BrandwellManagedRunBlockedError("unmanaged_bot");
+      }
+      return null;
+    }
     if (bot.managedStatus !== "active") {
       throw new BrandwellManagedRunBlockedError("bot_paused");
     }

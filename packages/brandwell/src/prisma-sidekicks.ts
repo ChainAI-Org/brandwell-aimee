@@ -625,7 +625,10 @@ export async function setBrandwellSidekickLifecycleWithPrisma(
 ) {
   const sidekick = await options.prisma.brandwellSidekick.findFirst({
     where: { OR: [{ id: sidekickReference }, { brandwellSidekickId: sidekickReference }] },
-    include: { modelCredential: true },
+    include: {
+      modelCredential: true,
+      aiWorkspace: { select: { commercialStatus: true, subscriptionStatus: true } },
+    },
   });
   if (!sidekick?.botId) {
     throw new BrandwellSidekickError("Sidekick not found", "sidekick_not_found", 404);
@@ -641,6 +644,17 @@ export async function setBrandwellSidekickLifecycleWithPrisma(
     throw new BrandwellSidekickError(
       "A canceled Sidekick cannot be resumed",
       "sidekick_canceled",
+      409,
+    );
+  }
+  if (
+    action === "resume" &&
+    (!ACTIVE_COMMERCIAL_STATES.has(sidekick.aiWorkspace.commercialStatus) ||
+      !ACTIVE_COMMERCIAL_STATES.has(sidekick.aiWorkspace.subscriptionStatus))
+  ) {
+    throw new BrandwellSidekickError(
+      "The client AIMEE entitlement must be active before this Sidekick can resume",
+      "workspace_inactive",
       409,
     );
   }

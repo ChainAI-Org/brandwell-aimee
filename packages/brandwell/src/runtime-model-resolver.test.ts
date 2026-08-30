@@ -11,6 +11,8 @@ function activePrisma(
     secretWorkspaceMatch?: boolean;
     sidekick?: boolean;
     dailyLimitMicros?: bigint | null;
+    managedByBrandWell?: boolean;
+    workspaceMapping?: boolean;
   } = {},
 ) {
   const credential = {
@@ -36,16 +38,22 @@ function activePrisma(
   return {
     bot: {
       findFirst: vi.fn(async () => ({
+        managedByBrandWell: options.managedByBrandWell ?? true,
         managedStatus: "active",
         serviceIdentityId: "svc-acme",
       })),
     },
     brandwellAiWorkspace: {
-      findUnique: vi.fn(async () => ({
-        subscriptionStatus: options.subscriptionStatus ?? "active",
-        serviceIdentityId: "svc-acme",
-        openRouterCredentialId: "credential-acme",
-      })),
+      findUnique: vi.fn(async () =>
+        options.workspaceMapping === false
+          ? null
+          : {
+              id: "mapping-acme",
+              subscriptionStatus: options.subscriptionStatus ?? "active",
+              serviceIdentityId: "svc-acme",
+              openRouterCredentialId: "credential-acme",
+            },
+      ),
     },
     brandwellServiceIdentity: {
       findUnique: vi.fn(async () => ({ workspaceId: "workspace-acme", status: "active" })),
@@ -113,6 +121,26 @@ describe("BrandWell managed runtime model resolver", () => {
     await expect(
       resolver({ workspaceId: "workspace-acme", userId: "user", botId: "bot-acme" }),
     ).rejects.toThrowError(new BrandwellManagedRunBlockedError("workspace_inactive"));
+  });
+
+  it("fails closed for an unmanaged bot in a mapped BrandWell workspace", async () => {
+    const prisma = activePrisma({ managedByBrandWell: false });
+    const resolver = createBrandwellManagedModelResolver(prisma);
+
+    await expect(
+      resolver({ workspaceId: "workspace-acme", userId: "user", botId: "bot-bypass" }),
+    ).rejects.toThrowError(new BrandwellManagedRunBlockedError("unmanaged_bot"));
+    expect(prisma.brandwellWorkspaceModelCredential.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("leaves ordinary bots outside managed workspaces on the generic runtime path", async () => {
+    const resolver = createBrandwellManagedModelResolver(
+      activePrisma({ managedByBrandWell: false, workspaceMapping: false }),
+    );
+
+    await expect(
+      resolver({ workspaceId: "workspace-acme", userId: "user", botId: "ordinary-bot" }),
+    ).resolves.toBeNull();
   });
 
   it("rejects a secret that is not owned by this workspace service identity", async () => {
