@@ -276,16 +276,23 @@ async function executePrismaCancellationAction(
       ]);
       return;
     case "disable_openrouter": {
-      const credential = await options.prisma.brandwellWorkspaceModelCredential.findUnique({
-        where: { workspaceId },
-      });
-      if (!credential) return;
-      if (credential.externalKeyHash)
-        await options.openRouter.disableKey(credential.externalKeyHash);
-      await options.prisma.brandwellWorkspaceModelCredential.update({
-        where: { id: credential.id },
-        data: { status: "disabled", disabledAt: now },
-      });
+      const [credential, sidekickCredentials] = await Promise.all([
+        options.prisma.brandwellWorkspaceModelCredential.findUnique({ where: { workspaceId } }),
+        options.prisma.brandwellSidekickModelCredential.findMany({ where: { workspaceId } }),
+      ]);
+      for (const item of [credential, ...sidekickCredentials]) {
+        if (item?.externalKeyHash) await options.openRouter.disableKey(item.externalKeyHash);
+      }
+      await options.prisma.$transaction([
+        options.prisma.brandwellWorkspaceModelCredential.updateMany({
+          where: { workspaceId },
+          data: { status: "disabled", disabledAt: now },
+        }),
+        options.prisma.brandwellSidekickModelCredential.updateMany({
+          where: { workspaceId },
+          data: { status: "disabled", disabledAt: now },
+        }),
+      ]);
       return;
     }
     case "suspend_computer": {
@@ -314,11 +321,13 @@ async function executePrismaCancellationAction(
       return;
     }
     case "delete_openrouter": {
-      const credential = await options.prisma.brandwellWorkspaceModelCredential.findUnique({
-        where: { workspaceId },
-      });
-      if (credential?.externalKeyHash)
-        await options.openRouter.deleteKey(credential.externalKeyHash);
+      const [credential, sidekickCredentials] = await Promise.all([
+        options.prisma.brandwellWorkspaceModelCredential.findUnique({ where: { workspaceId } }),
+        options.prisma.brandwellSidekickModelCredential.findMany({ where: { workspaceId } }),
+      ]);
+      for (const item of [credential, ...sidekickCredentials]) {
+        if (item?.externalKeyHash) await options.openRouter.deleteKey(item.externalKeyHash);
+      }
       return;
     }
     case "revoke_connectors":
@@ -351,6 +360,7 @@ async function executePrismaCancellationAction(
           select: { id: true },
         })
       ).map((identity) => identity.id);
+      await options.prisma.brandwellSidekickModelCredential.deleteMany({ where: { workspaceId } });
       await options.prisma.brandwellWorkspaceModelCredential.deleteMany({ where: { workspaceId } });
       await options.prisma.secret.deleteMany({
         where: { workspaceId, serviceIdentityId: { in: identityIds } },

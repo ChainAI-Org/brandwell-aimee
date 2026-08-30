@@ -16,18 +16,24 @@ export async function reconcileBrandwellOpenRouterUsage(
   openRouter: Pick<OpenRouterManagementClient, "getKey">,
   workspaceId?: string,
 ): Promise<BrandwellOpenRouterUsageReconciliation> {
-  const credentials = await prisma.brandwellWorkspaceModelCredential.findMany({
-    where: {
-      externalKeyHash: { not: null },
-      ...(workspaceId ? { workspaceId } : {}),
-    },
-    select: {
-      id: true,
-      externalKeyHash: true,
-      limitReset: true,
-      status: true,
-    },
-  });
+  const where = {
+    externalKeyHash: { not: null },
+    ...(workspaceId ? { workspaceId } : {}),
+  };
+  const select = {
+    id: true,
+    externalKeyHash: true,
+    limitReset: true,
+    status: true,
+  } as const;
+  const [workspaceCredentials, sidekickCredentials] = await Promise.all([
+    prisma.brandwellWorkspaceModelCredential.findMany({ where, select }),
+    prisma.brandwellSidekickModelCredential.findMany({ where, select }),
+  ]);
+  const credentials = [
+    ...workspaceCredentials.map((credential) => ({ ...credential, kind: "workspace" as const })),
+    ...sidekickCredentials.map((credential) => ({ ...credential, kind: "sidekick" as const })),
+  ];
   let updated = 0;
   let failed = 0;
 
@@ -37,25 +43,41 @@ export async function reconcileBrandwellOpenRouterUsage(
     try {
       const status = await openRouter.getKey(hash);
       const now = new Date();
-      await prisma.brandwellWorkspaceModelCredential.update({
-        where: { id: credential.id },
-        data: {
-          currentUsageMicros: reconciledUsageMicros(credential.limitReset, status),
-          providerLimitMicros: status.limitUsd === undefined ? null : usdToMicros(status.limitUsd),
-          providerUsageSyncedAt: now,
-          providerUsageSyncError: null,
-          ...(status.disabled && credential.status === "active"
-            ? { status: "disabled", disabledAt: now }
-            : {}),
-        },
-      });
+      const data = {
+        currentUsageMicros: reconciledUsageMicros(credential.limitReset, status),
+        providerLimitMicros: status.limitUsd === undefined ? null : usdToMicros(status.limitUsd),
+        providerUsageSyncedAt: now,
+        providerUsageSyncError: null,
+        ...(status.disabled && credential.status === "active"
+          ? { status: "disabled", disabledAt: now }
+          : {}),
+      };
+      if (credential.kind === "workspace") {
+        await prisma.brandwellWorkspaceModelCredential.update({
+          where: { id: credential.id },
+          data,
+        });
+      } else {
+        await prisma.brandwellSidekickModelCredential.update({
+          where: { id: credential.id },
+          data,
+        });
+      }
       updated += 1;
     } catch (error) {
       failed += 1;
-      await prisma.brandwellWorkspaceModelCredential.update({
-        where: { id: credential.id },
-        data: { providerUsageSyncError: safeErrorMessage(error) },
-      });
+      const data = { providerUsageSyncError: safeErrorMessage(error) };
+      if (credential.kind === "workspace") {
+        await prisma.brandwellWorkspaceModelCredential.update({
+          where: { id: credential.id },
+          data,
+        });
+      } else {
+        await prisma.brandwellSidekickModelCredential.update({
+          where: { id: credential.id },
+          data,
+        });
+      }
     }
   }
 

@@ -1779,10 +1779,13 @@ export function ShellPage() {
             <button
               type="button"
               onClick={() => navigate("/app")}
-              className="app-no-drag"
+              className="app-no-drag flex items-center gap-2.5"
               aria-label={t`AIMEE home`}
             >
               <BrandwellLogo className="h-[23px] w-auto" />
+              <span className="text-[14px] font-semibold tracking-[-0.01em] text-[#ECECEE]">
+                BrandWell&apos;s AIMEE
+              </span>
             </button>
           ) : (
             <WindowChrome />

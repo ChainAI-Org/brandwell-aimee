@@ -25,6 +25,7 @@ function fleetPrisma(input?: {
     computer: { findMany: vi.fn(async () => []) },
     connection: { findMany: vi.fn(async () => []) },
     brandwellWorkspaceModelCredential: { findMany: vi.fn(async () => input?.credentials ?? []) },
+    brandwellSidekickModelCredential: { findMany: vi.fn(async () => []) },
     brandwellCancellationEvent: { findMany: vi.fn(async () => []) },
     brandwellAlert: {
       findMany: vi.fn(async () => input?.existingAlerts ?? []),

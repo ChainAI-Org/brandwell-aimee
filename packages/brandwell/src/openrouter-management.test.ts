@@ -11,7 +11,7 @@ describe("OpenRouter management client", () => {
           data: {
             hash: "hash-acme",
             workspace_id: "openrouter-workspace",
-            limit: 250,
+            limit: 200,
             limit_reset: "monthly",
           },
           key: TEST_OPENROUTER_KEY,
@@ -21,13 +21,11 @@ describe("OpenRouter management client", () => {
     );
     const client = new OpenRouterManagementClient("management-secret", fetchImpl as typeof fetch);
 
-    await expect(
-      client.createKey({ name: "BrandWell AIMEE: Acme", limitUsd: 250 }),
-    ).resolves.toEqual({
+    await expect(client.createKey({ name: "AIMEE-Acme", limitUsd: 200 })).resolves.toEqual({
       key: TEST_OPENROUTER_KEY,
       hash: "hash-acme",
       workspaceId: "openrouter-workspace",
-      limitUsd: 250,
+      limitUsd: 200,
       limitReset: "monthly",
     });
     expect(fetchImpl).toHaveBeenCalledWith(
@@ -36,9 +34,9 @@ describe("OpenRouter management client", () => {
         method: "POST",
         headers: expect.objectContaining({ authorization: "Bearer management-secret" }),
         body: JSON.stringify({
-          name: "BrandWell AIMEE: Acme",
+          name: "AIMEE-Acme",
           include_byok_in_limit: true,
-          limit: 250,
+          limit: 200,
           limit_reset: "monthly",
         }),
       }),
@@ -102,8 +100,15 @@ describe("OpenRouter management client", () => {
     );
   });
 
+  it("treats deletion of an already-removed key as an idempotent success", async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 404 }));
+    const client = new OpenRouterManagementClient("management-secret", fetchImpl as typeof fetch);
+
+    await expect(client.deleteKey("hash-already-removed")).resolves.toBeUndefined();
+  });
+
   it("converts stored microdollar limits to provider dollar limits", () => {
-    expect(microsToUsd(250_000_000n)).toBe(250);
+    expect(microsToUsd(200_000_000n)).toBe(200);
     expect(usdToMicros(12.3456789)).toBe(12_345_679n);
   });
 });

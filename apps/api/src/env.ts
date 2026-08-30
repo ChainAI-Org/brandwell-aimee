@@ -141,12 +141,12 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     openRouterManagementKey: optional(source.OPENROUTER_MANAGEMENT_KEY),
     brandwellOpenRouterMonthlyLimitUsd: positiveNumber(
       source.BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD,
-      250,
+      200,
       "BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD",
     ),
     brandwellOpenRouterWarningLimitUsd: positiveNumber(
       source.BRANDWELL_OPENROUTER_WARNING_LIMIT_USD,
-      175,
+      150,
       "BRANDWELL_OPENROUTER_WARNING_LIMIT_USD",
     ),
     brandwellOpenRouterDailyLimitUsd: optionalPositiveNumber(

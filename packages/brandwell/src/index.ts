@@ -4,6 +4,7 @@ export * from "./alerting.js";
 export * from "./brand-config.js";
 export * from "./cancellation.js";
 export * from "./model-routing.js";
+export * from "./openrouter-key-labels.js";
 export * from "./openrouter-management.js";
 export * from "./prisma-alerting.js";
 export * from "./prisma-cancellation.js";

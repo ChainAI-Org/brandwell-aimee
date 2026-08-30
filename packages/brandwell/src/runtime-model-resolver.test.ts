@@ -6,8 +6,33 @@ import {
 } from "./runtime-model-resolver.js";
 
 function activePrisma(
-  options: { subscriptionStatus?: string; secretWorkspaceMatch?: boolean } = {},
+  options: {
+    subscriptionStatus?: string;
+    secretWorkspaceMatch?: boolean;
+    sidekick?: boolean;
+    dailyLimitMicros?: bigint | null;
+  } = {},
 ) {
+  const credential = {
+    id: "credential-acme",
+    workspaceId: "workspace-acme",
+    serviceIdentityId: "svc-acme",
+    secretId: "secret-acme",
+    provider: "openrouter",
+    status: "active",
+    disabledAt: null,
+    monthlyLimitMicros: 100_000_000n,
+    dailyLimitMicros: options.dailyLimitMicros ?? null,
+    warningLimitMicros: 75_000_000n,
+    currentUsageMicros: 80_000_000n,
+    preferredModel: "openai/gpt-5.4-mini",
+    computerModel: "anthropic/claude-sonnet-4.6",
+    lightweightModel: null,
+    reasoningModel: null,
+    fallbackModels: ["openai/gpt-5.4-mini", "anthropic/claude-sonnet-4.6"],
+    maxTokens: 8_192,
+    thinkingLevel: "medium",
+  };
   return {
     bot: {
       findFirst: vi.fn(async () => ({
@@ -26,26 +51,25 @@ function activePrisma(
       findUnique: vi.fn(async () => ({ workspaceId: "workspace-acme", status: "active" })),
     },
     brandwellWorkspaceModelCredential: {
-      findUnique: vi.fn(async () => ({
-        id: "credential-acme",
-        workspaceId: "workspace-acme",
-        serviceIdentityId: "svc-acme",
-        secretId: "secret-acme",
-        provider: "openrouter",
-        status: "active",
-        disabledAt: null,
-        monthlyLimitMicros: 100_000_000n,
-        dailyLimitMicros: null,
-        warningLimitMicros: 75_000_000n,
-        currentUsageMicros: 80_000_000n,
-        preferredModel: "openai/gpt-5.4-mini",
-        computerModel: "anthropic/claude-sonnet-4.6",
-        lightweightModel: null,
-        reasoningModel: null,
-        fallbackModels: ["openai/gpt-5.4-mini", "anthropic/claude-sonnet-4.6"],
-        maxTokens: 8_192,
-        thinkingLevel: "medium",
-      })),
+      findUnique: vi.fn(async () => credential),
+    },
+    brandwellSidekick: {
+      findUnique: vi.fn(async () =>
+        options.sidekick
+          ? {
+              id: "sidekick-acme",
+              workspaceId: "workspace-acme",
+              status: "active",
+              modelCredential: {
+                ...credential,
+                id: "credential-sidekick",
+                sidekickId: "sidekick-acme",
+                secretId: "secret-sidekick",
+                currentUsageMicros: 5_000_000n,
+              },
+            }
+          : null,
+      ),
     },
     secret: {
       findFirst: vi.fn(async () =>
@@ -106,6 +130,62 @@ describe("BrandWell managed runtime model resolver", () => {
         serviceIdentityId: "svc-acme",
       },
       select: { id: true },
+    });
+  });
+
+  it("routes a Sidekick through only its own OpenRouter credential", async () => {
+    const prisma = activePrisma({ sidekick: true });
+    const resolver = createBrandwellManagedModelResolver(prisma);
+
+    await expect(
+      resolver({
+        workspaceId: "workspace-acme",
+        userId: "casey",
+        botId: "bot-acme",
+        workloadType: "general",
+      }),
+    ).resolves.toMatchObject({
+      secretId: "secret-sidekick",
+      serviceIdentityId: "svc-acme",
+    });
+    expect(prisma.secret.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: "secret-sidekick" }) }),
+    );
+  });
+
+  it("keeps the master daily limit workspace-wide while isolating Sidekick daily usage", async () => {
+    const masterPrisma = activePrisma({ dailyLimitMicros: 10_000_000n });
+    await createBrandwellManagedModelResolver(masterPrisma)({
+      workspaceId: "workspace-acme",
+      userId: "client-admin",
+      botId: "bot-master",
+    });
+    expect(masterPrisma.usageRecord.aggregate).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace-acme",
+        serviceIdentityId: "svc-acme",
+        createdAt: { gte: expect.any(Date) },
+      },
+      _sum: { costMicros: true },
+    });
+
+    const sidekickPrisma = activePrisma({
+      sidekick: true,
+      dailyLimitMicros: 10_000_000n,
+    });
+    await createBrandwellManagedModelResolver(sidekickPrisma)({
+      workspaceId: "workspace-acme",
+      userId: "casey",
+      botId: "bot-sidekick",
+    });
+    expect(sidekickPrisma.usageRecord.aggregate).toHaveBeenCalledWith({
+      where: {
+        workspaceId: "workspace-acme",
+        serviceIdentityId: "svc-acme",
+        botId: "bot-sidekick",
+        createdAt: { gte: expect.any(Date) },
+      },
+      _sum: { costMicros: true },
     });
   });
 });

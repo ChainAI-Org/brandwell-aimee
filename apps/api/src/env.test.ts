@@ -12,6 +12,8 @@ describe("loadEnv", () => {
     expect(env.agentRuntime).toBe("pi");
     expect(env.sandboxProvider).toBe("docker");
     expect(env.wakeupDriver).toBe("graphile");
+    expect(env.brandwellOpenRouterMonthlyLimitUsd).toBe(200);
+    expect(env.brandwellOpenRouterWarningLimitUsd).toBe(150);
   });
 
   it("keeps explicit emulator settings for pnpm test", () => {

@@ -11,6 +11,7 @@ import {
   BRANDWELL_AIMEE_WELCOME,
 } from "./aimee-baseline.js";
 import { BRANDWELL_BRAND } from "./brand-config.js";
+import { brandwellMasterOpenRouterKeyLabel } from "./openrouter-key-labels.js";
 import { microsToUsd, type OpenRouterManagementClient } from "./openrouter-management.js";
 import { installBrandwellSkillBundle } from "./prisma-skills.js";
 import {
@@ -296,7 +297,7 @@ export function createPrismaBrandwellProvisioningRunner(
           // workspace ID. A unique child key still isolates spend and revocation
           // for this BrandWell client inside the configured OpenRouter workspace.
           const createdKey = await options.openRouter.createKey({
-            name: `BrandWell AIMEE ${checkpoint.input.companyName} ${workspaceId}`,
+            name: brandwellMasterOpenRouterKeyLabel(checkpoint.input.companyName),
             limitUsd: microsToUsd(options.monthlyLimitMicros),
             limitReset: "monthly",
           });

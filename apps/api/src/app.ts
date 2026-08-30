@@ -404,13 +404,36 @@ export async function createApp(
                 },
               ),
             syncDesiredState: (workspaceId, input) =>
-              syncBrandwellWorkspaceDesiredStateWithPrisma(workspaceId, input, prisma),
+              syncBrandwellWorkspaceDesiredStateWithPrisma(
+                workspaceId,
+                input,
+                prisma,
+                openRouterManagement,
+              ),
             provisionSidekick: (workspaceId, input) =>
               provisionBrandwellSidekickWithPrisma(workspaceId, input, {
                 prisma,
+                secretCipher: {
+                  encrypt: async (plaintext, context) => {
+                    const stored = await secrets.put(plaintext, {
+                      operationId: `brandwell-sidekick:${input.brandwellSidekickId}`,
+                      traceId: `brandwell-sidekick:${input.brandwellSidekickId}`,
+                      workspaceId: context.workspaceId,
+                      userId: context.userId,
+                      signal: new AbortController().signal,
+                    });
+                    return stored.ciphertext;
+                  },
+                },
+                openRouter: openRouterManagement,
                 systemUserId: env.brandwellSystemUserId,
                 sandboxKind: env.sandboxProvider,
                 defaultModel: env.defaultModel,
+                monthlyLimitMicros: usdToMicros(env.brandwellOpenRouterMonthlyLimitUsd),
+                warningLimitMicros: usdToMicros(env.brandwellOpenRouterWarningLimitUsd),
+                ...(env.brandwellOpenRouterDailyLimitUsd
+                  ? { dailyLimitMicros: usdToMicros(env.brandwellOpenRouterDailyLimitUsd) }
+                  : {}),
               }),
             setSidekickLifecycle: async (sidekickId, action) => {
               if (action !== "resume") {
@@ -425,7 +448,10 @@ export async function createApp(
                   );
                 }
               }
-              return setBrandwellSidekickLifecycleWithPrisma(sidekickId, action, prisma);
+              return setBrandwellSidekickLifecycleWithPrisma(sidekickId, action, {
+                prisma,
+                openRouter: openRouterManagement,
+              });
             },
             rolloutSkillBundle: (workspaceId) =>
               rolloutBrandwellSkillBundleWithPrisma(workspaceId, prisma),

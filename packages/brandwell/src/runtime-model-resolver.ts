@@ -77,7 +77,7 @@ export function createBrandwellManagedModelResolver(prisma: PrismaClient) {
       throw new BrandwellManagedRunBlockedError("service_identity_missing");
     }
 
-    const [mapping, serviceIdentity, credential] = await Promise.all([
+    const [mapping, serviceIdentity, workspaceCredential, sidekick] = await Promise.all([
       prisma.brandwellAiWorkspace.findUnique({
         where: { rakazoWorkspaceId: scope.workspaceId },
         select: {
@@ -93,7 +93,12 @@ export function createBrandwellManagedModelResolver(prisma: PrismaClient) {
       prisma.brandwellWorkspaceModelCredential.findUnique({
         where: { workspaceId: scope.workspaceId },
       }),
+      prisma.brandwellSidekick.findUnique({
+        where: { botId: scope.botId },
+        include: { modelCredential: true },
+      }),
     ]);
+    const credential = sidekick ? sidekick.modelCredential : workspaceCredential;
 
     if (!mapping || !ACTIVE_SUBSCRIPTIONS.has(mapping.subscriptionStatus)) {
       throw new BrandwellManagedRunBlockedError("workspace_inactive");
@@ -109,10 +114,17 @@ export function createBrandwellManagedModelResolver(prisma: PrismaClient) {
       throw new BrandwellManagedRunBlockedError("credential_missing");
     }
 
-    const ownershipMatches =
+    const sharedOwnershipMatches =
+      credential.workspaceId === scope.workspaceId &&
       credential.serviceIdentityId === bot.serviceIdentityId &&
-      (!mapping.serviceIdentityId || mapping.serviceIdentityId === bot.serviceIdentityId) &&
-      (!mapping.openRouterCredentialId || mapping.openRouterCredentialId === credential.id);
+      (!mapping.serviceIdentityId || mapping.serviceIdentityId === bot.serviceIdentityId);
+    const ownershipMatches = sidekick
+      ? sharedOwnershipMatches &&
+        sidekick.workspaceId === scope.workspaceId &&
+        sidekick.status === "active" &&
+        sidekick.modelCredential?.sidekickId === sidekick.id
+      : sharedOwnershipMatches &&
+        (!mapping.openRouterCredentialId || mapping.openRouterCredentialId === credential.id);
     if (!ownershipMatches) {
       throw new BrandwellManagedRunBlockedError("credential_scope_mismatch");
     }
@@ -137,6 +149,7 @@ export function createBrandwellManagedModelResolver(prisma: PrismaClient) {
               where: {
                 workspaceId: scope.workspaceId,
                 serviceIdentityId: bot.serviceIdentityId,
+                ...(sidekick ? { botId: scope.botId } : {}),
                 createdAt: { gte: currentUtcDayStart() },
               },
               _sum: { costMicros: true },

@@ -113,10 +113,15 @@ export class OpenRouterManagementClient {
   }
 
   async deleteKey(hash: string): Promise<void> {
-    await this.request(`/keys/${encodeURIComponent(requiredHash(hash))}`, {
-      method: "DELETE",
-      body: "{}",
-    });
+    try {
+      await this.request(`/keys/${encodeURIComponent(requiredHash(hash))}`, {
+        method: "DELETE",
+        body: "{}",
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message.endsWith("status 404")) return;
+      throw error;
+    }
   }
 
   private async request(path: string, init: RequestInit = {}): Promise<unknown> {

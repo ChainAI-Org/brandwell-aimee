@@ -45,78 +45,101 @@ export async function reconcileBrandwellFleetHealth(
     mappings.map((mapping) => [mapping.rakazoWorkspaceId, mapping.brandwellCustomerId]),
   );
 
-  const [runs, routines, computers, connectors, credentials, cancellationFailures, existing] =
-    await Promise.all([
-      prisma.run.findMany({
-        where: {
-          workspaceId: { in: workspaceIds },
-          OR: [
-            { status: { in: ["queued", "leased", "running", "waiting_takeover"] } },
-            { status: "failed", createdAt: { gte: before(now, thresholds.failedRunLookbackMs) } },
-          ],
-        },
-        select: {
-          id: true,
-          workspaceId: true,
-          botId: true,
-          status: true,
-          error: true,
-          createdAt: true,
-          updatedAt: true,
-        },
-      }),
-      prisma.routine.findMany({
-        where: {
-          workspaceId: { in: workspaceIds },
-          active: true,
-          nextRunAt: { lt: before(now, thresholds.routineOverdueMs) },
-        },
-        select: { id: true, workspaceId: true, botId: true, name: true, nextRunAt: true },
-      }),
-      prisma.computer.findMany({
-        where: {
-          workspaceId: { in: workspaceIds },
-          state: { in: ["error", "booting", "suspending"] },
-        },
-        select: {
-          id: true,
-          workspaceId: true,
-          state: true,
-          updatedAt: true,
-          executionBotId: true,
-          controlBotId: true,
-        },
-      }),
-      prisma.connection.findMany({
-        where: {
-          workspaceId: { in: workspaceIds },
-          status: { in: ["error", "expired", "disconnected"] },
-        },
-        select: { id: true, workspaceId: true, provider: true, displayName: true, status: true },
-      }),
-      prisma.brandwellWorkspaceModelCredential.findMany({
-        where: { workspaceId: { in: workspaceIds } },
-        select: {
-          id: true,
-          workspaceId: true,
-          status: true,
-          disabledAt: true,
-          currentUsageMicros: true,
-          monthlyLimitMicros: true,
-          warningLimitMicros: true,
-          providerUsageSyncedAt: true,
-          providerUsageSyncError: true,
-        },
-      }),
-      prisma.brandwellCancellationEvent.findMany({
-        where: { workspaceId: { in: workspaceIds }, status: "failed" },
-        select: { id: true, workspaceId: true, stage: true, lastError: true },
-      }),
-      prisma.brandwellAlert.findMany({
-        where: { workspaceId: { in: workspaceIds } },
-        select: { id: true, workspaceId: true, dedupeKey: true, status: true },
-      }),
-    ]);
+  const [
+    runs,
+    routines,
+    computers,
+    connectors,
+    workspaceCredentials,
+    sidekickCredentials,
+    cancellationFailures,
+    existing,
+  ] = await Promise.all([
+    prisma.run.findMany({
+      where: {
+        workspaceId: { in: workspaceIds },
+        OR: [
+          { status: { in: ["queued", "leased", "running", "waiting_takeover"] } },
+          { status: "failed", createdAt: { gte: before(now, thresholds.failedRunLookbackMs) } },
+        ],
+      },
+      select: {
+        id: true,
+        workspaceId: true,
+        botId: true,
+        status: true,
+        error: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    }),
+    prisma.routine.findMany({
+      where: {
+        workspaceId: { in: workspaceIds },
+        active: true,
+        nextRunAt: { lt: before(now, thresholds.routineOverdueMs) },
+      },
+      select: { id: true, workspaceId: true, botId: true, name: true, nextRunAt: true },
+    }),
+    prisma.computer.findMany({
+      where: {
+        workspaceId: { in: workspaceIds },
+        state: { in: ["error", "booting", "suspending"] },
+      },
+      select: {
+        id: true,
+        workspaceId: true,
+        state: true,
+        updatedAt: true,
+        executionBotId: true,
+        controlBotId: true,
+      },
+    }),
+    prisma.connection.findMany({
+      where: {
+        workspaceId: { in: workspaceIds },
+        status: { in: ["error", "expired", "disconnected"] },
+      },
+      select: { id: true, workspaceId: true, provider: true, displayName: true, status: true },
+    }),
+    prisma.brandwellWorkspaceModelCredential.findMany({
+      where: { workspaceId: { in: workspaceIds } },
+      select: {
+        id: true,
+        workspaceId: true,
+        status: true,
+        disabledAt: true,
+        currentUsageMicros: true,
+        monthlyLimitMicros: true,
+        warningLimitMicros: true,
+        providerUsageSyncedAt: true,
+        providerUsageSyncError: true,
+      },
+    }),
+    prisma.brandwellSidekickModelCredential.findMany({
+      where: { workspaceId: { in: workspaceIds } },
+      select: {
+        id: true,
+        workspaceId: true,
+        status: true,
+        disabledAt: true,
+        currentUsageMicros: true,
+        monthlyLimitMicros: true,
+        warningLimitMicros: true,
+        providerUsageSyncedAt: true,
+        providerUsageSyncError: true,
+        sidekick: { select: { botId: true, email: true } },
+      },
+    }),
+    prisma.brandwellCancellationEvent.findMany({
+      where: { workspaceId: { in: workspaceIds }, status: "failed" },
+      select: { id: true, workspaceId: true, stage: true, lastError: true },
+    }),
+    prisma.brandwellAlert.findMany({
+      where: { workspaceId: { in: workspaceIds } },
+      select: { id: true, workspaceId: true, dedupeKey: true, status: true },
+    }),
+  ]);
 
   const candidates: BrandwellAlertCandidate[] = [];
   for (const mapping of mappings) {
@@ -222,7 +245,18 @@ export async function reconcileBrandwellFleetHealth(
       technicalDetails: { provider: connection.provider, status: connection.status },
     });
   }
+  const credentials = [
+    ...workspaceCredentials.map((credential) => ({
+      ...credential,
+      sidekick: null as { botId: string | null; email: string } | null,
+    })),
+    ...sidekickCredentials,
+  ];
   for (const credential of credentials) {
+    const subject = credential.sidekick ? "Sidekick" : "workspace";
+    const technicalDetails = credential.sidekick?.botId
+      ? { botId: credential.sidekick.botId, sidekickEmail: credential.sidekick.email }
+      : undefined;
     if (credential.providerUsageSyncError) {
       candidates.push({
         workspaceId: credential.workspaceId,
@@ -230,12 +264,13 @@ export async function reconcileBrandwellFleetHealth(
         resourceId: credential.id,
         source: "model",
         severity: "ERROR",
-        summary: "OpenRouter usage and limit status could not be synchronized.",
+        summary: `OpenRouter usage and limit status could not be synchronized for this ${subject}.`,
         clientActionRequired: false,
         brandwellActionRequired: true,
         technicalDetails: {
           error: credential.providerUsageSyncError,
           lastSuccessfulSyncAt: credential.providerUsageSyncedAt?.toISOString(),
+          ...technicalDetails,
         },
       });
     } else if (credential.status !== "active" || credential.disabledAt) {
@@ -245,9 +280,10 @@ export async function reconcileBrandwellFleetHealth(
         resourceId: credential.id,
         source: "model",
         severity: "CRITICAL",
-        summary: "Managed model inference is disabled for this workspace.",
+        summary: `Managed model inference is disabled for this ${subject}.`,
         clientActionRequired: false,
         brandwellActionRequired: true,
+        technicalDetails,
       });
     } else if (
       credential.monthlyLimitMicros > 0n &&
@@ -259,9 +295,10 @@ export async function reconcileBrandwellFleetHealth(
         resourceId: credential.id,
         source: "model",
         severity: "CRITICAL",
-        summary: "The workspace reached its managed model budget.",
+        summary: `The ${subject} reached its managed model budget.`,
         clientActionRequired: false,
         brandwellActionRequired: true,
+        technicalDetails,
       });
     } else if (
       credential.warningLimitMicros > 0n &&
@@ -273,9 +310,10 @@ export async function reconcileBrandwellFleetHealth(
         resourceId: credential.id,
         source: "model",
         severity: "WARNING",
-        summary: "The workspace is approaching its managed model budget.",
+        summary: `The ${subject} is approaching its managed model budget.`,
         clientActionRequired: false,
         brandwellActionRequired: true,
+        technicalDetails,
       });
     }
   }

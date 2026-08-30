@@ -11,6 +11,9 @@ import {
   BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION,
 } from "./aimee-baseline.js";
 import { BRANDWELL_BRAND } from "./brand-config.js";
+import { brandwellSidekickOpenRouterKeyLabel } from "./openrouter-key-labels.js";
+import { microsToUsd, type OpenRouterManagementClient } from "./openrouter-management.js";
+import type { BrandwellSecretCipher } from "./prisma-provisioning.js";
 import { installBrandwellSkillBundle } from "./prisma-skills.js";
 
 const ACTIVE_COMMERCIAL_STATES = new Set(["trialing", "active"]);
@@ -49,17 +52,29 @@ export type BrandwellSidekickProvisioningInput = {
 
 export type PrismaBrandwellSidekickOptions = {
   prisma: PrismaClient;
+  secretCipher: BrandwellSecretCipher;
+  openRouter: Pick<OpenRouterManagementClient, "createKey" | "deleteKey">;
   systemUserId?: string;
   sandboxKind: string;
   defaultModel: string;
+  monthlyLimitMicros: bigint;
+  warningLimitMicros: bigint;
+  dailyLimitMicros?: bigint;
   now?: () => Date;
   createId?: () => string;
+};
+
+export type PrismaBrandwellSidekickLifecycleOptions = {
+  prisma: PrismaClient;
+  openRouter: Pick<OpenRouterManagementClient, "updateKey" | "deleteKey">;
+  now?: () => Date;
 };
 
 export async function syncBrandwellWorkspaceDesiredStateWithPrisma(
   workspaceReference: string,
   input: BrandwellWorkspaceDesiredStateInput,
   prisma: PrismaClient,
+  openRouter?: Pick<OpenRouterManagementClient, "updateKey">,
 ) {
   const mapping = await findMapping(prisma, workspaceReference);
   if (!mapping) {
@@ -105,6 +120,25 @@ export async function syncBrandwellWorkspaceDesiredStateWithPrisma(
   }
 
   const inferenceEnabled = ACTIVE_COMMERCIAL_STATES.has(input.status);
+  const shouldEnableProviderKeys =
+    inferenceEnabled && ["paused", "past_due"].includes(mapping.commercialStatus);
+  if (openRouter && (!inferenceEnabled || shouldEnableProviderKeys)) {
+    const [masterCredential, sidekickCredentials] = await Promise.all([
+      prisma.brandwellWorkspaceModelCredential.findUnique({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
+        select: { externalKeyHash: true },
+      }),
+      prisma.brandwellSidekickModelCredential.findMany({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
+        select: { externalKeyHash: true },
+      }),
+    ]);
+    for (const credential of [masterCredential, ...sidekickCredentials]) {
+      if (credential?.externalKeyHash) {
+        await openRouter.updateKey(credential.externalKeyHash, { disabled: !inferenceEnabled });
+      }
+    }
+  }
   const updated = await prisma.$transaction(async (tx) => {
     const changed = await tx.brandwellAiWorkspace.updateMany({
       where: { id: mapping.id, commercialRevision: { lt: input.revision } },
@@ -141,6 +175,10 @@ export async function syncBrandwellWorkspaceDesiredStateWithPrisma(
         where: { workspaceId: mapping.rakazoWorkspaceId },
         data: { status: "disabled", disabledAt: new Date() },
       });
+      await tx.brandwellSidekickModelCredential.updateMany({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
+        data: { status: "disabled", disabledAt: new Date() },
+      });
     } else if (mapping.commercialStatus === "paused" || mapping.commercialStatus === "past_due") {
       await tx.bot.updateMany({
         where: {
@@ -151,6 +189,10 @@ export async function syncBrandwellWorkspaceDesiredStateWithPrisma(
         data: { managedStatus: "active" },
       });
       await tx.brandwellWorkspaceModelCredential.updateMany({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
+        data: { status: "active", disabledAt: null },
+      });
+      await tx.brandwellSidekickModelCredential.updateMany({
         where: { workspaceId: mapping.rakazoWorkspaceId },
         data: { status: "active", disabledAt: null },
       });
@@ -174,7 +216,7 @@ export async function provisionBrandwellSidekickWithPrisma(
   }
   const existing = await options.prisma.brandwellSidekick.findUnique({
     where: { brandwellSidekickId: input.brandwellSidekickId },
-    include: { bot: true, computer: true },
+    include: { bot: true, computer: true, modelCredential: true },
   });
   if (existing) {
     if (existing.email !== email || existing.aiWorkspaceId !== mapping.id) {
@@ -184,7 +226,14 @@ export async function provisionBrandwellSidekickWithPrisma(
         409,
       );
     }
-    return sidekickResult(existing, true);
+    if (existing.status === "canceled") {
+      throw new BrandwellSidekickError(
+        "A canceled Sidekick cannot be reprovisioned with the same identity",
+        "sidekick_canceled",
+        409,
+      );
+    }
+    if (existing.modelCredential) return sidekickResult(existing, true);
   }
   if (!ACTIVE_COMMERCIAL_STATES.has(mapping.commercialStatus)) {
     throw new BrandwellSidekickError(
@@ -203,43 +252,32 @@ export async function provisionBrandwellSidekickWithPrisma(
   const systemUserId = await requireSystemUserId(options.prisma, options.systemUserId);
   const existingUser = await options.prisma.user.findUnique({ where: { email } });
   const ownerUserId = existingUser?.id ?? systemUserId;
-  const preferredModel =
-    (
-      await options.prisma.brandwellWorkspaceModelCredential.findUnique({
-        where: { workspaceId: mapping.rakazoWorkspaceId },
-        select: { preferredModel: true },
-      })
-    )?.preferredModel ?? options.defaultModel;
-
-  const provisioned = await options.prisma.$transaction(async (tx) => {
-    await tx.brandwellAiWorkspace.update({ where: { id: mapping.id }, data: { updatedAt: now() } });
-    const lockedMapping = await tx.brandwellAiWorkspace.findUniqueOrThrow({
-      where: { id: mapping.id },
-    });
-    if (!ACTIVE_COMMERCIAL_STATES.has(lockedMapping.commercialStatus)) {
-      throw new BrandwellSidekickError(
-        "The client does not have an active AIMEE entitlement",
-        "entitlement_inactive",
-        409,
-      );
-    }
-    const replay = await tx.brandwellSidekick.findUnique({
-      where: { brandwellSidekickId: input.brandwellSidekickId },
-      include: { bot: true, computer: true },
-    });
-    if (replay) {
-      if (replay.email !== email || replay.aiWorkspaceId !== mapping.id) {
-        throw new BrandwellSidekickError(
-          "The Sidekick idempotency identity is already assigned",
-          "sidekick_identity_conflict",
-          409,
-        );
-      }
-      return { sidekick: replay, replayed: true };
-    }
-    const duplicate = await tx.brandwellSidekick.findFirst({
-      where: { aiWorkspaceId: mapping.id, email },
-    });
+  const [organization, masterCredential] = await Promise.all([
+    options.prisma.organization.findUnique({
+      where: { id: mapping.rakazoWorkspaceId },
+      select: { name: true },
+    }),
+    options.prisma.brandwellWorkspaceModelCredential.findUnique({
+      where: { workspaceId: mapping.rakazoWorkspaceId },
+    }),
+  ]);
+  if (!organization?.name || !masterCredential) {
+    throw new BrandwellSidekickError(
+      "The primary AIMEE model credential is unavailable",
+      "primary_aimee_credential_unavailable",
+      409,
+    );
+  }
+  const modelPolicy = masterCredential;
+  if (!existing) {
+    const [duplicate, allocated] = await Promise.all([
+      options.prisma.brandwellSidekick.findFirst({
+        where: { aiWorkspaceId: mapping.id, email },
+      }),
+      options.prisma.brandwellSidekick.count({
+        where: { aiWorkspaceId: mapping.id, status: { in: COUNTED_SIDEKICK_STATES } },
+      }),
+    ]);
     if (duplicate) {
       throw new BrandwellSidekickError(
         "This teammate already has a Sidekick in the client workspace",
@@ -247,170 +285,284 @@ export async function provisionBrandwellSidekickWithPrisma(
         409,
       );
     }
-    const allocated = await tx.brandwellSidekick.count({
-      where: { aiWorkspaceId: mapping.id, status: { in: COUNTED_SIDEKICK_STATES } },
-    });
-    if (allocated >= lockedMapping.sidekickSeats) {
+    if (allocated >= mapping.sidekickSeats) {
       throw new BrandwellSidekickError(
         "All licensed Sidekick seats are allocated",
         "sidekick_seat_limit_reached",
         409,
       );
     }
+  }
+  const preferredModel = modelPolicy.preferredModel || options.defaultModel;
+  const createdKey = await options.openRouter.createKey({
+    name: brandwellSidekickOpenRouterKeyLabel(organization.name, email),
+    limitUsd: microsToUsd(options.monthlyLimitMicros),
+    limitReset: "monthly",
+  });
+  let ciphertext: string;
+  try {
+    ciphertext = await options.secretCipher.encrypt(createdKey.key, {
+      workspaceId: mapping.rakazoWorkspaceId,
+      userId: systemUserId,
+    });
+  } catch (error) {
+    await options.openRouter.deleteKey(createdKey.hash).catch(() => undefined);
+    throw error;
+  }
 
-    let invitationId: string | null = null;
-    if (existingUser) {
-      await tx.member.upsert({
-        where: {
-          organizationId_userId: {
-            organizationId: mapping.rakazoWorkspaceId,
-            userId: existingUser.id,
-          },
-        },
-        create: {
-          id: createId(),
-          organizationId: mapping.rakazoWorkspaceId,
-          userId: existingUser.id,
-          role: "member",
-          createdAt: now(),
-        },
-        update: {},
+  async function createModelCredential(tx: Prisma.TransactionClient, sidekickId: string) {
+    const secret = await tx.secret.create({
+      data: {
+        userId: systemUserId,
+        workspaceId: mapping!.rakazoWorkspaceId,
+        ownerType: "service",
+        serviceIdentityId: mapping!.serviceIdentityId!,
+        kind: "model:openrouter:sidekick",
+        ciphertext,
+      },
+    });
+    return tx.brandwellSidekickModelCredential.create({
+      data: {
+        sidekickId,
+        workspaceId: mapping!.rakazoWorkspaceId,
+        serviceIdentityId: mapping!.serviceIdentityId!,
+        provider: "openrouter",
+        secretId: secret.id,
+        externalKeyHash: createdKey.hash,
+        externalWorkspaceId: createdKey.workspaceId,
+        limitReset: createdKey.limitReset ?? "monthly",
+        status: "active",
+        monthlyLimitMicros: options.monthlyLimitMicros,
+        dailyLimitMicros: options.dailyLimitMicros,
+        warningLimitMicros: options.warningLimitMicros,
+        preferredModel,
+        computerModel: modelPolicy.computerModel,
+        lightweightModel: modelPolicy.lightweightModel,
+        reasoningModel: modelPolicy.reasoningModel,
+        fallbackModels: Array.isArray(modelPolicy.fallbackModels)
+          ? modelPolicy.fallbackModels.filter(
+              (item): item is string => typeof item === "string" && item.length > 0,
+            )
+          : [],
+        maxTokens: modelPolicy.maxTokens,
+        thinkingLevel: modelPolicy.thinkingLevel,
+      },
+    });
+  }
+
+  const provisioned = await options.prisma
+    .$transaction(async (tx) => {
+      await tx.brandwellAiWorkspace.update({
+        where: { id: mapping.id },
+        data: { updatedAt: now() },
       });
-    } else {
-      const invitation =
-        (await tx.invitation.findFirst({
+      const lockedMapping = await tx.brandwellAiWorkspace.findUniqueOrThrow({
+        where: { id: mapping.id },
+      });
+      if (!ACTIVE_COMMERCIAL_STATES.has(lockedMapping.commercialStatus)) {
+        throw new BrandwellSidekickError(
+          "The client does not have an active AIMEE entitlement",
+          "entitlement_inactive",
+          409,
+        );
+      }
+      const replay = await tx.brandwellSidekick.findUnique({
+        where: { brandwellSidekickId: input.brandwellSidekickId },
+        include: { bot: true, computer: true, modelCredential: true },
+      });
+      if (replay) {
+        if (replay.email !== email || replay.aiWorkspaceId !== mapping.id) {
+          throw new BrandwellSidekickError(
+            "The Sidekick idempotency identity is already assigned",
+            "sidekick_identity_conflict",
+            409,
+          );
+        }
+        if (!replay.modelCredential) await createModelCredential(tx, replay.id);
+        return { sidekick: replay, replayed: true, credentialCreated: !replay.modelCredential };
+      }
+      const duplicate = await tx.brandwellSidekick.findFirst({
+        where: { aiWorkspaceId: mapping.id, email },
+      });
+      if (duplicate) {
+        throw new BrandwellSidekickError(
+          "This teammate already has a Sidekick in the client workspace",
+          "sidekick_email_conflict",
+          409,
+        );
+      }
+      const allocated = await tx.brandwellSidekick.count({
+        where: { aiWorkspaceId: mapping.id, status: { in: COUNTED_SIDEKICK_STATES } },
+      });
+      if (allocated >= lockedMapping.sidekickSeats) {
+        throw new BrandwellSidekickError(
+          "All licensed Sidekick seats are allocated",
+          "sidekick_seat_limit_reached",
+          409,
+        );
+      }
+
+      let invitationId: string | null = null;
+      if (existingUser) {
+        await tx.member.upsert({
           where: {
-            organizationId: mapping.rakazoWorkspaceId,
-            email,
-            status: "pending",
+            organizationId_userId: {
+              organizationId: mapping.rakazoWorkspaceId,
+              userId: existingUser.id,
+            },
           },
-          orderBy: { expiresAt: "desc" },
-        })) ??
-        (await tx.invitation.create({
-          data: {
+          create: {
             id: createId(),
             organizationId: mapping.rakazoWorkspaceId,
-            email,
+            userId: existingUser.id,
             role: "member",
-            status: "pending",
-            expiresAt: new Date(now().getTime() + 7 * 86_400_000),
-            inviterId: systemUserId,
+            createdAt: now(),
           },
-        }));
-      invitationId = invitation.id;
-    }
+          update: {},
+        });
+      } else {
+        const invitation =
+          (await tx.invitation.findFirst({
+            where: {
+              organizationId: mapping.rakazoWorkspaceId,
+              email,
+              status: "pending",
+            },
+            orderBy: { expiresAt: "desc" },
+          })) ??
+          (await tx.invitation.create({
+            data: {
+              id: createId(),
+              organizationId: mapping.rakazoWorkspaceId,
+              email,
+              role: "member",
+              status: "pending",
+              expiresAt: new Date(now().getTime() + 7 * 86_400_000),
+              inviterId: systemUserId,
+            },
+          }));
+        invitationId = invitation.id;
+      }
 
-    const bot = await tx.bot.create({
-      data: {
-        workspaceId: mapping.rakazoWorkspaceId,
-        userId: ownerUserId,
-        createdByUserId: systemUserId,
-        ownerType: "user",
-        visibility: "private",
-        managedByBrandWell: true,
-        managedStatus: existingUser ? "active" : "pending_access",
-        serviceIdentityId: mapping.serviceIdentityId,
-        parentBotId: mapping.primaryBotId,
-        spawnKey: `brandwell:sidekick:${input.brandwellSidekickId}`,
-        name: `${input.name}'s AIMEE`,
-        title: `${input.roleTitle} Sidekick`,
-        description: `A private BrandWell AI Sidekick configured for ${input.name}.`,
-        instructions: `${BRANDWELL_AIMEE_INSTRUCTIONS}\n\nYou are the private Sidekick for ${input.name}, whose role is ${input.roleTitle}. Keep their work, browser sessions, files, and personal preferences private to their user access. Use shared client workspace signals and BrandWell service connections only for authorized client work.`,
-        color: BRANDWELL_BRAND.colors.primary,
-        notifyOnFinish: true,
-        pinned: true,
-        modelProvider: "openrouter",
-        modelId: preferredModel,
-      },
-    });
-    const thread = await tx.thread.create({
-      data: { workspaceId: mapping.rakazoWorkspaceId, botId: bot.id, userId: ownerUserId },
-    });
-    await createThreadMessageInTransaction(tx, {
-      threadId: thread.id,
-      role: "bot",
-      botId: bot.id,
-      blocks: [
-        {
-          kind: "text",
-          text: `Hi ${input.name}, I'm your private AIMEE Sidekick. I have my own secure computer and can help with your ${input.roleTitle} work using the BrandWell tools available to this client workspace.`,
-        },
-      ],
-    });
-    await tx.browserProfile.create({
-      data: { workspaceId: mapping.rakazoWorkspaceId, botId: bot.id, userId: ownerUserId },
-    });
-    await tx.memoryDocument.create({
-      data: {
-        workspaceId: mapping.rakazoWorkspaceId,
-        userId: ownerUserId,
-        botId: bot.id,
-        scope: "bot",
-        path: "MEMORY.md",
-        content: `# ${input.name}'s AIMEE Sidekick\n\n`,
-      },
-    });
-    const computer = await ensureComputerRecord(tx, {
-      mode: "dedicated",
-      workspaceId: mapping.rakazoWorkspaceId,
-      userId: ownerUserId,
-      botId: bot.id,
-      kind: options.sandboxKind,
-    });
-    await tx.bot.update({ where: { id: bot.id }, data: { computerId: computer.id } });
-    for (const template of BRANDWELL_AIMEE_DEFAULT_ROUTINES) {
-      await tx.routine.create({
+      const bot = await tx.bot.create({
         data: {
           workspaceId: mapping.rakazoWorkspaceId,
-          botId: bot.id,
           userId: ownerUserId,
+          createdByUserId: systemUserId,
+          ownerType: "user",
+          visibility: "private",
+          managedByBrandWell: true,
+          managedStatus: existingUser ? "active" : "pending_access",
           serviceIdentityId: mapping.serviceIdentityId,
-          name: template.name,
-          prompt: template.prompt,
-          crons: [template.cron],
-          timezone: input.timezone,
-          active: false,
-          notify: true,
+          parentBotId: mapping.primaryBotId,
+          spawnKey: `brandwell:sidekick:${input.brandwellSidekickId}`,
+          name: `${input.name}'s AIMEE`,
+          title: `${input.roleTitle} Sidekick`,
+          description: `A private BrandWell AI Sidekick configured for ${input.name}.`,
+          instructions: `${BRANDWELL_AIMEE_INSTRUCTIONS}\n\nYou are the private Sidekick for ${input.name}, whose role is ${input.roleTitle}. Keep their work, browser sessions, files, and personal preferences private to their user access. Use shared client workspace signals and BrandWell service connections only for authorized client work.`,
+          color: BRANDWELL_BRAND.colors.primary,
+          notifyOnFinish: true,
+          pinned: true,
+          modelProvider: "openrouter",
+          modelId: preferredModel,
         },
       });
-    }
-    await installBrandwellSkillBundle(tx, {
-      workspaceId: mapping.rakazoWorkspaceId,
-      userId: ownerUserId,
-    });
-    if (existingUser) {
-      await tx.notificationPreference.upsert({
-        where: {
-          workspaceId_userId: {
-            workspaceId: mapping.rakazoWorkspaceId,
-            userId: existingUser.id,
-          },
-        },
-        create: { workspaceId: mapping.rakazoWorkspaceId, userId: existingUser.id },
-        update: {},
+      const thread = await tx.thread.create({
+        data: { workspaceId: mapping.rakazoWorkspaceId, botId: bot.id, userId: ownerUserId },
       });
-    }
-    const created = await tx.brandwellSidekick.create({
-      data: {
-        brandwellSidekickId: input.brandwellSidekickId,
-        aiWorkspaceId: mapping.id,
-        workspaceId: mapping.rakazoWorkspaceId,
-        email,
-        name: input.name,
-        roleTitle: input.roleTitle,
-        status: existingUser ? "active" : "invited",
-        userId: existingUser?.id ?? null,
+      await createThreadMessageInTransaction(tx, {
+        threadId: thread.id,
+        role: "bot",
         botId: bot.id,
-        computerId: computer.id,
-        invitationId,
-        skillBundleVersion: BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION,
-        commercialRevision: mapping.commercialRevision,
-        activatedAt: existingUser ? now() : null,
-      },
-      include: { bot: true, computer: true },
+        blocks: [
+          {
+            kind: "text",
+            text: `Hi ${input.name}, I'm your private AIMEE Sidekick. I have my own secure computer and can help with your ${input.roleTitle} work using the BrandWell tools available to this client workspace.`,
+          },
+        ],
+      });
+      await tx.browserProfile.create({
+        data: { workspaceId: mapping.rakazoWorkspaceId, botId: bot.id, userId: ownerUserId },
+      });
+      await tx.memoryDocument.create({
+        data: {
+          workspaceId: mapping.rakazoWorkspaceId,
+          userId: ownerUserId,
+          botId: bot.id,
+          scope: "bot",
+          path: "MEMORY.md",
+          content: `# ${input.name}'s AIMEE Sidekick\n\n`,
+        },
+      });
+      const computer = await ensureComputerRecord(tx, {
+        mode: "dedicated",
+        workspaceId: mapping.rakazoWorkspaceId,
+        userId: ownerUserId,
+        botId: bot.id,
+        kind: options.sandboxKind,
+      });
+      await tx.bot.update({ where: { id: bot.id }, data: { computerId: computer.id } });
+      for (const template of BRANDWELL_AIMEE_DEFAULT_ROUTINES) {
+        await tx.routine.create({
+          data: {
+            workspaceId: mapping.rakazoWorkspaceId,
+            botId: bot.id,
+            userId: ownerUserId,
+            serviceIdentityId: mapping.serviceIdentityId,
+            name: template.name,
+            prompt: template.prompt,
+            crons: [template.cron],
+            timezone: input.timezone,
+            active: false,
+            notify: true,
+          },
+        });
+      }
+      await installBrandwellSkillBundle(tx, {
+        workspaceId: mapping.rakazoWorkspaceId,
+        userId: ownerUserId,
+      });
+      if (existingUser) {
+        await tx.notificationPreference.upsert({
+          where: {
+            workspaceId_userId: {
+              workspaceId: mapping.rakazoWorkspaceId,
+              userId: existingUser.id,
+            },
+          },
+          create: { workspaceId: mapping.rakazoWorkspaceId, userId: existingUser.id },
+          update: {},
+        });
+      }
+      const created = await tx.brandwellSidekick.create({
+        data: {
+          brandwellSidekickId: input.brandwellSidekickId,
+          aiWorkspaceId: mapping.id,
+          workspaceId: mapping.rakazoWorkspaceId,
+          email,
+          name: input.name,
+          roleTitle: input.roleTitle,
+          status: existingUser ? "active" : "invited",
+          userId: existingUser?.id ?? null,
+          botId: bot.id,
+          computerId: computer.id,
+          invitationId,
+          skillBundleVersion: BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION,
+          commercialRevision: mapping.commercialRevision,
+          activatedAt: existingUser ? now() : null,
+        },
+        include: { bot: true, computer: true },
+      });
+      await createModelCredential(tx, created.id);
+      return { sidekick: created, replayed: false, credentialCreated: true };
+    })
+    .catch(async (error) => {
+      await options.openRouter.deleteKey(createdKey.hash).catch(() => undefined);
+      throw error;
     });
-    return { sidekick: created, replayed: false };
-  });
+  if (!provisioned.credentialCreated) {
+    await options.openRouter.deleteKey(createdKey.hash).catch(() => undefined);
+  }
   return sidekickResult(provisioned.sidekick, provisioned.replayed);
 }
 
@@ -461,10 +613,11 @@ export async function claimBrandwellSidekickInTransaction(
 export async function setBrandwellSidekickLifecycleWithPrisma(
   sidekickReference: string,
   action: "pause" | "resume" | "cancel",
-  prisma: PrismaClient,
+  options: PrismaBrandwellSidekickLifecycleOptions,
 ) {
-  const sidekick = await prisma.brandwellSidekick.findFirst({
+  const sidekick = await options.prisma.brandwellSidekick.findFirst({
     where: { OR: [{ id: sidekickReference }, { brandwellSidekickId: sidekickReference }] },
+    include: { modelCredential: true },
   });
   if (!sidekick?.botId) {
     throw new BrandwellSidekickError("Sidekick not found", "sidekick_not_found", 404);
@@ -476,10 +629,30 @@ export async function setBrandwellSidekickLifecycleWithPrisma(
       409,
     );
   }
-  const at = new Date();
+  if (action === "resume" && sidekick.status === "canceled") {
+    throw new BrandwellSidekickError(
+      "A canceled Sidekick cannot be resumed",
+      "sidekick_canceled",
+      409,
+    );
+  }
+  if (action === "cancel" && sidekick.status === "canceled") {
+    return {
+      sidekickId: sidekick.id,
+      status: sidekick.status,
+      botId: sidekick.botId,
+      computerId: sidekick.computerId,
+    };
+  }
+  const at = options.now?.() ?? new Date();
   const status = action === "cancel" ? "canceled" : action === "pause" ? "paused" : "active";
-  await prisma.$transaction([
-    prisma.brandwellSidekick.update({
+  const keyHash = sidekick.modelCredential?.externalKeyHash;
+  if (keyHash) {
+    if (action === "cancel") await options.openRouter.deleteKey(keyHash);
+    else await options.openRouter.updateKey(keyHash, { disabled: action === "pause" });
+  }
+  await options.prisma.$transaction([
+    options.prisma.brandwellSidekick.update({
       where: { id: sidekick.id },
       data: {
         status,
@@ -487,17 +660,38 @@ export async function setBrandwellSidekickLifecycleWithPrisma(
         canceledAt: action === "cancel" ? at : null,
       },
     }),
-    prisma.bot.update({
+    options.prisma.bot.update({
       where: { id: sidekick.botId },
       data: {
         managedStatus: action === "resume" ? "active" : action === "cancel" ? "canceled" : "paused",
         archivedAt: action === "cancel" ? at : null,
       },
     }),
-    prisma.routine.updateMany({ where: { botId: sidekick.botId }, data: { active: false } }),
+    options.prisma.routine.updateMany({
+      where: { botId: sidekick.botId },
+      data: { active: false },
+    }),
+    ...(sidekick.modelCredential
+      ? action === "cancel"
+        ? [
+            options.prisma.brandwellSidekickModelCredential.delete({
+              where: { id: sidekick.modelCredential.id },
+            }),
+            options.prisma.secret.delete({ where: { id: sidekick.modelCredential.secretId } }),
+          ]
+        : [
+            options.prisma.brandwellSidekickModelCredential.update({
+              where: { id: sidekick.modelCredential.id },
+              data: {
+                status: action === "pause" ? "disabled" : "active",
+                disabledAt: action === "pause" ? at : null,
+              },
+            }),
+          ]
+      : []),
     ...(sidekick.computerId
       ? [
-          prisma.computer.update({
+          options.prisma.computer.update({
             where: { id: sidekick.computerId },
             data: action === "resume" ? {} : { state: "stopped" },
           }),
