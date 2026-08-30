@@ -356,7 +356,14 @@ export type AgentRuntimeEvent =
   | { type: "tool"; name: string; args: Record<string, unknown>; executionId: string }
   | { type: "ask"; text: string; detail?: string }
   | { type: "takeover"; reason: string }
-  | { type: "usage"; inputTokens: number; outputTokens: number; provider: string; model: string }
+  | {
+      type: "usage";
+      inputTokens: number;
+      outputTokens: number;
+      costMicros: number;
+      provider: string;
+      model: string;
+    }
   | { type: "checkpoint"; blob: string }
   | {
       type: "subagent";

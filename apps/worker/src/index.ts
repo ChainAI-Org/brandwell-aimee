@@ -3,6 +3,7 @@ import {
   deliverPendingBrandwellClientNotifications,
   OpenRouterManagementClient,
   reconcileBrandwellFleetHealth,
+  reconcileBrandwellOpenRouterUsage,
   reconcileBrandwellRetentionCleanupWithPrisma,
   reconcileBrandwellSupportSessions,
 } from "@brandwell/aimee";
@@ -196,6 +197,7 @@ async function main() {
     brandwellMaintenanceRunning = true;
     try {
       if (openRouterManagement) {
+        await reconcileBrandwellOpenRouterUsage(prisma, openRouterManagement);
         await reconcileBrandwellRetentionCleanupWithPrisma(
           {
             prisma,

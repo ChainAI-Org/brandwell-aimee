@@ -9,6 +9,7 @@ import {
   provisionBrandwellWorkspaceWithPrisma,
   reconcileBrandwellFleetHealth,
   reconcileBrandwellRetentionCleanupWithPrisma,
+  syncBrandwellWorkspaceDesiredStateWithPrisma,
 } from "./index.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -126,7 +127,7 @@ describePostgres("BrandWell AIMEE managed lifecycle (PostgreSQL acceptance)", ()
       workspaceId = mapping.rakazoWorkspaceId;
       const bot = mapping.rakazoWorkspace.bots[0];
       expect(mapping).toMatchObject({
-        subscriptionStatus: "active",
+        subscriptionStatus: "pending_entitlement",
         provisioningStatus: "complete",
         primaryContactEmail: clientEmail,
       });
@@ -147,6 +148,21 @@ describePostgres("BrandWell AIMEE managed lifecycle (PostgreSQL acceptance)", ()
       expect(mapping.rakazoWorkspace.notificationPreferences).toEqual([
         expect.objectContaining({ userId: clientUserId, finish: true, help: true, takeover: true }),
       ]);
+
+      await syncBrandwellWorkspaceDesiredStateWithPrisma(
+        workspaceId,
+        {
+          revision: 1n,
+          agencyId: `agency-${suffix}`,
+          clientId: customerId,
+          status: "active",
+          plan: "aimee",
+          masterSeats: 1,
+          sidekickSeats: 0,
+          skillBundleVersion: 1,
+        },
+        prisma,
+      );
 
       const model = await createBrandwellManagedModelResolver(prisma)({
         workspaceId,

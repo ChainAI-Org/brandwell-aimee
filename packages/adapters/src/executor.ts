@@ -2407,10 +2407,13 @@ export function createRunExecutor(deps: ExecutorDeps) {
                   botId: bot.id,
                   userId: run.userId,
                   runId,
+                  serviceIdentityId: managedModel?.serviceIdentityId ?? run.serviceIdentityId,
                   provider: event.provider,
                   model: event.model,
                   inputTokens: event.inputTokens,
                   outputTokens: event.outputTokens,
+                  costMicros: BigInt(event.costMicros),
+                  workloadType: "general",
                 },
               });
             } else if (event.type === "done") {

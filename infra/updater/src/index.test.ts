@@ -350,11 +350,11 @@ describe("updater orchestration", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ ok: true });
     const after = await lstat(envFile);
-    expect({ uid: after.uid, gid: after.gid, mode: after.mode & 0o777 }).toEqual({
+    expect({ uid: after.uid, gid: after.gid }).toEqual({
       uid: before.uid,
       gid: before.gid,
-      mode: 0o600,
     });
+    if (process.platform !== "win32") expect(after.mode & 0o777).toBe(0o600);
     expect(await readFile(envFile, "utf8")).toMatch(/FAKE_SETTING=kept/);
   });
 

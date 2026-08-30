@@ -30,6 +30,7 @@ model User {
   brandwellOperatorAssignments BrandwellOperatorAssignment[] @relation("BrandwellOperatorUser")
   brandwellSupportSessions BrandwellSupportSession[] @relation("BrandwellSupportOperator")
   brandwellAuditLogs BrandwellAuditLog[] @relation("BrandwellAuditActor")
+  brandwellSidekicks BrandwellSidekick[]
 
   @@unique([email])
   @@map("user")
@@ -127,6 +128,7 @@ model Organization {
   brandwellSupportSessions BrandwellSupportSession[]
   brandwellAuditLogs BrandwellAuditLog[]
   brandwellCancellationEvents BrandwellCancellationEvent[]
+  brandwellSidekicks BrandwellSidekick[]
 
   @@unique([slug])
   @@map("organization")
@@ -277,6 +279,7 @@ model Bot {
   runs           Run[]
   mcpServers     BotMcpServer[]
   groupMembers   ChatGroupMember[]
+  brandwellSidekick BrandwellSidekick?
 
   @@index([workspaceId, userId, archivedAt, pinned, updatedAt])
   @@index([sectionId])
@@ -596,10 +599,13 @@ model AgentSkill {
   content     String
   /// user | builtin | plugin — only user skills are writable via API/tools.
   source      String   @default("user")
+  managedKey  String?
+  managedVersion Int?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   @@index([workspaceId, userId])
+  @@unique([workspaceId, userId, managedKey])
   // Case-insensitive unique index agent_skills_workspaceId_userId_name_lower_key is created in SQL.
   @@map("agent_skills")
 }
@@ -745,6 +751,7 @@ model Computer {
   updatedAt                DateTime @updatedAt
   bots                     Bot[]
   executionLeases          ComputerExecutionLease[]
+  brandwellSidekick        BrandwellSidekick?
 
   @@index([workspaceId, scope])
   @@map("computers")
@@ -937,6 +944,14 @@ model BrandwellAiWorkspace {
   openRouterCredentialId String?
   subscriptionStatus    String   @default("provisioning")
   plan                  String   @default("aimee")
+  brandwellAgencyId     String?
+  brandwellClientId     String?
+  brandwellContractId   String?
+  commercialRevision    BigInt   @default(0)
+  commercialStatus      String   @default("pending")
+  masterSeats           Int      @default(1)
+  sidekickSeats         Int      @default(0)
+  skillBundleVersion    Int      @default(1)
   provisioningStatus    String   @default("pending")
   provisioningError     String?
   provisioningMetadata  Json     @default("{}")
@@ -946,9 +961,46 @@ model BrandwellAiWorkspace {
   canceledAt            DateTime?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
+  sidekicks             BrandwellSidekick[]
 
   @@index([subscriptionStatus, provisioningStatus])
   @@map("brandwell_ai_workspaces")
+}
+
+/// A Sidekick is a licensed teammate inside a managed BrandWell client
+/// workspace. It has private app access, a private AI employee, and a
+/// dedicated computer while sharing the workspace's centrally managed model
+/// policy and BrandWell service connections.
+model BrandwellSidekick {
+  id                    String   @id @default(cuid())
+  brandwellSidekickId   String   @unique
+  aiWorkspaceId         String
+  aiWorkspace           BrandwellAiWorkspace @relation(fields: [aiWorkspaceId], references: [id], onDelete: Cascade)
+  workspaceId           String
+  workspace             Organization @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  email                 String
+  name                  String
+  roleTitle             String   @default("GTM Teammate")
+  status                String   @default("provisioning")
+  userId                String?
+  user                  User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  botId                 String?  @unique
+  bot                   Bot?     @relation(fields: [botId], references: [id], onDelete: SetNull)
+  computerId            String?  @unique
+  computer              Computer? @relation(fields: [computerId], references: [id], onDelete: SetNull)
+  invitationId          String?
+  skillBundleVersion    Int      @default(1)
+  commercialRevision    BigInt   @default(0)
+  activatedAt           DateTime?
+  pausedAt              DateTime?
+  canceledAt            DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([aiWorkspaceId, email])
+  @@index([workspaceId, status])
+  @@index([userId, status])
+  @@map("brandwell_sidekicks")
 }
 
 model BrandwellServiceIdentity {
@@ -992,6 +1044,9 @@ model BrandwellWorkspaceModelCredential {
   dailyLimitMicros    BigInt?
   warningLimitMicros  BigInt   @default(0)
   currentUsageMicros  BigInt   @default(0)
+  providerLimitMicros BigInt?
+  providerUsageSyncedAt DateTime?
+  providerUsageSyncError String?
   preferredModel      String
   computerModel       String?
   lightweightModel    String?

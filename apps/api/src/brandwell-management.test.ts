@@ -160,6 +160,110 @@ describe("BrandWell management API authentication", () => {
     expect(await response.json()).toEqual({ error: "AIMEE provisioning is not configured" });
   });
 
+  it("synchronizes a versioned commercial entitlement before Sidekick provisioning", async () => {
+    const syncDesiredState = vi.fn(async (_workspaceId, input) => ({
+      mapping: { commercialRevision: input.revision },
+      replayed: false,
+    }));
+    const auditCreate = vi.fn(async () => ({ id: "audit-entitlement" }));
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {
+        brandwellAiWorkspace: {
+          findFirst: vi.fn(async () => ({
+            id: "mapping-1",
+            rakazoWorkspaceId: "workspace-1",
+            rakazoWorkspace: { name: "Acme", slug: "acme" },
+          })),
+        },
+        brandwellAuditLog: { create: auditCreate },
+      } as unknown as PrismaClient,
+      syncDesiredState,
+    });
+    const response = await app.request("/internal/workspaces/customer-acme/desired-state", {
+      method: "PUT",
+      headers: {
+        authorization: "Bearer management-secret",
+        "content-type": "application/json",
+        ...OPERATOR_HEADERS,
+      },
+      body: JSON.stringify({
+        revision: "7",
+        agencyId: "42",
+        clientId: "99",
+        contractId: "contract-5",
+        status: "active",
+        plan: "aimee",
+        masterSeats: 1,
+        sidekickSeats: 3,
+        skillBundleVersion: 1,
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, revision: "7", replayed: false });
+    expect(syncDesiredState).toHaveBeenCalledWith(
+      "customer-acme",
+      expect.objectContaining({ revision: 7n, sidekickSeats: 3, status: "active" }),
+    );
+    expect(auditCreate).toHaveBeenCalled();
+  });
+
+  it("provisions a private Sidekick through the managed service boundary", async () => {
+    const provisionSidekick = vi.fn(async (_workspaceId, input) => ({
+      id: "sidekick-1",
+      brandwellSidekickId: input.brandwellSidekickId,
+      status: "invited",
+      botId: "bot-sidekick-1",
+      computerId: "computer-sidekick-1",
+    }));
+    const auditCreate = vi.fn(async () => ({ id: "audit-sidekick" }));
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {
+        brandwellAiWorkspace: {
+          findFirst: vi.fn(async () => ({
+            id: "mapping-1",
+            rakazoWorkspaceId: "workspace-1",
+            rakazoWorkspace: { name: "Acme", slug: "acme" },
+          })),
+        },
+        brandwellAuditLog: { create: auditCreate },
+      } as unknown as PrismaClient,
+      provisionSidekick,
+    });
+    const response = await app.request("/internal/workspaces/customer-acme/sidekicks", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer management-secret",
+        "content-type": "application/json",
+        ...OPERATOR_HEADERS,
+      },
+      body: JSON.stringify({
+        brandwellSidekickId: "portal-sidekick:101",
+        email: "sam@example.com",
+        name: "Sam Lee",
+        roleTitle: "Demand Generation Manager",
+        timezone: "America/Phoenix",
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      status: "invited",
+      botId: "bot-sidekick-1",
+      computerId: "computer-sidekick-1",
+    });
+    expect(provisionSidekick).toHaveBeenCalledWith(
+      "customer-acme",
+      expect.objectContaining({
+        brandwellSidekickId: "portal-sidekick:101",
+        email: "sam@example.com",
+      }),
+    );
+    expect(auditCreate).toHaveBeenCalled();
+  });
+
   it("starts cancellation without exposing provider details", async () => {
     const auditCreate = vi.fn(async () => ({ id: "audit-cancel" }));
     const cancelWorkspace = vi.fn(async () => ({
@@ -643,6 +747,7 @@ describe("BrandWell management API authentication", () => {
       provider: "openrouter",
       status: "active",
       secretId: "secret-never-returned",
+      externalKeyHash: "hash-acme",
       preferredModel: "provider/old",
       computerModel: null,
       lightweightModel: null,
@@ -654,12 +759,17 @@ describe("BrandWell management API authentication", () => {
       dailyLimitMicros: null,
       warningLimitMicros: 150_000_000n,
       currentUsageMicros: 10_000_000n,
+      providerLimitMicros: 200_000_000n,
+      providerUsageSyncedAt: new Date("2026-08-27T18:59:00.000Z"),
+      providerUsageSyncError: null,
       disabledAt: null,
       updatedAt: new Date("2026-08-27T19:00:00.000Z"),
     };
     const app = new Hono();
+    const updateOpenRouterLimit = vi.fn(async () => undefined);
     mountBrandwellManagementRoutes(app, {
       token: "management-secret",
+      updateOpenRouterLimit,
       prisma: {
         brandwellAiWorkspace: {
           findFirst: vi.fn(async () => ({
@@ -706,6 +816,7 @@ describe("BrandWell management API authentication", () => {
     });
     expect(JSON.stringify(payload)).not.toContain("secret-never-returned");
     expect(payload.modelPolicy.secretId).toBeUndefined();
+    expect(updateOpenRouterLimit).toHaveBeenCalledWith("hash-acme", 250_000_000n);
   });
 
   it("lists only safe workspace integration health fields", async () => {

@@ -21,6 +21,7 @@ describe("claimBrandwellInvitation", () => {
       invitation: { update: invitationUpdate },
       memoryDocument: { findFirst: memoryFindFirst, create: memoryCreate },
       notificationPreference: { upsert: preferenceUpsert },
+      brandwellSidekick: { findFirst: vi.fn(async () => null) },
     };
     const prisma = {
       invitation: {

@@ -104,6 +104,8 @@ export async function reconcileBrandwellFleetHealth(
           currentUsageMicros: true,
           monthlyLimitMicros: true,
           warningLimitMicros: true,
+          providerUsageSyncedAt: true,
+          providerUsageSyncError: true,
         },
       }),
       prisma.brandwellCancellationEvent.findMany({
@@ -221,7 +223,22 @@ export async function reconcileBrandwellFleetHealth(
     });
   }
   for (const credential of credentials) {
-    if (credential.status !== "active" || credential.disabledAt) {
+    if (credential.providerUsageSyncError) {
+      candidates.push({
+        workspaceId: credential.workspaceId,
+        type: "OPENROUTER_USAGE_SYNC_FAILED",
+        resourceId: credential.id,
+        source: "model",
+        severity: "ERROR",
+        summary: "OpenRouter usage and limit status could not be synchronized.",
+        clientActionRequired: false,
+        brandwellActionRequired: true,
+        technicalDetails: {
+          error: credential.providerUsageSyncError,
+          lastSuccessfulSyncAt: credential.providerUsageSyncedAt?.toISOString(),
+        },
+      });
+    } else if (credential.status !== "active" || credential.disabledAt) {
       candidates.push({
         workspaceId: credential.workspaceId,
         type: "OPENROUTER_DISABLED",

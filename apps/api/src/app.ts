@@ -2,8 +2,14 @@ import { rm } from "node:fs/promises";
 import {
   cancelBrandwellWorkspaceWithPrisma,
   createBrandwellManagedModelResolver,
+  microsToUsd,
   OpenRouterManagementClient,
+  provisionBrandwellSidekickWithPrisma,
   provisionBrandwellWorkspaceWithPrisma,
+  reconcileBrandwellOpenRouterUsage,
+  rolloutBrandwellSkillBundleWithPrisma,
+  setBrandwellSidekickLifecycleWithPrisma,
+  syncBrandwellWorkspaceDesiredStateWithPrisma,
 } from "@brandwell/aimee";
 import { RPCHandler } from "@orpc/server/fetch";
 import type {
@@ -397,6 +403,40 @@ export async function createApp(
                   },
                 },
               ),
+            syncDesiredState: (workspaceId, input) =>
+              syncBrandwellWorkspaceDesiredStateWithPrisma(workspaceId, input, prisma),
+            provisionSidekick: (workspaceId, input) =>
+              provisionBrandwellSidekickWithPrisma(workspaceId, input, {
+                prisma,
+                systemUserId: env.brandwellSystemUserId,
+                sandboxKind: env.sandboxProvider,
+                defaultModel: env.defaultModel,
+              }),
+            setSidekickLifecycle: async (sidekickId, action) => {
+              if (action !== "resume") {
+                const sidekick = await prisma.brandwellSidekick.findFirst({
+                  where: { OR: [{ id: sidekickId }, { brandwellSidekickId: sidekickId }] },
+                  include: { computer: true },
+                });
+                if (sidekick?.computer?.providerRef) {
+                  await sandbox.stop(
+                    toComputerRef(sidekick.computer),
+                    brandwellComputerContext(sidekick.computer),
+                  );
+                }
+              }
+              return setBrandwellSidekickLifecycleWithPrisma(sidekickId, action, prisma);
+            },
+            rolloutSkillBundle: (workspaceId) =>
+              rolloutBrandwellSkillBundleWithPrisma(workspaceId, prisma),
+            reconcileModelUsage: (workspaceId) =>
+              reconcileBrandwellOpenRouterUsage(prisma, openRouterManagement, workspaceId),
+            updateOpenRouterLimit: async (keyHash, monthlyLimitMicros) => {
+              await openRouterManagement.updateKey(keyHash, {
+                limitUsd: monthlyLimitMicros > 0n ? microsToUsd(monthlyLimitMicros) : null,
+                limitReset: monthlyLimitMicros > 0n ? "monthly" : null,
+              });
+            },
           }
         : {}),
     });

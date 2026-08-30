@@ -99,6 +99,7 @@ export class ScriptedAgentRuntime implements AgentRuntime {
             type: "usage",
             inputTokens: 12,
             outputTokens: 40,
+            costMicros: 0,
             provider: "scripted",
             model: "scripted",
           };

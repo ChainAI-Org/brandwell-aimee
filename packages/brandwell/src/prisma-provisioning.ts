@@ -8,11 +8,11 @@ import {
 import {
   BRANDWELL_AIMEE_DEFAULT_ROUTINES,
   BRANDWELL_AIMEE_INSTRUCTIONS,
-  BRANDWELL_AIMEE_SKILLS,
   BRANDWELL_AIMEE_WELCOME,
 } from "./aimee-baseline.js";
 import { BRANDWELL_BRAND } from "./brand-config.js";
 import { microsToUsd, type OpenRouterManagementClient } from "./openrouter-management.js";
+import { installBrandwellSkillBundle } from "./prisma-skills.js";
 import {
   type BrandwellProvisioningCheckpoint,
   type BrandwellProvisioningInput,
@@ -117,7 +117,7 @@ export function createPrismaBrandwellProvisioningRunner(
           provisioningError: checkpoint.error ?? null,
           provisioningMetadata: metadata as Prisma.InputJsonObject,
           ...(checkpoint.status === "complete"
-            ? { subscriptionStatus: "active" }
+            ? { subscriptionStatus: "pending_entitlement" }
             : checkpoint.status === "failed" || checkpoint.status === "rollback_failed"
               ? { subscriptionStatus: "provisioning_failed" }
               : {}),
@@ -400,31 +400,11 @@ export function createPrismaBrandwellProvisioningRunner(
           };
         }
         case "brandwell_skills": {
-          const createdIds: string[] = [];
-          const skillIds: string[] = [];
-          for (const template of BRANDWELL_AIMEE_SKILLS) {
-            const existing = await options.prisma.agentSkill.findFirst({
-              where: { workspaceId, userId: systemUserId!, name: template.name },
-            });
-            const skill = existing
-              ? await options.prisma.agentSkill.update({
-                  where: { id: existing.id },
-                  data: { description: template.description, content: template.content },
-                })
-              : await options.prisma.agentSkill.create({
-                  data: {
-                    workspaceId,
-                    userId: systemUserId!,
-                    name: template.name,
-                    description: template.description,
-                    content: template.content,
-                    source: "builtin",
-                  },
-                });
-            skillIds.push(skill.id);
-            if (!existing) createdIds.push(skill.id);
-          }
-          return { metadata: { skillIds, createdIds } };
+          const installed = await installBrandwellSkillBundle(options.prisma, {
+            workspaceId,
+            userId: systemUserId!,
+          });
+          return { metadata: installed };
         }
         case "intent_connection":
         case "trafficid_connection":

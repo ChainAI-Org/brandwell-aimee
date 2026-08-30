@@ -215,6 +215,7 @@ export class PiAgentRuntime implements AgentRuntime {
                 type: "usage",
                 inputTokens: event.message.usage.input ?? 0,
                 outputTokens: event.message.usage.output ?? 0,
+                costMicros: Math.max(0, Math.round(event.message.usage.cost.total * 1_000_000)),
                 provider: model.provider,
                 model: model.id,
               });
@@ -679,6 +680,7 @@ async function executeSubagent(host: ToolHost, executionId: string, args: Record
           type: "usage",
           inputTokens: event.message.usage.input ?? 0,
           outputTokens: event.message.usage.output ?? 0,
+          costMicros: Math.max(0, Math.round(event.message.usage.cost.total * 1_000_000)),
           provider: host.model.provider,
           model: host.model.id,
         });

@@ -3,6 +3,9 @@ import {
   type BrandwellProvisioningCheckpoint,
   BrandwellProvisioningError,
   type BrandwellProvisioningInput,
+  BrandwellSidekickError,
+  type BrandwellSidekickProvisioningInput,
+  type BrandwellWorkspaceDesiredStateInput,
 } from "@brandwell/aimee";
 import {
   type JobPublisher,
@@ -31,6 +34,21 @@ export interface BrandwellManagementDeps {
     workspaceId: string,
     reason: string | undefined,
   ) => Promise<{ retentionEndsAt: Date; executed: string[] }>;
+  syncDesiredState?: (
+    workspaceId: string,
+    input: BrandwellWorkspaceDesiredStateInput,
+  ) => Promise<{ mapping: { commercialRevision: bigint }; replayed: boolean }>;
+  provisionSidekick?: (
+    workspaceId: string,
+    input: BrandwellSidekickProvisioningInput,
+  ) => Promise<Record<string, unknown>>;
+  setSidekickLifecycle?: (
+    sidekickId: string,
+    action: "pause" | "resume" | "cancel",
+  ) => Promise<Record<string, unknown>>;
+  rolloutSkillBundle?: (workspaceId: string) => Promise<Record<string, unknown>>;
+  reconcileModelUsage?: (workspaceId: string) => Promise<unknown>;
+  updateOpenRouterLimit?: (keyHash: string, monthlyLimitMicros: bigint) => Promise<void>;
   computerSupport?: {
     boot(input: BrandwellSupportRequest): Promise<unknown>;
     takeControl(input: BrandwellSupportRequest): Promise<unknown>;
@@ -117,6 +135,8 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
         runId: checkpoint.runId,
         workspaceId: workspaceId ?? null,
         botId: checkpoint.steps.find((step) => step.name === "primary_aimee")?.resourceId ?? null,
+        serviceIdentityId:
+          checkpoint.steps.find((step) => step.name === "service_identity")?.resourceId ?? null,
         clientAccess: inviteStep
           ? {
               kind: inviteStep.metadata?.kind ?? "pending",
@@ -140,9 +160,154 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     }
   });
 
+  app.put("/internal/workspaces/:id/desired-state", async (c) => {
+    if (!deps.syncDesiredState) {
+      return c.json({ error: "AIMEE commercial synchronization is not configured" }, 503);
+    }
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
+    const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+    const input = desiredStateInput(body);
+    if (!input.ok) return c.json({ error: input.error }, 400);
+    try {
+      const result = await deps.syncDesiredState(c.req.param("id"), input.value);
+      const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
+      if (mapping) {
+        await deps.prisma.brandwellAuditLog.create({
+          data: {
+            workspaceId: mapping.rakazoWorkspaceId,
+            actorType: "brandwell_operator",
+            action: "workspace.desired_state.sync",
+            resourceType: "brandwell_ai_workspace",
+            resourceId: mapping.id,
+            metadata: {
+              revision: input.value.revision.toString(),
+              commercialStatus: input.value.status,
+              sidekickSeats: input.value.sidekickSeats,
+              replayed: result.replayed,
+              ...operatorAuditMetadata(operator.value),
+            },
+          },
+        });
+      }
+      return c.json({
+        ok: true,
+        revision: result.mapping.commercialRevision.toString(),
+        replayed: result.replayed,
+      });
+    } catch (error) {
+      return brandwellSidekickError(c, error, "AIMEE commercial synchronization failed");
+    }
+  });
+
+  app.get("/internal/workspaces/:id/sidekicks", async (c) => {
+    const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
+    if (!mapping) return c.json({ error: "Workspace not found" }, 404);
+    const sidekicks = await deps.prisma.brandwellSidekick.findMany({
+      where: { aiWorkspaceId: mapping.id },
+      include: { bot: true, computer: true },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    return c.json({ sidekicks: sidekicks.map(sidekickDto) });
+  });
+
+  app.post("/internal/workspaces/:id/sidekicks", async (c) => {
+    if (!deps.provisionSidekick) {
+      return c.json({ error: "AIMEE Sidekick provisioning is not configured" }, 503);
+    }
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
+    const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+    const input = sidekickProvisioningInput(body);
+    if (!input.ok) return c.json({ error: input.error }, 400);
+    const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
+    if (!mapping) return c.json({ error: "Workspace not found" }, 404);
+    try {
+      const result = await deps.provisionSidekick(c.req.param("id"), input.value);
+      await deps.prisma.brandwellAuditLog.create({
+        data: {
+          workspaceId: mapping.rakazoWorkspaceId,
+          actorType: "brandwell_operator",
+          action: "sidekick.provision",
+          resourceType: "brandwell_sidekick",
+          resourceId: input.value.brandwellSidekickId,
+          metadata: {
+            email: input.value.email,
+            roleTitle: input.value.roleTitle,
+            ...operatorAuditMetadata(operator.value),
+          },
+        },
+      });
+      return c.json(result);
+    } catch (error) {
+      return brandwellSidekickError(c, error, "AIMEE Sidekick provisioning failed");
+    }
+  });
+
+  app.post("/internal/sidekicks/:id/:action", async (c) => {
+    if (!deps.setSidekickLifecycle) {
+      return c.json({ error: "AIMEE Sidekick lifecycle is not configured" }, 503);
+    }
+    const action = c.req.param("action");
+    if (action !== "pause" && action !== "resume" && action !== "cancel") {
+      return c.json({ error: "Sidekick action not found" }, 404);
+    }
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
+    try {
+      const result = await deps.setSidekickLifecycle(c.req.param("id"), action);
+      const sidekick = await deps.prisma.brandwellSidekick.findFirst({
+        where: { OR: [{ id: c.req.param("id") }, { brandwellSidekickId: c.req.param("id") }] },
+      });
+      if (sidekick) {
+        await deps.prisma.brandwellAuditLog.create({
+          data: {
+            workspaceId: sidekick.workspaceId,
+            actorType: "brandwell_operator",
+            action: `sidekick.${action}`,
+            resourceType: "brandwell_sidekick",
+            resourceId: sidekick.id,
+            metadata: operatorAuditMetadata(operator.value),
+          },
+        });
+      }
+      return c.json(result);
+    } catch (error) {
+      return brandwellSidekickError(c, error, "AIMEE Sidekick lifecycle update failed");
+    }
+  });
+
+  app.post("/internal/workspaces/:id/skills/rollout", async (c) => {
+    if (!deps.rolloutSkillBundle) {
+      return c.json({ error: "AIMEE skill rollout is not configured" }, 503);
+    }
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
+    try {
+      const result = await deps.rolloutSkillBundle(c.req.param("id"));
+      const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
+      if (mapping) {
+        await deps.prisma.brandwellAuditLog.create({
+          data: {
+            workspaceId: mapping.rakazoWorkspaceId,
+            actorType: "brandwell_operator",
+            action: "skills.rollout",
+            resourceType: "brandwell_ai_workspace",
+            resourceId: mapping.id,
+            metadata: { ...result, ...operatorAuditMetadata(operator.value) },
+          },
+        });
+      }
+      return c.json(result);
+    } catch (error) {
+      return brandwellSidekickError(c, error, "AIMEE skill rollout failed");
+    }
+  });
+
   app.get("/internal/workspaces/:id", async (c) => {
     const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
     if (!mapping) return c.json({ error: "Workspace not found" }, 404);
+    await deps.reconcileModelUsage?.(mapping.rakazoWorkspaceId);
     return c.json(await workspaceDetail(deps.prisma, mapping));
   });
 
@@ -287,6 +452,7 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
   app.get("/internal/workspaces/:id/usage", async (c) => {
     const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
     if (!mapping) return c.json({ error: "Workspace not found" }, 404);
+    await deps.reconcileModelUsage?.(mapping.rakazoWorkspaceId);
     return c.json(await usageDto(deps.prisma, mapping.rakazoWorkspaceId));
   });
 
@@ -489,6 +655,23 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     if (!current) return c.json({ error: "AIMEE model policy is not provisioned" }, 409);
     const limits = resolvedModelLimits(current, input.value);
     if (!limits.ok) return c.json({ error: limits.error }, 400);
+    const nextMonthlyLimit = input.value.monthlyLimitMicros ?? current.monthlyLimitMicros;
+    if (nextMonthlyLimit !== current.monthlyLimitMicros) {
+      if (!current.externalKeyHash) {
+        return c.json(
+          { error: "The OpenRouter child key is not linked to this model policy" },
+          409,
+        );
+      }
+      if (!deps.updateOpenRouterLimit) {
+        return c.json({ error: "OpenRouter limit management is not configured" }, 503);
+      }
+      try {
+        await deps.updateOpenRouterLimit(current.externalKeyHash, nextMonthlyLimit);
+      } catch {
+        return c.json({ error: "OpenRouter rejected the usage-limit update" }, 503);
+      }
+    }
     const updated = await deps.prisma.$transaction(async (tx) => {
       const row = await tx.brandwellWorkspaceModelCredential.update({
         where: { id: current.id },
@@ -815,6 +998,16 @@ async function fleetRow(prisma: PrismaClient, mapping: NonNullable<WorkspaceMapp
     client: mapping.rakazoWorkspace.name,
     slug: mapping.rakazoWorkspace.slug,
     subscriptionStatus: mapping.subscriptionStatus,
+    entitlement: {
+      agencyId: mapping.brandwellAgencyId,
+      clientId: mapping.brandwellClientId,
+      contractId: mapping.brandwellContractId,
+      revision: mapping.commercialRevision.toString(),
+      status: mapping.commercialStatus,
+      masterSeats: mapping.masterSeats,
+      sidekickSeats: mapping.sidekickSeats,
+      skillBundleVersion: mapping.skillBundleVersion,
+    },
     plan: mapping.plan,
     provisioningStatus: mapping.provisioningStatus,
     employee: agent ? agentDto(agent) : null,
@@ -827,36 +1020,49 @@ async function fleetRow(prisma: PrismaClient, mapping: NonNullable<WorkspaceMapp
 }
 
 async function workspaceDetail(prisma: PrismaClient, mapping: NonNullable<WorkspaceMapping>) {
-  const [summary, routines, alerts, recentRuns, notifications, integrations, modelPolicy] =
-    await Promise.all([
-      fleetRow(prisma, mapping),
-      prisma.routine.findMany({
-        where: { workspaceId: mapping.rakazoWorkspaceId },
-        orderBy: [{ active: "desc" }, { nextRunAt: "asc" }],
-      }),
-      prisma.brandwellAlert.findMany({
-        where: { workspaceId: mapping.rakazoWorkspaceId },
-        orderBy: [{ resolvedAt: "asc" }, { createdAt: "desc" }],
-        take: 50,
-      }),
-      prisma.run.findMany({
-        where: { workspaceId: mapping.rakazoWorkspaceId },
-        orderBy: [{ createdAt: "desc" }],
-        take: 50,
-      }),
-      prisma.brandwellClientNotification.findMany({
-        where: { workspaceId: mapping.rakazoWorkspaceId },
-        orderBy: [{ createdAt: "desc" }],
-        take: 50,
-      }),
-      prisma.connection.findMany({
-        where: { workspaceId: mapping.rakazoWorkspaceId, ownerType: "service" },
-        orderBy: [{ status: "asc" }, { displayName: "asc" }],
-      }),
-      prisma.brandwellWorkspaceModelCredential.findUnique({
-        where: { workspaceId: mapping.rakazoWorkspaceId },
-      }),
-    ]);
+  const [
+    summary,
+    routines,
+    alerts,
+    recentRuns,
+    notifications,
+    integrations,
+    modelPolicy,
+    sidekicks,
+  ] = await Promise.all([
+    fleetRow(prisma, mapping),
+    prisma.routine.findMany({
+      where: { workspaceId: mapping.rakazoWorkspaceId },
+      orderBy: [{ active: "desc" }, { nextRunAt: "asc" }],
+    }),
+    prisma.brandwellAlert.findMany({
+      where: { workspaceId: mapping.rakazoWorkspaceId },
+      orderBy: [{ resolvedAt: "asc" }, { createdAt: "desc" }],
+      take: 50,
+    }),
+    prisma.run.findMany({
+      where: { workspaceId: mapping.rakazoWorkspaceId },
+      orderBy: [{ createdAt: "desc" }],
+      take: 50,
+    }),
+    prisma.brandwellClientNotification.findMany({
+      where: { workspaceId: mapping.rakazoWorkspaceId },
+      orderBy: [{ createdAt: "desc" }],
+      take: 50,
+    }),
+    prisma.connection.findMany({
+      where: { workspaceId: mapping.rakazoWorkspaceId, ownerType: "service" },
+      orderBy: [{ status: "asc" }, { displayName: "asc" }],
+    }),
+    prisma.brandwellWorkspaceModelCredential.findUnique({
+      where: { workspaceId: mapping.rakazoWorkspaceId },
+    }),
+    prisma.brandwellSidekick.findMany({
+      where: { aiWorkspaceId: mapping.id },
+      include: { bot: true, computer: true },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    }),
+  ]);
   return {
     ...summary,
     routines,
@@ -865,6 +1071,7 @@ async function workspaceDetail(prisma: PrismaClient, mapping: NonNullable<Worksp
     notifications,
     integrations: integrations.map(integrationDto),
     modelPolicy: modelPolicy ? modelPolicyDto(modelPolicy) : null,
+    sidekicks: sidekicks.map(sidekickDto),
   };
 }
 
@@ -882,6 +1089,9 @@ async function usageDto(prisma: PrismaClient, workspaceId: string) {
         monthlyLimitMicros: true,
         warningLimitMicros: true,
         currentUsageMicros: true,
+        providerLimitMicros: true,
+        providerUsageSyncedAt: true,
+        providerUsageSyncError: true,
         preferredModel: true,
         disabledAt: true,
       },
@@ -898,6 +1108,7 @@ async function usageDto(prisma: PrismaClient, workspaceId: string) {
           monthlyLimitMicros: credential.monthlyLimitMicros.toString(),
           warningLimitMicros: credential.warningLimitMicros.toString(),
           currentUsageMicros: credential.currentUsageMicros.toString(),
+          providerLimitMicros: credential.providerLimitMicros?.toString() ?? null,
         }
       : null,
   };
@@ -988,6 +1199,9 @@ function modelPolicyDto(policy: {
   dailyLimitMicros: bigint | null;
   warningLimitMicros: bigint;
   currentUsageMicros: bigint;
+  providerLimitMicros: bigint | null;
+  providerUsageSyncedAt: Date | null;
+  providerUsageSyncError: string | null;
   disabledAt: Date | null;
   updatedAt: Date;
 }) {
@@ -1006,6 +1220,9 @@ function modelPolicyDto(policy: {
     dailyLimitMicros: policy.dailyLimitMicros?.toString() ?? null,
     warningLimitMicros: policy.warningLimitMicros.toString(),
     currentUsageMicros: policy.currentUsageMicros.toString(),
+    providerLimitMicros: policy.providerLimitMicros?.toString() ?? null,
+    providerUsageSyncedAt: policy.providerUsageSyncedAt,
+    providerUsageSyncError: policy.providerUsageSyncError,
     disabledAt: policy.disabledAt,
     updatedAt: policy.updatedAt,
   };
@@ -1038,6 +1255,43 @@ function computerDto(computer: {
     lastComputerActivityAt: computer.lastComputerActivityAt,
     lastComputerState: computer.lastComputerState,
     updatedAt: computer.updatedAt,
+  };
+}
+
+function sidekickDto(sidekick: {
+  id: string;
+  brandwellSidekickId: string;
+  email: string;
+  name: string;
+  roleTitle: string;
+  status: string;
+  userId: string | null;
+  invitationId: string | null;
+  skillBundleVersion: number;
+  activatedAt: Date | null;
+  pausedAt: Date | null;
+  canceledAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  bot: Parameters<typeof agentDto>[0] | null;
+  computer: Parameters<typeof computerDto>[0] | null;
+}) {
+  return {
+    id: sidekick.id,
+    brandwellSidekickId: sidekick.brandwellSidekickId,
+    email: sidekick.email,
+    name: sidekick.name,
+    roleTitle: sidekick.roleTitle,
+    status: sidekick.status,
+    access: sidekick.userId ? "member" : sidekick.invitationId ? "invited" : "pending",
+    skillBundleVersion: sidekick.skillBundleVersion,
+    activatedAt: sidekick.activatedAt,
+    pausedAt: sidekick.pausedAt,
+    canceledAt: sidekick.canceledAt,
+    createdAt: sidekick.createdAt,
+    updatedAt: sidekick.updatedAt,
+    employee: sidekick.bot ? agentDto(sidekick.bot) : null,
+    computer: sidekick.computer ? computerDto(sidekick.computer) : null,
   };
 }
 
@@ -1479,4 +1733,98 @@ function provisioningInput(
       timezone: String(body.timezone),
     },
   };
+}
+
+function desiredStateInput(
+  body: Record<string, unknown> | null,
+): { ok: true; value: BrandwellWorkspaceDesiredStateInput } | { ok: false; error: string } {
+  if (!body) return { ok: false, error: "A JSON request body is required" };
+  const revision = nonnegativeBigInt(body.revision);
+  if (revision === null || revision < 1n) {
+    return { ok: false, error: "revision must be a positive integer" };
+  }
+  const agencyId = compactIdentifier(body.agencyId);
+  const clientId = compactIdentifier(body.clientId);
+  const contractId = body.contractId === null ? null : compactIdentifier(body.contractId);
+  if (
+    !agencyId ||
+    !clientId ||
+    (body.contractId !== undefined && body.contractId !== null && !contractId)
+  ) {
+    return { ok: false, error: "agencyId, clientId, and contractId must be valid identifiers" };
+  }
+  const status = String(body.status ?? "").trim();
+  if (!["trialing", "active", "past_due", "paused", "canceling", "canceled"].includes(status)) {
+    return { ok: false, error: "status is invalid" };
+  }
+  const plan = compactIdentifier(body.plan);
+  const masterSeats = Number(body.masterSeats);
+  const sidekickSeats = Number(body.sidekickSeats);
+  const skillBundleVersion = Number(body.skillBundleVersion);
+  if (
+    !plan ||
+    masterSeats !== 1 ||
+    !Number.isSafeInteger(sidekickSeats) ||
+    sidekickSeats < 0 ||
+    sidekickSeats > 10_000 ||
+    !Number.isSafeInteger(skillBundleVersion) ||
+    skillBundleVersion < 1
+  ) {
+    return { ok: false, error: "The desired AIMEE entitlement is invalid" };
+  }
+  return {
+    ok: true,
+    value: {
+      revision,
+      agencyId,
+      clientId,
+      contractId,
+      status: status as BrandwellWorkspaceDesiredStateInput["status"],
+      plan,
+      masterSeats: 1,
+      sidekickSeats,
+      skillBundleVersion,
+    },
+  };
+}
+
+function sidekickProvisioningInput(
+  body: Record<string, unknown> | null,
+): { ok: true; value: BrandwellSidekickProvisioningInput } | { ok: false; error: string } {
+  if (!body) return { ok: false, error: "A JSON request body is required" };
+  const brandwellSidekickId = compactIdentifier(body.brandwellSidekickId);
+  const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  const name = typeof body.name === "string" ? body.name.replace(/\s+/g, " ").trim() : "";
+  const roleTitle =
+    typeof body.roleTitle === "string" ? body.roleTitle.replace(/\s+/g, " ").trim() : "";
+  const timezone = typeof body.timezone === "string" ? body.timezone.trim() : "";
+  if (!brandwellSidekickId) return { ok: false, error: "brandwellSidekickId is invalid" };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    return { ok: false, error: "email is invalid" };
+  }
+  if (!name || name.length > 160) return { ok: false, error: "name is required" };
+  if (!roleTitle || roleTitle.length > 160) return { ok: false, error: "roleTitle is required" };
+  if (!validTimezone(timezone))
+    return { ok: false, error: "timezone must be a valid IANA timezone" };
+  return {
+    ok: true,
+    value: { brandwellSidekickId, email, name, roleTitle, timezone },
+  };
+}
+
+function compactIdentifier(value: unknown): string | null {
+  const text = typeof value === "string" ? value.trim() : String(value ?? "").trim();
+  return /^[A-Za-z0-9._:-]{1,200}$/.test(text) ? text : null;
+}
+
+function brandwellSidekickError(c: Context, error: unknown, fallback: string) {
+  if (error instanceof BrandwellSidekickError) {
+    const status = [400, 404, 409, 503].includes(error.statusCode) ? error.statusCode : 500;
+    return c.json(
+      { error: error.message, code: error.code },
+      status as 400 | 404 | 409 | 500 | 503,
+    );
+  }
+  console.error(fallback, error);
+  return c.json({ error: fallback }, 500);
 }

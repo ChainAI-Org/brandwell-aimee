@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { claimBrandwellSidekickInTransaction } from "@brandwell/aimee";
 import { BRANDWELL_BRAND } from "@brandwell/aimee/brand-config";
 import { emailAllowed, parseAllowlist, signupsOpen } from "@rakazo/core";
 import type { PrismaClient } from "@rakazo/db";
@@ -186,6 +187,12 @@ export async function claimBrandwellInvitation(
     await tx.invitation.update({
       where: { id: invitation.id },
       data: { status: "accepted" },
+    });
+    await claimBrandwellSidekickInTransaction(tx, {
+      workspaceId: invitation.organizationId,
+      userId: user.id,
+      email: user.email,
+      now,
     });
     const memory = await tx.memoryDocument.findFirst({
       where: {

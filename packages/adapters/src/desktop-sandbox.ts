@@ -320,7 +320,7 @@ async function localWorkspaceTarget(home: string, relative: string, mustExist: b
       current,
       constants.O_RDONLY | (constants.O_DIRECTORY ?? 0),
     );
-    const useWin32Relative = win32NtRelativeAvailable();
+    const useWin32Relative = win32NtRelativeAvailable(parentHandle.fd);
     try {
       for (const segment of segments.slice(0, -1)) {
         // Re-bind the held parent immediately before create so a junction swap cannot
@@ -426,7 +426,7 @@ async function openContainedWorkspaceFile(home: string, target: string, mode: nu
   }
   const parentBefore = await stat(parentReal);
   const parentHandle = await open(parentReal, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0));
-  const useWin32Relative = win32NtRelativeAvailable();
+  const useWin32Relative = win32NtRelativeAvailable(parentHandle.fd);
 
   let handle: ContainedHandle | undefined;
   let created = false;
@@ -701,6 +701,7 @@ function runCommand(
     let stdout = "";
     let stderr = "";
     let settled = false;
+    let terminating = false;
     const finish = (result: { stdout: string; stderr: string; code: number }) => {
       if (settled) return;
       settled = true;
@@ -709,10 +710,13 @@ function runCommand(
       resolve(result);
     };
     const terminate = (message: string, code: number) => {
-      killProcessTree(child.pid);
-      child.stdout?.destroy();
-      child.stderr?.destroy();
-      finish({ stdout, stderr: appendLine(stderr, message), code });
+      if (settled || terminating) return;
+      terminating = true;
+      void killProcessTree(child.pid).finally(() => {
+        child.stdout?.destroy();
+        child.stderr?.destroy();
+        finish({ stdout, stderr: appendLine(stderr, message), code });
+      });
     };
     const abort = () => terminate("command aborted", 130);
     const timeout = setTimeout(
@@ -728,6 +732,7 @@ function runCommand(
       stderr += chunk.toString("utf8");
     });
     child.on("error", (error) => {
+      if (terminating) return;
       if (argv[0] === "echo") {
         finish({ stdout: `${argv.slice(1).join(" ")}\n`, stderr: "", code: 0 });
         return;
@@ -735,17 +740,21 @@ function runCommand(
       finish({ stdout: "", stderr: error.message, code: 1 });
     });
     child.on("close", (code) => {
+      if (terminating) return;
       finish({ stdout, stderr, code: code ?? 0 });
     });
     if (signal.aborted) abort();
   });
 }
 
-function killProcessTree(pid: number | undefined) {
+async function killProcessTree(pid: number | undefined): Promise<void> {
   if (!pid) return;
   if (process.platform === "win32") {
-    const killer = spawn("taskkill", ["/pid", String(pid), "/t", "/f"], { stdio: "ignore" });
-    killer.unref();
+    await new Promise<void>((resolve) => {
+      const killer = spawn("taskkill", ["/pid", String(pid), "/t", "/f"], { stdio: "ignore" });
+      killer.once("error", () => resolve());
+      killer.once("close", () => resolve());
+    });
     return;
   }
   try {

@@ -15,13 +15,17 @@ portal.brandwell.ai
 ai.brandwell.ai
   web + API + worker + Postgres + scheduler
         |
-        +-- Client workspace A -> isolated Team Computer
+        +-- Client workspace A -> primary AIMEE Team Computer
+        |                     +-> Sidekick user 1 private computer
+        |                     +-> Sidekick user 2 private computer
         +-- Client workspace B -> isolated Team Computer
         +-- Client workspace C -> isolated Team Computer
 ```
 
-Never share a Team Computer, service identity, OpenRouter credential, browser profile, connector,
-or persistent volume between unrelated customer workspaces.
+Never share a computer, service identity, OpenRouter credential, browser profile, connector, or
+persistent volume between unrelated customer workspaces. Sidekicks share their client workspace's
+service identity and model policy, but each Sidekick has private user access, a private bot, a
+private browser profile, and a dedicated computer record.
 
 ## Environments
 
@@ -59,15 +63,16 @@ Do not use the local Docker provider for unrelated production customers.
 
 - `BRANDWELL_MANAGEMENT_API_TOKEN`, a dedicated service token with at least 32 characters
 - `BRANDWELL_SYSTEM_USER_ID`, an existing system user that owns managed resources
-- `OPENROUTER_MANAGEMENT_KEY`, used only to create and revoke per-client keys
+- `OPENROUTER_MANAGEMENT_KEY`, used to create, limit, inspect, disable, and revoke per-client keys
 - `OPENROUTER_API_KEY`, the deployment fallback used outside managed client resolution
 - `BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD`
 - `BRANDWELL_OPENROUTER_WARNING_LIMIT_USD`
 - Optional `BRANDWELL_OPENROUTER_DAILY_LIMIT_USD`
 - Optional workload model overrides and fallback models
 
-The management key is required for one-action provisioning and cancellation key revocation. Raw
-OpenRouter keys must never be returned to web or mobile clients.
+The management key is required for provisioning, provider-enforced limit changes, usage
+reconciliation, and cancellation key revocation. Raw OpenRouter keys must never be returned to web
+or mobile clients. The worker reconciles provider usage before evaluating fleet budget alerts.
 
 ### Existing BrandWell platform connection
 
@@ -77,6 +82,17 @@ OpenRouter keys must never be returned to web or mobile clients.
 The AIMEE control plane and the existing BrandWell portal must hold the same dedicated service
 token. Client sessions never receive it. Native Intent, TrafficID, and postcard tools use the
 service identity and an explicit BrandWell account ID on every request.
+
+The BrandWell portal is the commercial source of truth. It sends a monotonic desired-state
+revision containing the agency, client, contract, plan, account status, primary seat, Sidekick seat
+count, and skill bundle version. A newly provisioned workspace remains in
+`pending_entitlement` and cannot run until that revision is accepted. Stripe contract changes are
+stored as durable desired-state events and retried by the BrandWell billing sweep.
+
+Skills are versioned application records installed into each managed user's AIMEE workspace and
+injected by the runtime. They are not installed into Daytona. Daytona is the isolated execution
+computer for browser, shell, and file work. This separation lets Super Admin roll out a skill
+bundle without rebuilding or mutating every sandbox image.
 
 ### Retention and health
 
@@ -147,7 +163,11 @@ Require approval for the `brandwell-production` environment. Set the repository 
 `BRANDWELL_PRODUCTION_DEPLOY_ENABLED=true` only after staging acceptance passes. Staging is a
 manual workflow so provider costs cannot start from an ordinary push.
 
-The fork currently needs GitHub Actions enabled before these workflows will register and run.
+GitHub Actions is enabled on the fork, and the `brandwell-staging` and `brandwell-production`
+environments exist. The deployment workflow must reach the default branch before it can be run
+from the Actions UI, and each environment still needs its deployment secrets. Production keeps a
+required reviewer and remains disabled through `BRANDWELL_PRODUCTION_DEPLOY_ENABLED=false` until
+staging acceptance is complete.
 
 ## Staging release
 
@@ -186,10 +206,25 @@ records.
 ### Provisioning
 
 1. Call `POST /internal/workspaces/provision` through the BrandWell Super Admin proxy.
-2. Verify the stable BrandWell customer to AIMEE workspace mapping.
-3. Verify the workspace-owned employee, service identity, private Team Computer, default routines,
+2. Confirm the workspace is blocked in `pending_entitlement` before commercial synchronization.
+3. Deliver the BrandWell desired-state revision and verify the stable customer, workspace, service
+   identity, and entitlement binding.
+4. Verify the workspace-owned employee, service identity, private Team Computer, default routines,
    BrandWell native connections, and isolated OpenRouter credential.
-4. Retry with the same idempotency key and confirm no duplicate resources appear.
+5. Retry with the same idempotency key and confirm no duplicate resources appear.
+
+### Sidekick journey
+
+1. License one Sidekick seat in BrandWell Super Admin.
+2. Provision a teammate email and confirm one invitation or existing member assignment.
+3. Verify the Sidekick bot is user-owned and private, and has its own browser profile and dedicated
+   computer record.
+4. Accept the invitation and verify ownership of the bot, thread, memory, routines, browser profile,
+   and computer moves to the teammate.
+5. Confirm the Sidekick receives the current managed skill bundle and uses the client workspace's
+   service identity and OpenRouter child key.
+6. Pause and cancel the Sidekick. Confirm routines stop and the provider computer is stopped.
+7. Attempt to allocate beyond the licensed seat count and confirm the request fails.
 
 ### Client journey
 
@@ -263,17 +298,35 @@ Never use `git reset --hard` against a shared working checkout as a deployment r
 
 ## Current external launch blockers
 
-Code readiness is not the same as a live environment. A provider-backed staging acceptance run
-still requires all of the following external state:
+Code readiness is not the same as a live environment. The 2026-08-29 live audit found that
+Daytona account capacity is available: a full-access AIMEE API key exists, the active
+`brandwell-aimee-browser-v1` snapshot exists, a staging sandbox exists in a stopped state, and the
+account has Tier 3 capacity. Daytona secrets are empty, which is acceptable because deployment
+credentials belong in the AIMEE host's secret manager, not inside sandbox images.
 
-- a staging host and DNS for `staging-ai.brandwell.ai`;
-- GitHub Actions enabled on the fork and its staging secrets configured;
-- an E2B, Daytona, or Box credential for isolated GUI computers;
-- an OpenRouter management key, not only a normal inference key;
-- staging database, auth, and encryption secrets;
-- a matching BrandWell platform service token on both control planes;
-- Expo and App Store Connect ownership for the iOS build;
-- physical-device push, deep-link, preview, and takeover evidence.
+Excluding mobile packaging and store submission, provider-backed staging acceptance still requires
+all of the following external state:
+
+- attach or deploy a staging host for `staging-ai.brandwell.ai`; both AIMEE hostnames currently
+  resolve to the same DigitalOcean app target but fail the TLS handshake and do not expose health;
+- merge the deployment workflow to the default branch and configure the GitHub staging environment
+  secrets;
+- place the existing Daytona credential and snapshot name in the staging secret manager, then prove
+  provision, execute, suspend, resume, and destroy against a disposable workspace;
+- create an OpenRouter management key and store it directly in the staging secret manager; a normal
+  inference key cannot create or reconcile tenant child keys;
+- configure separate staging database, auth, encryption, signing, and fallback-provider secrets;
+- configure the same dedicated BrandWell platform service token on both control planes;
+- apply BrandWell migrations `0090_aimee_entitlements_and_sidekicks` and
+  `0091_aimee_stripe_billing`, plus all pending AIMEE Prisma migrations;
+- create or select dedicated Stripe AIMEE master and Sidekick prices, bind them to the intended
+  subscription, and explicitly reconcile the line-item quantities from Super Admin;
+- schedule the BrandWell billing sweep for durable commercial-state retries;
+- complete one provider-backed primary AIMEE and Sidekick journey, including isolated credentials,
+  managed skill rollout, spend reconciliation, pause, cancellation, retention, and deletion.
+
+Mobile signing, store ownership, physical-device push, deep-link, preview, and takeover evidence
+remain a separate release track.
 
 Do not describe AIMEE as production-ready until those checks have passed against the deployed
 candidate.

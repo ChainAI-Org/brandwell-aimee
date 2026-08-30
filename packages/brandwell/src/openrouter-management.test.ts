@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { microsToUsd, OpenRouterManagementClient } from "./openrouter-management.js";
+import { microsToUsd, OpenRouterManagementClient, usdToMicros } from "./openrouter-management.js";
 
 const TEST_OPENROUTER_KEY = ["sk", "or", "test-placeholder"].join("-");
 
@@ -69,7 +69,41 @@ describe("OpenRouter management client", () => {
     );
   });
 
+  it("updates a child key limit through the management API", async () => {
+    const fetchImpl = vi.fn(async () =>
+      Response.json({
+        data: {
+          hash: "hash-acme",
+          disabled: false,
+          usage: 24,
+          usage_daily: 2,
+          usage_monthly: 12,
+          limit: 300,
+          limit_remaining: 288,
+          limit_reset: "monthly",
+        },
+      }),
+    );
+    const client = new OpenRouterManagementClient("management-secret", fetchImpl as typeof fetch);
+
+    await expect(
+      client.updateKey("hash-acme", { limitUsd: 300, limitReset: "monthly" }),
+    ).resolves.toMatchObject({ hash: "hash-acme", limitUsd: 300, usageMonthlyUsd: 12 });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://openrouter.ai/api/v1/keys/hash-acme",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({
+          limit: 300,
+          limit_reset: "monthly",
+          include_byok_in_limit: true,
+        }),
+      }),
+    );
+  });
+
   it("converts stored microdollar limits to provider dollar limits", () => {
     expect(microsToUsd(250_000_000n)).toBe(250);
+    expect(usdToMicros(12.3456789)).toBe(12_345_679n);
   });
 });

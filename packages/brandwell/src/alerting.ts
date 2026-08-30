@@ -37,6 +37,7 @@ export function routeBrandwellAlert(type: string): BrandwellAlertAudience {
     [
       "OPENROUTER_DISABLED",
       "OPENROUTER_BUDGET",
+      "OPENROUTER_USAGE_SYNC_FAILED",
       "WORKER_RETRY",
       "CHECKPOINT_WARNING",
       "COMPUTER_PROVISIONING_FAILED",
