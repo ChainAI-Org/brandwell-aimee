@@ -74,6 +74,38 @@ describe("BrandWell management API authentication", () => {
     expect(await response.json()).toEqual({ error: "Workspace not found" });
   });
 
+  it("returns binding coordinates only to the authenticated BrandWell service", async () => {
+    const findFirst = vi.fn(async () => ({
+      id: "mapping-1",
+      brandwellCustomerId: "portal-client:19",
+      rakazoWorkspaceId: "workspace-1",
+      serviceIdentityId: "service-1",
+      subscriptionStatus: "active",
+      provisioningStatus: "complete",
+      rakazoWorkspace: { name: "Acme", slug: "acme" },
+    }));
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {
+        brandwellAiWorkspace: { findFirst },
+      } as unknown as PrismaClient,
+    });
+
+    const response = await app.request("/internal/workspaces/mapping-1/binding", {
+      headers: { authorization: "Bearer management-secret" },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      brandwellCustomerId: "portal-client:19",
+      workspaceId: "workspace-1",
+      serviceIdentityId: "service-1",
+      subscriptionStatus: "active",
+      provisioningStatus: "complete",
+    });
+  });
+
   it("returns each Sidekick as an AI employee with its own operational stats", async () => {
     const now = new Date("2026-08-30T18:00:00.000Z");
     const sidekickBot = {

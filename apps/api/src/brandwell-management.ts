@@ -311,6 +311,20 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     return c.json(await workspaceDetail(deps.prisma, mapping));
   });
 
+  app.get("/internal/workspaces/:id/binding", async (c) => {
+    const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
+    if (!mapping?.serviceIdentityId) {
+      return c.json({ error: "Workspace service identity not found" }, 404);
+    }
+    return c.json({
+      brandwellCustomerId: mapping.brandwellCustomerId,
+      workspaceId: mapping.rakazoWorkspaceId,
+      serviceIdentityId: mapping.serviceIdentityId,
+      subscriptionStatus: mapping.subscriptionStatus,
+      provisioningStatus: mapping.provisioningStatus,
+    });
+  });
+
   app.post("/internal/workspaces/:id/cancel", async (c) => {
     if (!deps.cancelWorkspace) {
       return c.json({ error: "AIMEE cancellation is not configured" }, 503);
