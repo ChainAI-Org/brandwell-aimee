@@ -5,19 +5,29 @@ import {
   setBrandwellSidekickLifecycleWithPrisma,
 } from "./prisma-sidekicks.js";
 
-function lifecyclePrisma() {
+function lifecyclePrisma(
+  options: {
+    workspaceAccessManaged?: boolean;
+    otherActiveSidekicks?: number;
+    memberRole?: string | null;
+  } = {},
+) {
   const deleteCredential = vi.fn(async () => ({}));
   const deleteSecret = vi.fn(async () => ({}));
   const updateCredential = vi.fn(async () => ({}));
+  const deleteMember = vi.fn(async () => ({ count: 1 }));
   const prisma = {
     brandwellSidekick: {
       findFirst: vi.fn(async () => ({
         id: "sidekick-1",
         brandwellSidekickId: "portal-sidekick-1",
+        workspaceId: "workspace-1",
         status: "active",
         userId: "user-1",
         botId: "bot-sidekick-1",
         computerId: "computer-sidekick-1",
+        invitationId: null,
+        workspaceAccessManaged: options.workspaceAccessManaged ?? true,
         pausedAt: null,
         modelCredential: {
           id: "credential-sidekick-1",
@@ -25,6 +35,7 @@ function lifecyclePrisma() {
           externalKeyHash: "hash-sidekick-1",
         },
       })),
+      count: vi.fn(async () => options.otherActiveSidekicks ?? 0),
       update: vi.fn(async () => ({})),
     },
     bot: { update: vi.fn(async () => ({})) },
@@ -35,6 +46,14 @@ function lifecyclePrisma() {
       delete: deleteCredential,
     },
     secret: { delete: deleteSecret },
+    member: {
+      findUnique: vi.fn(async () => {
+        const role = options.memberRole === undefined ? "member" : options.memberRole;
+        return role === null ? null : { role };
+      }),
+      deleteMany: deleteMember,
+    },
+    invitation: { deleteMany: vi.fn(async () => ({ count: 0 })) },
     $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
   };
   return {
@@ -42,12 +61,13 @@ function lifecyclePrisma() {
     deleteCredential,
     deleteSecret,
     updateCredential,
+    deleteMember,
   };
 }
 
 describe("BrandWell Sidekick model-key lifecycle", () => {
   it("revokes only the canceled Sidekick key and removes only its stored credential", async () => {
-    const { prisma, deleteCredential, deleteSecret } = lifecyclePrisma();
+    const { prisma, deleteCredential, deleteSecret, deleteMember } = lifecyclePrisma();
     const deleteKey = vi.fn(async () => undefined);
 
     await expect(
@@ -64,6 +84,31 @@ describe("BrandWell Sidekick model-key lifecycle", () => {
       where: { id: "credential-sidekick-1" },
     });
     expect(deleteSecret).toHaveBeenCalledWith({ where: { id: "secret-sidekick-1" } });
+    expect(deleteMember).toHaveBeenCalledWith({
+      where: { organizationId: "workspace-1", userId: "user-1", role: "member" },
+    });
+  });
+
+  it("preserves workspace access that existed before the Sidekick", async () => {
+    const { prisma, deleteMember } = lifecyclePrisma({ workspaceAccessManaged: false });
+
+    await setBrandwellSidekickLifecycleWithPrisma("portal-sidekick-1", "cancel", {
+      prisma,
+      openRouter: { deleteKey: vi.fn(), updateKey: vi.fn() },
+    });
+
+    expect(deleteMember).not.toHaveBeenCalled();
+  });
+
+  it("preserves managed workspace access while another Sidekick is active", async () => {
+    const { prisma, deleteMember } = lifecyclePrisma({ otherActiveSidekicks: 1 });
+
+    await setBrandwellSidekickLifecycleWithPrisma("portal-sidekick-1", "cancel", {
+      prisma,
+      openRouter: { deleteKey: vi.fn(), updateKey: vi.fn() },
+    });
+
+    expect(deleteMember).not.toHaveBeenCalled();
   });
 
   it("disables a paused Sidekick key without deleting it", async () => {

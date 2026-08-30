@@ -403,33 +403,39 @@ export async function provisionBrandwellSidekickWithPrisma(
       }
 
       let invitationId: string | null = null;
+      let workspaceAccessManaged = false;
       if (existingUser) {
-        await tx.member.upsert({
+        const existingMember = await tx.member.findUnique({
           where: {
             organizationId_userId: {
               organizationId: mapping.rakazoWorkspaceId,
               userId: existingUser.id,
             },
           },
-          create: {
-            id: createId(),
-            organizationId: mapping.rakazoWorkspaceId,
-            userId: existingUser.id,
-            role: "member",
-            createdAt: now(),
-          },
-          update: {},
         });
-      } else {
-        const invitation =
-          (await tx.invitation.findFirst({
-            where: {
+        if (!existingMember) {
+          await tx.member.create({
+            data: {
+              id: createId(),
               organizationId: mapping.rakazoWorkspaceId,
-              email,
-              status: "pending",
+              userId: existingUser.id,
+              role: "member",
+              createdAt: now(),
             },
-            orderBy: { expiresAt: "desc" },
-          })) ??
+          });
+          workspaceAccessManaged = true;
+        }
+      } else {
+        const existingInvitation = await tx.invitation.findFirst({
+          where: {
+            organizationId: mapping.rakazoWorkspaceId,
+            email,
+            status: "pending",
+          },
+          orderBy: { expiresAt: "desc" },
+        });
+        const invitation =
+          existingInvitation ??
           (await tx.invitation.create({
             data: {
               id: createId(),
@@ -442,6 +448,7 @@ export async function provisionBrandwellSidekickWithPrisma(
             },
           }));
         invitationId = invitation.id;
+        workspaceAccessManaged = existingInvitation === null;
       }
 
       const bot = await tx.bot.create({
@@ -547,6 +554,7 @@ export async function provisionBrandwellSidekickWithPrisma(
           botId: bot.id,
           computerId: computer.id,
           invitationId,
+          workspaceAccessManaged,
           skillBundleVersion: BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION,
           commercialRevision: mapping.commercialRevision,
           activatedAt: existingUser ? now() : null,
@@ -646,6 +654,28 @@ export async function setBrandwellSidekickLifecycleWithPrisma(
   }
   const at = options.now?.() ?? new Date();
   const status = action === "cancel" ? "canceled" : action === "pause" ? "paused" : "active";
+  const shouldRevokeMemberAccess =
+    action === "cancel" && sidekick.workspaceAccessManaged && sidekick.userId
+      ? (await options.prisma.brandwellSidekick.count({
+          where: {
+            workspaceId: sidekick.workspaceId,
+            userId: sidekick.userId,
+            id: { not: sidekick.id },
+            status: { not: "canceled" },
+          },
+        })) === 0
+      : false;
+  const managedMember = shouldRevokeMemberAccess
+    ? await options.prisma.member.findUnique({
+        where: {
+          organizationId_userId: {
+            organizationId: sidekick.workspaceId,
+            userId: sidekick.userId!,
+          },
+        },
+        select: { role: true },
+      })
+    : null;
   const keyHash = sidekick.modelCredential?.externalKeyHash;
   if (keyHash) {
     if (action === "cancel") await options.openRouter.deleteKey(keyHash);
@@ -694,6 +724,24 @@ export async function setBrandwellSidekickLifecycleWithPrisma(
           options.prisma.computer.update({
             where: { id: sidekick.computerId },
             data: action === "resume" ? {} : { state: "stopped" },
+          }),
+        ]
+      : []),
+    ...(action === "cancel" && sidekick.workspaceAccessManaged && sidekick.invitationId
+      ? [
+          options.prisma.invitation.deleteMany({
+            where: { id: sidekick.invitationId, status: "pending" },
+          }),
+        ]
+      : []),
+    ...(shouldRevokeMemberAccess && managedMember?.role === "member"
+      ? [
+          options.prisma.member.deleteMany({
+            where: {
+              organizationId: sidekick.workspaceId,
+              userId: sidekick.userId!,
+              role: "member",
+            },
           }),
         ]
       : []),

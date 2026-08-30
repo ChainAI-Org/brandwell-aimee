@@ -974,31 +974,32 @@ model BrandwellAiWorkspace {
 /// dedicated computer and inference key while sharing centrally managed model
 /// policy and BrandWell service connections.
 model BrandwellSidekick {
-  id                  String                            @id @default(cuid())
-  brandwellSidekickId String                            @unique
-  aiWorkspaceId       String
-  aiWorkspace         BrandwellAiWorkspace              @relation(fields: [aiWorkspaceId], references: [id], onDelete: Cascade)
-  workspaceId         String
-  workspace           Organization                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  email               String
-  name                String
-  roleTitle           String                            @default("GTM Teammate")
-  status              String                            @default("provisioning")
-  userId              String?
-  user                User?                             @relation(fields: [userId], references: [id], onDelete: SetNull)
-  botId               String?                           @unique
-  bot                 Bot?                              @relation(fields: [botId], references: [id], onDelete: SetNull)
-  computerId          String?                           @unique
-  computer            Computer?                         @relation(fields: [computerId], references: [id], onDelete: SetNull)
-  invitationId        String?
-  skillBundleVersion  Int                               @default(1)
-  commercialRevision  BigInt                            @default(0)
-  activatedAt         DateTime?
-  pausedAt            DateTime?
-  canceledAt          DateTime?
-  createdAt           DateTime                          @default(now())
-  updatedAt           DateTime                          @updatedAt
-  modelCredential     BrandwellSidekickModelCredential?
+  id                     String                            @id @default(cuid())
+  brandwellSidekickId    String                            @unique
+  aiWorkspaceId          String
+  aiWorkspace            BrandwellAiWorkspace              @relation(fields: [aiWorkspaceId], references: [id], onDelete: Cascade)
+  workspaceId            String
+  workspace              Organization                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  email                  String
+  name                   String
+  roleTitle              String                            @default("GTM Teammate")
+  status                 String                            @default("provisioning")
+  userId                 String?
+  user                   User?                             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  botId                  String?                           @unique
+  bot                    Bot?                              @relation(fields: [botId], references: [id], onDelete: SetNull)
+  computerId             String?                           @unique
+  computer               Computer?                         @relation(fields: [computerId], references: [id], onDelete: SetNull)
+  invitationId           String?
+  workspaceAccessManaged Boolean                           @default(false)
+  skillBundleVersion     Int                               @default(1)
+  commercialRevision     BigInt                            @default(0)
+  activatedAt            DateTime?
+  pausedAt               DateTime?
+  canceledAt             DateTime?
+  createdAt              DateTime                          @default(now())
+  updatedAt              DateTime                          @updatedAt
+  modelCredential        BrandwellSidekickModelCredential?
 
   @@unique([aiWorkspaceId, email])
   @@index([workspaceId, status])
