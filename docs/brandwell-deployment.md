@@ -110,6 +110,14 @@ bundle without rebuilding or mutating every sandbox image.
 Cancellation immediately disables inference, pauses routines, blocks new work, and suspends the
 computer. Connector revocation and destructive cleanup occur only after the retention deadline.
 
+`GET /health` is a lightweight process liveness probe. It does not establish production readiness.
+`GET /ready` returns HTTP 200 only when a lowercase 40-character deployment revision is present,
+the database and required migration are reachable, a fresh worker heartbeat for that revision
+exists, the managed Super Admin and system user are
+configured, OpenRouter management and runtime inference are configured, Daytona is selected with
+its key and snapshot, and the BrandWell platform bridge is configured. The response contains only
+status codes and never returns credential values. Missing or stale requirements return HTTP 503.
+
 ## Host preparation
 
 1. Provision a dedicated Linux host or managed container target.
@@ -132,7 +140,7 @@ The wrappers can invoke the checked-in deployment script:
 
 Install the wrappers outside the checkout with root ownership and no write permission for the
 deployment account. Set `BRANDWELL_ENV_FILE`, `BRANDWELL_BACKUP_ROOT`, or
-`BRANDWELL_HEALTH_URL` in the wrapper only when the host differs from the documented layout.
+`BRANDWELL_READINESS_URL` in the wrapper only when the host differs from the documented layout.
 
 The host-owned command must:
 
@@ -144,8 +152,8 @@ The host-owned command must:
 6. run `prisma migrate deploy` through the API startup command;
 7. pull the configured immutable image or build the checked-out source;
 8. start API, worker, web, and Caddy with `docker-compose.prod.yml`;
-9. wait for `/health` and confirm its reported revision;
-10. restore the previous image or source revision automatically if health fails.
+9. wait for `/ready` and confirm its reported revision and required checks;
+10. restore the previous image or source revision automatically if readiness fails.
 
 Do not place deployment credentials in the repository checkout or expose the Docker socket to the
 web, API, or worker containers.
@@ -181,7 +189,7 @@ staging acceptance is complete.
 1. Run all local checks.
 2. Push the candidate commit.
 3. In Actions, run `deploy-brandwell-staging` and provide the exact commit SHA.
-4. Confirm `/health` reports the expected revision.
+4. Confirm `/ready` returns HTTP 200 and reports the expected revision.
 5. Run the acceptance smoke tests below.
 6. Record evidence and approve production only after every critical check passes.
 
@@ -282,7 +290,7 @@ If a deployment fails:
 2. keep the failed revision and logs for investigation;
 3. restore the prior application image or source SHA;
 4. run Compose without applying a destructive reverse migration;
-5. verify `/health`, authentication, worker leases, and management reads;
+5. verify `/ready`, authentication, worker leases, and management reads;
 6. restore the pre-deploy database only if the migration itself corrupted data and after preserving
    the failed database for analysis;
 7. reopen routines only after tenant isolation and spend protection checks pass.

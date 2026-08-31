@@ -108,7 +108,13 @@ jobs:
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             "$SSH_USER@$SSH_HOST" deploy-brandwell-staging "$DEPLOY_SHA"
       - name: Verify BrandWell staging readiness
+        env:
+          EXPECTED_REVISION: ${{ needs.validate.outputs.sha }}
         run: |
-          curl --fail --silent --show-error \
+          response="$(curl --fail --silent --show-error \
             --retry 12 --retry-delay 5 --retry-all-errors \
-            https://staging-ai.brandwell.ai/ready
+            https://staging-ai.brandwell.ai/ready)"
+          READINESS_RESPONSE="$response" node -e '
+            const readiness = JSON.parse(process.env.READINESS_RESPONSE || "null");
+            if (readiness?.ok !== true || readiness?.service !== "aimee" || readiness?.revision !== process.env.EXPECTED_REVISION) process.exit(1);
+          '

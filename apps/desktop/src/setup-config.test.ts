@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_LOCAL_WEB_URL,
   isAimeeHealth,
+  isAimeeReady,
+  isManagedReadinessOrigin,
+  MANAGED_STAGING_WEB_URL,
   MANAGED_WEB_URL,
   normalizeServerUrl,
   parseSetupInput,
@@ -197,6 +200,48 @@ describe("AIMEE health response", () => {
     expect(isAimeeHealth({ json: { ok: true, version: "0.1.0" } })).toBe(true);
     expect(isAimeeHealth({ json: { ok: true } })).toBe(false);
     expect(isAimeeHealth({ ok: true, version: "0.1.0" })).toBe(false);
+  });
+});
+
+describe("AIMEE production readiness response", () => {
+  const pass = { status: "pass" as const, code: "ok" };
+  const ready = {
+    ok: true,
+    service: "aimee",
+    revision: "a".repeat(40),
+    checkedAt: "2026-08-31T01:00:00.000Z",
+    checks: {
+      deploymentRevision: pass,
+      database: pass,
+      migrations: pass,
+      worker: pass,
+      managedAdmin: pass,
+      openRouterManagement: pass,
+      runtimeInference: pass,
+      daytona: pass,
+      brandwellBridge: pass,
+    },
+  };
+
+  it("accepts the complete readiness contract", () => {
+    expect(isAimeeReady(ready)).toBe(true);
+  });
+
+  it("rejects liveness and inconsistent readiness payloads", () => {
+    expect(isAimeeReady({ ok: true })).toBe(false);
+    expect(
+      isAimeeReady({
+        ...ready,
+        checks: { ...ready.checks, worker: { status: "fail", code: "worker_stale" } },
+      }),
+    ).toBe(false);
+  });
+
+  it("requires readiness for exact managed production and staging origins only", () => {
+    expect(isManagedReadinessOrigin(MANAGED_WEB_URL)).toBe(true);
+    expect(isManagedReadinessOrigin(`${MANAGED_STAGING_WEB_URL}/path`)).toBe(true);
+    expect(isManagedReadinessOrigin("https://staging-ai.brandwell.ai.example.test")).toBe(false);
+    expect(isManagedReadinessOrigin("https://aimee.example.test")).toBe(false);
   });
 });
 

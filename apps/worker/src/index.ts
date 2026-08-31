@@ -1,3 +1,4 @@
+import { hostname } from "node:os";
 import {
   createBrandwellManagedModelResolver,
   deliverPendingBrandwellClientNotifications,
@@ -6,6 +7,7 @@ import {
   reconcileBrandwellOpenRouterUsage,
   reconcileBrandwellRetentionCleanupWithPrisma,
   reconcileBrandwellSupportSessions,
+  startBrandwellWorkerHeartbeat,
 } from "@brandwell/aimee";
 import type { JobPublisher, JobWorkerHost } from "@rakazo/adapter-kit";
 import { loadRootEnv } from "@rakazo/core/node/load-root-env";
@@ -177,6 +179,11 @@ async function main() {
     deploymentModelKey,
   });
   await jobHost.start(jobHandlers);
+  const workerHeartbeat = await startBrandwellWorkerHeartbeat(prisma, {
+    workerId: `${hostname()}:${process.pid}`,
+    revision: process.env.GIT_SHA?.trim() || process.env.RAKAZO_GIT_SHA?.trim() || undefined,
+    onError: (error) => console.error("BrandWell worker heartbeat", error),
+  });
   const reconciler = createJobReconciler({
     prisma,
     jobs,
@@ -264,6 +271,7 @@ async function main() {
     if (stopping) return;
     stopping = true;
     clearInterval(brandwellMaintenanceTimer);
+    await workerHeartbeat.stop().catch(() => undefined);
     await reconciler.stop();
     await jobHost.stop();
     await jobs.close();

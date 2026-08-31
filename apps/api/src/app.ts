@@ -68,6 +68,10 @@ import {
   takeBrandwellSupportControl,
 } from "./brandwell-support.js";
 import { type AppEnv, loadEnv } from "./env.js";
+import {
+  createPrismaProductionReadinessDataSource,
+  mountProductionReadinessRoute,
+} from "./readiness.js";
 import { createRouter } from "./router.js";
 import { mountVoiceHttpRoutes } from "./voice.js";
 
@@ -504,6 +508,10 @@ export async function createApp(
     const session = await auth.api.getSession({ headers: sessionHeaders(c.req.raw) });
     if (!session?.user) return null;
     return requireMembership(prisma, session.user.id).catch(() => null);
+  });
+  mountProductionReadinessRoute(app, {
+    config: env,
+    dataSource: createPrismaProductionReadinessDataSource(prisma),
   });
   app.get("/health", (c) =>
     c.json({

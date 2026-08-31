@@ -19,6 +19,8 @@ import {
 import {
   DEFAULT_LOCAL_WEB_URL,
   isAimeeHealth,
+  isAimeeReady,
+  isManagedReadinessOrigin,
   MANAGED_WEB_URL,
   normalizeServerUrl,
   probeFailureMessage,
@@ -630,17 +632,25 @@ function fromSetupWindow(event: Electron.IpcMainInvokeEvent) {
 async function probeServer(rawUrl: string): Promise<DesktopReachability> {
   const url = normalizeServerUrl(rawUrl);
   if (url === null) return { ok: false, error: "Enter a valid http:// or https:// address." };
+  const requiresProductionReadiness = isManagedReadinessOrigin(url);
 
   try {
-    const response = await net.fetch(`${url}/rpc/health`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ json: {} }),
-      cache: "no-store",
-      credentials: "omit",
-      redirect: "manual",
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-    });
+    const response = await net.fetch(
+      `${url}${requiresProductionReadiness ? "/ready" : "/rpc/health"}`,
+      {
+        ...(requiresProductionReadiness
+          ? { method: "GET" }
+          : {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ json: {} }),
+            }),
+        cache: "no-store",
+        credentials: "omit",
+        redirect: "manual",
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      },
+    );
     if (response.status >= 300 && response.status < 400) {
       return {
         ok: false,
@@ -654,16 +664,23 @@ async function probeServer(rawUrl: string): Promise<DesktopReachability> {
         ok: false,
         status: response.status,
         url,
-        error: `The server answered with HTTP ${response.status}.`,
+        error: requiresProductionReadiness
+          ? `The managed AIMEE deployment is not operational (HTTP ${response.status}).`
+          : `The server answered with HTTP ${response.status}.`,
       };
     }
     const health = await limitedJson(response);
-    if (!isAimeeHealth(health)) {
+    if (
+      (requiresProductionReadiness && !isAimeeReady(health)) ||
+      (!requiresProductionReadiness && !isAimeeHealth(health))
+    ) {
       return {
         ok: false,
         status: response.status,
         url,
-        error: "That address did not respond like an AIMEE server.",
+        error: requiresProductionReadiness
+          ? "The managed AIMEE deployment did not pass production readiness."
+          : "That address did not respond like an AIMEE server.",
       };
     }
     return {

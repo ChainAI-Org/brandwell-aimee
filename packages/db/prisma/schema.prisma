@@ -198,6 +198,16 @@ model DeploymentSettings {
   @@map("deployment_settings")
 }
 
+model BrandwellWorkerHeartbeat {
+  id          String   @id
+  revision    String?
+  startedAt   DateTime @default(now())
+  heartbeatAt DateTime @default(now())
+
+  @@index([heartbeatAt])
+  @@map("brandwell_worker_heartbeats")
+}
+
 model UserModelCredential {
   id           String   @id @default(cuid())
   userId       String

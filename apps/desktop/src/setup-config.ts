@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
-import type { DesktopSetup } from "@rakazo/contracts";
+import { type DesktopSetup, ProductionReadinessSchema } from "@rakazo/contracts";
 
 /** Where `pnpm dev` serves the AIMEE web app on this machine. */
 export const DEFAULT_LOCAL_WEB_URL = "http://127.0.0.1:5173";
 /** Fixed control-plane origin used by installed BrandWell-managed desktop builds. */
 export const MANAGED_WEB_URL = "https://ai.brandwell.ai";
+/** Operator-only BrandWell staging origin. Packaged builds remain pinned to production. */
+export const MANAGED_STAGING_WEB_URL = "https://staging-ai.brandwell.ai";
 
 export const SETUP_FILE_NAME = "setup.json";
 
@@ -161,6 +163,16 @@ export function isAimeeHealth(value: unknown): boolean {
     (json as { ok?: unknown }).ok === true &&
     typeof (json as { version?: unknown }).version === "string"
   );
+}
+
+export function isAimeeReady(value: unknown): boolean {
+  const parsed = ProductionReadinessSchema.safeParse(value);
+  return parsed.success && parsed.data.ok;
+}
+
+export function isManagedReadinessOrigin(value: string): boolean {
+  const normalized = normalizeServerUrl(value);
+  return normalized === MANAGED_WEB_URL || normalized === MANAGED_STAGING_WEB_URL;
 }
 
 function isLoopbackHost(hostname: string) {
