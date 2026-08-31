@@ -4,6 +4,7 @@ import {
   DEFAULT_COMPOSE_FILE,
   DEFAULT_UPDATER_PORT,
   readEnvAssignment,
+  readImageState,
   readTagState,
   resolveUpdaterConfig,
   truncateOutput,
@@ -116,6 +117,51 @@ describe("readTagState", () => {
    */
   it("falls back to a tag that is local-only, so nothing tries to pull it", () => {
     expect(isLocalImageTag(readTagState("").currentTag)).toBe(true);
+  });
+});
+
+describe("readImageState", () => {
+  const image = "ghcr.io/chainai-org/brandwell-aimee/app";
+
+  it("prefers persisted digest refs and their paired source commits", () => {
+    const current = `${image}@sha256:${"a".repeat(64)}`;
+    const previous = `${image}@sha256:${"b".repeat(64)}`;
+    const contents = [
+      `RAKAZO_IMAGE_REF=${current}`,
+      `RAKAZO_IMAGE_REF_PREVIOUS=${previous}`,
+      `RAKAZO_IMAGE_COMMIT=${"1".repeat(40)}`,
+      `RAKAZO_IMAGE_COMMIT_PREVIOUS=${"2".repeat(40)}`,
+    ].join("\n");
+    expect(readImageState(contents, image)).toMatchObject({
+      currentRef: current,
+      previousRef: previous,
+      currentCommit: "1".repeat(40),
+      previousCommit: "2".repeat(40),
+    });
+  });
+
+  it("bridges legacy split tag settings into complete refs", () => {
+    expect(
+      readImageState("RAKAZO_IMAGE_TAG=v1.0.0\nRAKAZO_IMAGE_TAG_PREVIOUS=v0.9.0\n", image),
+    ).toMatchObject({
+      currentRef: `${image}:v1.0.0`,
+      previousRef: `${image}:v0.9.0`,
+      currentCommit: null,
+      previousCommit: null,
+    });
+  });
+
+  it("fails closed when a persisted digest ref or source commit is malformed", () => {
+    expect(() => readImageState("RAKAZO_IMAGE_REF=ghcr.io/example/app:latest", image)).toThrow(
+      /RAKAZO_IMAGE_REF/,
+    );
+    expect(() => readImageState("RAKAZO_IMAGE_COMMIT=main", image)).toThrow(/RAKAZO_IMAGE_COMMIT/);
+  });
+
+  it("treats empty optional rollback fields as absent", () => {
+    expect(
+      readImageState("RAKAZO_IMAGE_REF_PREVIOUS=\nRAKAZO_IMAGE_COMMIT_PREVIOUS=\n", image),
+    ).toMatchObject({ previousRef: null, previousCommit: null });
   });
 });
 

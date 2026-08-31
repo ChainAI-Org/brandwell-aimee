@@ -253,7 +253,7 @@ jobs:
     name: Attest and publish complete release
     needs: [validate, build]
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 105
     permissions:
       actions: read
       attestations: write
@@ -270,6 +270,58 @@ jobs:
           pattern: desktop-*-${{ needs.validate.outputs.sha }}
           path: release-artifacts
           merge-multiple: true
+      - name: Add and verify the signed server release manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_SHA: ${{ needs.validate.outputs.sha }}
+          RELEASE_TAG: ${{ needs.validate.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run_id=""
+          for _ in $(seq 1 180); do
+            run="$(gh run list --workflow publish-server-image.yml --commit "$RELEASE_SHA" --event push --limit 20 \
+              --json databaseId,headBranch,status,conclusion \
+              --jq "map(select(.headBranch == \"$RELEASE_TAG\"))[0] // {}")"
+            status="$(jq -r '.status // ""' <<<"$run")"
+            conclusion="$(jq -r '.conclusion // ""' <<<"$run")"
+            if [[ "$status" == "completed" && "$conclusion" == "success" ]]; then
+              run_id="$(jq -r .databaseId <<<"$run")"
+              break
+            fi
+            if [[ "$status" == "completed" && -n "$conclusion" ]]; then
+              echo "The server image workflow completed with $conclusion." >&2
+              exit 1
+            fi
+            sleep 30
+          done
+          if [[ -z "$run_id" ]]; then
+            echo "Timed out waiting for the signed server release manifest." >&2
+            exit 1
+          fi
+          gh run download "$run_id" --name "server-release-manifest-${RELEASE_SHA}" --dir release-artifacts
+          manifest="release-artifacts/server-release-manifest.json"
+          bundle="release-artifacts/server-release-manifest.sigstore.jsonl"
+          test -s "$manifest"
+          test -s "$bundle"
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/publish-server-image.yml@refs/tags/${RELEASE_TAG}"
+          gh attestation verify "$manifest" --bundle "$bundle" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "github.com/${GITHUB_REPOSITORY}/.github/workflows/publish-server-image.yml" \
+            --cert-identity "$identity" \
+            --cert-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --source-digest "$RELEASE_SHA" \
+            --source-ref "refs/tags/${RELEASE_TAG}" \
+            --deny-self-hosted-runners
+          jq -e --arg tag "$RELEASE_TAG" --arg sha "$RELEASE_SHA" --arg identity "$identity" '
+            .schemaVersion == 1 and .releaseTag == $tag and .sourceCommit == $sha and
+            .platforms == ["linux/amd64","linux/arm64"] and
+            .workflow.repository == "ChainAI-Org/brandwell-aimee" and
+            .workflow.path == ".github/workflows/publish-server-image.yml" and
+            .workflow.ref == ("refs/tags/" + $tag) and .workflow.identity == $identity and
+            (.images.app.digest | test("^sha256:[0-9a-f]{64}$")) and
+            (.images.updater.digest | test("^sha256:[0-9a-f]{64}$"))
+          ' "$manifest" >/dev/null
       - name: Verify the complete stable update feed
         env:
           RELEASE_SHA: ${{ needs.validate.outputs.sha }}

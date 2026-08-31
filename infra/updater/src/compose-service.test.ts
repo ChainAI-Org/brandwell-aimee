@@ -78,8 +78,10 @@ describe("the updater compose service", () => {
   });
 
   it("pins its own image tag separately from the application image", () => {
+    expect(updater.image).toContain("RAKAZO_UPDATER_IMAGE_REF");
     expect(updater.image).toContain("RAKAZO_UPDATER_IMAGE_TAG");
     for (const service of RECREATED_SERVICES) {
+      expect(compose.services[service]?.image).toContain("RAKAZO_IMAGE_REF");
       expect(compose.services[service]?.image).toContain("RAKAZO_IMAGE_TAG");
     }
   });
