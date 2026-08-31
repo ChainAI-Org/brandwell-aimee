@@ -89,7 +89,10 @@ backup_running_state() {
 
 start_revision() {
   local revision="$1"
-  GIT_SHA="${revision}" "${compose[@]}" up -d --build --remove-orphans postgres api worker web caddy
+  GIT_SHA="${revision}" "${compose[@]}" up -d --build --remove-orphans postgres api worker web
+  # Caddy's configuration is bind-mounted, so Compose does not detect route changes.
+  # Recreate it on every release so readiness and proxy routes match the checked-out revision.
+  GIT_SHA="${revision}" "${compose[@]}" up -d --force-recreate --no-deps caddy
 }
 
 wait_for_readiness() {
@@ -108,7 +111,7 @@ wait_for_readiness() {
 }
 
 backup_running_state
-git fetch --no-tags origin
+git fetch --no-tags origin "${DEPLOY_SHA}"
 git cat-file -e "${DEPLOY_SHA}^{commit}"
 git checkout --detach "${DEPLOY_SHA}"
 
