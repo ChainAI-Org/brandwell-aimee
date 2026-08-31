@@ -265,7 +265,7 @@ const ToolDefinitions = [
   {
     name: "brandwell_visibility_research_keywords",
     description:
-      "Discover keyword ideas with demand, difficulty, CPC, competition, intent, and monthly trend evidence. Results are cached for 24 hours and may use the project's research allowance on a cache miss.",
+      "Discover keyword ideas with demand, difficulty, CPC, competition, intent, monthly trends, and matched Search Console ranking context when available. Results are cached for 24 hours and may use the project's research allowance on a cache miss.",
     readOnly: false,
     endpoint: "/internal/aimee/visibility/research",
     remoteTool: "research_keywords",
@@ -323,7 +323,7 @@ const ToolDefinitions = [
     schema: z
       .object({
         query: z.string().min(1).max(500).optional(),
-        competitors: z.array(z.string().min(1).max(253)).max(5).optional(),
+        competitors: z.array(z.string().min(1).max(253)).max(10).optional(),
         location_code: z.number().int().positive().optional(),
         language_code: z.string().min(2).max(16).optional(),
       })
