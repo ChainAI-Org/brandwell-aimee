@@ -150,7 +150,7 @@ export function reconcileRefreshedThread(
       };
     }
     // Progress can advance the thread cursor while embedded computer status from threads.get
-    // is still useful — but only while a live run remains. Preserve event-sourced
+    // is still useful, but only while a live run remains. Preserve event-sourced
     // waiting_takeover clears and optimistic stop clears.
     const preserveLocalComputer =
       prev.run?.status === "waiting_takeover" ||
@@ -428,11 +428,20 @@ export function computerPanelAutoBoot(
   return "boot";
 }
 
-/** Auto panel reconnect must use computer.boot — never computer.recover (that destroys the sandbox). */
+/** Auto panel reconnect must use computer.boot, never computer.recover (that destroys the sandbox). */
 export function computerPanelAutoUsesBoot(
   action: ReturnType<typeof computerPanelAutoBoot>,
 ): boolean {
   return action === "boot" || action === "recover-screen";
+}
+
+/** Close a visible preview only when the current bot's computer actually goes offline. */
+export function computerTransitionClosesPreview(
+  previous: ComputerStatus["state"] | undefined,
+  next: ComputerStatus["state"] | undefined,
+): boolean {
+  if (previous === undefined || next === undefined || previous === next) return false;
+  return next === "stopped" || next === "suspended";
 }
 
 export function reduceComputerStatus(
