@@ -49,6 +49,7 @@ services:
       - ../../.env
     environment:
       NODE_ENV: production
+      GIT_SHA: ${GIT_SHA:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-rakazo}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-rakazo}
       DATA_DIR: /data
       SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-e2b}
@@ -96,6 +97,7 @@ services:
       - ../../.env
     environment:
       NODE_ENV: production
+      GIT_SHA: ${GIT_SHA:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-rakazo}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-rakazo}
       DATA_DIR: /data
       SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-e2b}

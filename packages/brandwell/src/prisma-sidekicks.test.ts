@@ -575,7 +575,7 @@ describe("BrandWell Sidekick model-key lifecycle", () => {
     expect(harness.stop).not.toHaveBeenCalled();
   });
 
-  it("makes desired-state updates participate in the same workspace policy lease", async () => {
+  it("accepts the prior skill bundle during rollout and still acquires the policy lease", async () => {
     const updateKey = vi.fn();
     const prisma = {
       brandwellAiWorkspace: {

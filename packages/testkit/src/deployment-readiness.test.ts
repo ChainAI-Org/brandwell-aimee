@@ -14,14 +14,17 @@ describe("BrandWell deployment readiness gates", () => {
     expect(script).toContain("wait_for_readiness");
     expect(script).toContain("'\"ok\":true'");
     expect(script).toMatch(/grep -Fq .*revision.*expected_sha/);
+    expect(script).toMatch(/git fetch --no-tags origin "\$\{DEPLOY_SHA\}"/);
+    expect(script).toContain("up -d --force-recreate --no-deps caddy");
     expect(script).not.toContain("DEFAULT_HEALTH_URL");
   });
 
   it("uses readiness in post-deploy CI while preserving lightweight Compose liveness", async () => {
-    const [staging, ci, compose] = await Promise.all([
+    const [staging, ci, compose, caddy] = await Promise.all([
       source("../../../.github/workflows/deploy-brandwell-staging.yml"),
       source("../../../.github/workflows/ci.yml"),
       source("../../../infra/compose/docker-compose.prod.yml"),
+      source("../../../infra/compose/Caddyfile.prod"),
     ]);
 
     expect(staging).toContain("https://staging-ai.brandwell.ai/ready");
@@ -34,5 +37,12 @@ describe("BrandWell deployment readiness gates", () => {
     }
     expect(compose).toContain("fetch('http://127.0.0.1:3100/health')");
     expect(compose).not.toContain("fetch('http://127.0.0.1:3100/ready')");
+    expect(compose).toMatch(
+      /api:[\s\S]*?environment:\s+NODE_ENV: production\s+GIT_SHA: \$\{GIT_SHA:-\}/,
+    );
+    expect(compose).toMatch(
+      /worker:[\s\S]*?environment:\s+NODE_ENV: production\s+GIT_SHA: \$\{GIT_SHA:-\}/,
+    );
+    expect(caddy).toMatch(/handle \/ready \{\s+reverse_proxy api:3100\s+\}/);
   });
 });

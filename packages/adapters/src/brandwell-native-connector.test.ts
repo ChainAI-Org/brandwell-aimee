@@ -102,7 +102,10 @@ describe("BrandWell native connector", () => {
     expect(tools.find((tool) => tool.name === "brandwell_visibility_get_overview")?.readOnly).toBe(
       true,
     );
-    expect(tools.filter((tool) => tool.name.startsWith("brandwell_visibility_"))).toHaveLength(8);
+    expect(
+      tools.find((tool) => tool.name === "brandwell_visibility_get_domain_overview")?.readOnly,
+    ).toBe(false);
+    expect(tools.filter((tool) => tool.name.startsWith("brandwell_visibility_"))).toHaveLength(18);
   });
 
   it("routes visibility reads through the signed cached-data endpoint", async () => {
@@ -137,6 +140,48 @@ describe("BrandWell native connector", () => {
       tool: "get_search_console_performance",
       arguments: { limit: 50, include_daily: false },
     });
+  });
+
+  it("routes project-budgeted visibility research through an idempotent signed endpoint", async () => {
+    let requestUrl: string | URL | Request | undefined;
+    let requestInit: RequestInit | undefined;
+    const connector = new BrandwellNativeConnector(activePrisma(), {
+      apiBaseUrl: "https://portal.example.test",
+      serviceToken: SERVICE_TOKEN,
+      fetch: async (url, init) => {
+        requestUrl = url;
+        requestInit = init;
+        return new Response(JSON.stringify({ domain_overview: { domain: "competitor.example" } }));
+      },
+      now: () => new Date("2026-08-30T17:00:00.000Z"),
+    });
+
+    const events = await eventsFrom(connector, "brandwell_visibility_get_domain_overview", {
+      domain: "competitor.example",
+    });
+
+    expect(events).toEqual([
+      { type: "result", data: { domain_overview: { domain: "competitor.example" } } },
+    ]);
+    expect(requestUrl).toBe("https://portal.example.test/internal/aimee/visibility/research");
+    expect(requestInit?.headers).toMatchObject({
+      "x-brandwell-idempotency-key": "workspace-acme:effect-1",
+    });
+    const serialized = String(requestInit?.body);
+    const headers = requestInit?.headers as Record<string, string>;
+    expect(JSON.parse(serialized)).toEqual({
+      tool: "get_domain_overview",
+      arguments: { domain: "competitor.example" },
+      agent_intake_source: "aimee",
+    });
+    expect(headers["x-brandwell-signature"]).toBe(
+      expectedSignature(
+        "/internal/aimee/visibility/research",
+        serialized,
+        "2026-08-30T17:00:00.000Z",
+        "workspace-acme:effect-1",
+      ),
+    );
   });
 
   it("scopes recipient intake in headers and forces agent draft intake", async () => {
