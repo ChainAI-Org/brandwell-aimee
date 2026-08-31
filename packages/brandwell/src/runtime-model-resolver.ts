@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@rakazo/db";
 import {
   type BrandwellWorkloadType,
+  type ManagedModelCatalogEntry,
   resolveModelConfig,
   type WorkspaceModelCredential,
 } from "./model-routing.js";
@@ -20,6 +21,10 @@ export type BrandwellManagedModelResolution = {
   thinkingLevel?: string;
   maxTokens?: number;
   fallbackModels: string[];
+  fallbackModelMetadata?: Record<string, ManagedModelCatalogEntry>;
+  modelMetadata?: ManagedModelCatalogEntry;
+  computerModel?: string;
+  computerModelMetadata?: ManagedModelCatalogEntry;
   warningExceeded: boolean;
 };
 
@@ -185,10 +190,14 @@ export function createBrandwellManagedModelResolver(prisma: PrismaClient) {
       lightweightModel: credential.lightweightModel,
       reasoningModel: credential.reasoningModel,
       fallbackModels: stringArray(credential.fallbackModels),
+      modelCatalog: credential.modelCatalog,
       maxTokens: credential.maxTokens,
       thinkingLevel: credential.thinkingLevel,
     };
     const resolved = resolveModelConfig(modelCredential, scope.workloadType ?? "general");
+    const computerResolved = credential.computerModel
+      ? resolveModelConfig(modelCredential, "computer")
+      : null;
 
     return {
       provider: resolved.provider,
@@ -198,6 +207,16 @@ export function createBrandwellManagedModelResolver(prisma: PrismaClient) {
       ...(resolved.thinkingLevel ? { thinkingLevel: resolved.thinkingLevel } : {}),
       ...(resolved.maxTokens ? { maxTokens: resolved.maxTokens } : {}),
       fallbackModels: resolved.fallbackModels,
+      ...(resolved.fallbackMetadata ? { fallbackModelMetadata: resolved.fallbackMetadata } : {}),
+      ...(resolved.modelMetadata ? { modelMetadata: resolved.modelMetadata } : {}),
+      ...(computerResolved
+        ? {
+            computerModel: computerResolved.model,
+            ...(computerResolved.modelMetadata
+              ? { computerModelMetadata: computerResolved.modelMetadata }
+              : {}),
+          }
+        : {}),
       warningExceeded: resolved.costPolicy.warningExceeded,
     };
   };

@@ -8,6 +8,7 @@ export * from "./openrouter-key-labels.js";
 export * from "./openrouter-management.js";
 export * from "./prisma-alerting.js";
 export * from "./prisma-cancellation.js";
+export * from "./prisma-model-policy-lease.js";
 export * from "./prisma-notification-delivery.js";
 export * from "./prisma-openrouter.js";
 export * from "./prisma-provisioning.js";

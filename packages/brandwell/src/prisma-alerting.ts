@@ -10,6 +10,7 @@ export type BrandwellFleetHealthThresholds = {
   routineOverdueMs: number;
   computerTransitionStuckMs: number;
   failedRunLookbackMs: number;
+  providerUsageStaleMs: number;
 };
 
 export const DEFAULT_BRANDWELL_HEALTH_THRESHOLDS: BrandwellFleetHealthThresholds = {
@@ -17,6 +18,7 @@ export const DEFAULT_BRANDWELL_HEALTH_THRESHOLDS: BrandwellFleetHealthThresholds
   routineOverdueMs: 5 * 60_000,
   computerTransitionStuckMs: 10 * 60_000,
   failedRunLookbackMs: 24 * 60 * 60_000,
+  providerUsageStaleMs: 10 * 60_000,
 };
 
 export async function reconcileBrandwellFleetHealth(
@@ -107,11 +109,16 @@ export async function reconcileBrandwellFleetHealth(
       select: {
         id: true,
         workspaceId: true,
+        externalKeyHash: true,
         status: true,
         disabledAt: true,
         currentUsageMicros: true,
         monthlyLimitMicros: true,
+        limitReset: true,
         warningLimitMicros: true,
+        providerLimitMicros: true,
+        providerLimitReset: true,
+        providerIncludeByokInLimit: true,
         providerUsageSyncedAt: true,
         providerUsageSyncError: true,
       },
@@ -121,14 +128,19 @@ export async function reconcileBrandwellFleetHealth(
       select: {
         id: true,
         workspaceId: true,
+        externalKeyHash: true,
         status: true,
         disabledAt: true,
         currentUsageMicros: true,
         monthlyLimitMicros: true,
+        limitReset: true,
         warningLimitMicros: true,
+        providerLimitMicros: true,
+        providerLimitReset: true,
+        providerIncludeByokInLimit: true,
         providerUsageSyncedAt: true,
         providerUsageSyncError: true,
-        sidekick: { select: { botId: true, email: true } },
+        sidekick: { select: { botId: true, email: true, status: true } },
       },
     }),
     prisma.brandwellCancellationEvent.findMany({
@@ -248,7 +260,7 @@ export async function reconcileBrandwellFleetHealth(
   const credentials = [
     ...workspaceCredentials.map((credential) => ({
       ...credential,
-      sidekick: null as { botId: string | null; email: string } | null,
+      sidekick: null as { botId: string | null; email: string; status: string } | null,
     })),
     ...sidekickCredentials,
   ];
@@ -273,7 +285,29 @@ export async function reconcileBrandwellFleetHealth(
           ...technicalDetails,
         },
       });
-    } else if (credential.status !== "active" || credential.disabledAt) {
+    } else if (
+      credential.externalKeyHash &&
+      (!credential.providerUsageSyncedAt ||
+        credential.providerUsageSyncedAt < before(now, thresholds.providerUsageStaleMs))
+    ) {
+      candidates.push({
+        workspaceId: credential.workspaceId,
+        type: "OPENROUTER_USAGE_SYNC_STALE",
+        resourceId: credential.id,
+        source: "model",
+        severity: "ERROR",
+        summary: `OpenRouter usage and limit status is stale for this ${subject}.`,
+        clientActionRequired: false,
+        brandwellActionRequired: true,
+        technicalDetails: {
+          lastSuccessfulSyncAt: credential.providerUsageSyncedAt?.toISOString(),
+          ...technicalDetails,
+        },
+      });
+    }
+    const intentionallyPausedSidekick =
+      credential.sidekick?.status === "paused" || credential.sidekick?.status === "canceled";
+    if ((credential.status !== "active" || credential.disabledAt) && !intentionallyPausedSidekick) {
       candidates.push({
         workspaceId: credential.workspaceId,
         type: "OPENROUTER_DISABLED",
@@ -314,6 +348,36 @@ export async function reconcileBrandwellFleetHealth(
         clientActionRequired: false,
         brandwellActionRequired: true,
         technicalDetails,
+      });
+    }
+    if (
+      credential.externalKeyHash &&
+      credential.status === "active" &&
+      !credential.disabledAt &&
+      credential.providerUsageSyncedAt &&
+      !credential.providerUsageSyncError &&
+      (credential.providerLimitMicros !== credential.monthlyLimitMicros ||
+        (credential.providerLimitReset != null &&
+          credential.providerLimitReset !== credential.limitReset) ||
+        credential.providerIncludeByokInLimit === false)
+    ) {
+      candidates.push({
+        workspaceId: credential.workspaceId,
+        type: "OPENROUTER_LIMIT_DRIFT",
+        resourceId: credential.id,
+        source: "model",
+        severity: "CRITICAL",
+        summary: `The OpenRouter provider limit does not match the managed budget for this ${subject}.`,
+        clientActionRequired: false,
+        brandwellActionRequired: true,
+        technicalDetails: {
+          managedLimitMicros: credential.monthlyLimitMicros.toString(),
+          providerLimitMicros: credential.providerLimitMicros?.toString() ?? null,
+          managedLimitReset: credential.limitReset,
+          providerLimitReset: credential.providerLimitReset,
+          providerIncludeByokInLimit: credential.providerIncludeByokInLimit,
+          ...technicalDetails,
+        },
       });
     }
   }

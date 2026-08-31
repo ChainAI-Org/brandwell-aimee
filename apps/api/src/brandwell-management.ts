@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import {
+  acquireBrandwellModelPolicyLease,
   type BrandwellProvisioningCheckpoint,
   BrandwellProvisioningError,
   type BrandwellProvisioningInput,
@@ -53,6 +54,7 @@ export interface BrandwellManagementDeps {
   rolloutSkillBundle?: (workspaceId: string) => Promise<Record<string, unknown>>;
   reconcileModelUsage?: (workspaceId: string) => Promise<unknown>;
   updateOpenRouterLimit?: (keyHash: string, monthlyLimitMicros: bigint) => Promise<void>;
+  validateOpenRouterModel?: (modelId: string) => Promise<ManagedModelCatalogEntry | null>;
   computerSupport?: {
     boot(input: BrandwellSupportRequest): Promise<unknown>;
     takeControl(input: BrandwellSupportRequest): Promise<unknown>;
@@ -60,6 +62,23 @@ export interface BrandwellManagementDeps {
     release(input: BrandwellSupportRequest): Promise<unknown>;
   };
 }
+
+type ManagedModelCatalogEntry = {
+  id: string;
+  name: string;
+  inputModalities: string[];
+  outputModalities: string[];
+  supportedParameters: string[];
+  reasoning: boolean;
+  contextLength?: number;
+  maxCompletionTokens?: number;
+  pricing: {
+    prompt?: string;
+    completion?: string;
+    inputCacheRead?: string;
+    inputCacheWrite?: string;
+  };
+};
 
 type BrandwellSupportRequest = {
   workspaceId: string;
@@ -98,12 +117,31 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
 
   app.get("/internal/workspaces", async (c) => {
     const limit = boundedLimit(c.req.query("limit"));
+    const cursor = workspaceCursorInput(c.req.query("cursor"));
+    if (!cursor.ok) return c.json({ error: cursor.error }, 400);
     const rows = await deps.prisma.brandwellAiWorkspace.findMany({
-      take: limit,
-      orderBy: [{ updatedAt: "desc" }, { id: "asc" }],
+      take: limit + 1,
+      ...(cursor.value
+        ? {
+            where: {
+              OR: [
+                { createdAt: { lt: cursor.value.createdAt } },
+                { createdAt: cursor.value.createdAt, id: { gt: cursor.value.id } },
+              ],
+            },
+          }
+        : {}),
+      orderBy: [{ createdAt: "desc" }, { id: "asc" }],
       include: { rakazoWorkspace: { select: { name: true, slug: true } } },
     });
-    return c.json({ workspaces: await Promise.all(rows.map((row) => fleetRow(deps.prisma, row))) });
+    const hasMore = rows.length > limit;
+    const page = rows.slice(0, limit);
+    const last = page.at(-1);
+    return c.json({
+      workspaces: await fleetRows(deps.prisma, page),
+      hasMore,
+      nextCursor: hasMore && last ? encodeWorkspaceCursor(last.createdAt, last.id) : null,
+    });
   });
 
   app.post("/internal/workspaces/provision", async (c) => {
@@ -657,62 +695,243 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     const body = await c.req.json<Record<string, unknown>>().catch(() => null);
     const input = modelPolicyInput(body);
     if (!input.ok) return c.json({ error: input.error }, 400);
-    const current = await deps.prisma.brandwellWorkspaceModelCredential.findUnique({
-      where: { workspaceId: mapping.rakazoWorkspaceId },
-    });
-    if (!current) return c.json({ error: "AIMEE model policy is not provisioned" }, 409);
-    const limits = resolvedModelLimits(current, input.value);
-    if (!limits.ok) return c.json({ error: limits.error }, 400);
-    const nextMonthlyLimit = input.value.monthlyLimitMicros ?? current.monthlyLimitMicros;
-    if (nextMonthlyLimit !== current.monthlyLimitMicros) {
-      if (!current.externalKeyHash) {
-        return c.json(
-          { error: "The OpenRouter child key is not linked to this model policy" },
-          409,
-        );
-      }
-      if (!deps.updateOpenRouterLimit) {
-        return c.json({ error: "OpenRouter limit management is not configured" }, 503);
-      }
-      try {
-        await deps.updateOpenRouterLimit(current.externalKeyHash, nextMonthlyLimit);
-      } catch {
-        return c.json({ error: "OpenRouter rejected the usage-limit update" }, 503);
-      }
+    const policyLease = await acquireBrandwellModelPolicyLease(
+      deps.prisma,
+      mapping.id,
+      "model-policy-update",
+    );
+    if (!policyLease) {
+      return c.json(
+        { error: "Another model policy or Sidekick change is already in progress" },
+        409,
+      );
     }
-    const updated = await deps.prisma.$transaction(async (tx) => {
-      const row = await tx.brandwellWorkspaceModelCredential.update({
-        where: { id: current.id },
-        data: {
-          preferredModel: input.value.preferredModel,
-          computerModel: input.value.computerModel,
-          lightweightModel: input.value.lightweightModel,
-          reasoningModel: input.value.reasoningModel,
-          fallbackModels: input.value.fallbackModels,
-          maxTokens: input.value.maxTokens,
-          thinkingLevel: input.value.thinkingLevel,
-          monthlyLimitMicros: input.value.monthlyLimitMicros,
-          dailyLimitMicros: input.value.dailyLimitMicros,
-          warningLimitMicros: input.value.warningLimitMicros,
-        },
+    try {
+      const current = await deps.prisma.brandwellWorkspaceModelCredential.findUnique({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
       });
-      await tx.brandwellAuditLog.create({
-        data: {
-          workspaceId: mapping.rakazoWorkspaceId,
-          actorType: "brandwell_operator",
-          action: "model.policy.update",
-          resourceType: "model_policy",
-          resourceId: row.id,
-          metadata: {
-            preferredModel: row.preferredModel,
-            monthlyLimitMicros: row.monthlyLimitMicros.toString(),
-            ...operatorAuditMetadata(operator.value),
-          },
-        },
+      if (!current) return c.json({ error: "AIMEE model policy is not provisioned" }, 409);
+      const limits = resolvedModelLimits(current, input.value);
+      if (!limits.ok) return c.json({ error: limits.error }, 400);
+      const sidekickCredentials = await deps.prisma.brandwellSidekickModelCredential.findMany({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
       });
-      return row;
-    });
-    return c.json({ ok: true, modelPolicy: modelPolicyDto(updated) });
+      const nextPolicy = resolvedModelPolicy(current, input.value);
+      let nextModelCatalog = modelCatalogRecord(current.modelCatalog);
+      const changedModelIds = modelIdsFromPatch(input.value);
+      const configuredModelIds = [
+        nextPolicy.preferredModel,
+        nextPolicy.computerModel,
+        nextPolicy.lightweightModel,
+        nextPolicy.reasoningModel,
+        ...nextPolicy.fallbackModels,
+      ].filter((modelId): modelId is string => Boolean(modelId));
+      const modelIdsToValidate = [
+        ...new Set([
+          ...changedModelIds,
+          ...configuredModelIds.filter((modelId) => !nextModelCatalog[modelId]),
+        ]),
+      ];
+      if (modelIdsToValidate.length > 0) {
+        if (!deps.validateOpenRouterModel) {
+          return c.json({ error: "OpenRouter model validation is not configured" }, 503);
+        }
+        try {
+          const supported = await Promise.all(
+            modelIdsToValidate.map((modelId) => deps.validateOpenRouterModel!(modelId)),
+          );
+          const unsupportedIndex = supported.findIndex((value) => !value);
+          if (unsupportedIndex >= 0) {
+            return c.json(
+              {
+                error: `${modelIdsToValidate[unsupportedIndex]} is unavailable or does not support AIMEE tools`,
+              },
+              400,
+            );
+          }
+          nextModelCatalog = {
+            ...nextModelCatalog,
+            ...Object.fromEntries(
+              supported.map((metadata, index) => [modelIdsToValidate[index], metadata!]),
+            ),
+          };
+        } catch {
+          return c.json({ error: "OpenRouter model validation is temporarily unavailable" }, 503);
+        }
+      }
+      if (nextPolicy.computerModel) {
+        let computerMetadata = nextModelCatalog[nextPolicy.computerModel];
+        if (!computerMetadata) {
+          if (!deps.validateOpenRouterModel) {
+            return c.json({ error: "OpenRouter model validation is not configured" }, 503);
+          }
+          try {
+            computerMetadata =
+              (await deps.validateOpenRouterModel(nextPolicy.computerModel)) ?? undefined;
+          } catch {
+            return c.json({ error: "OpenRouter model validation is temporarily unavailable" }, 503);
+          }
+          if (!computerMetadata) {
+            return c.json(
+              {
+                error: `${nextPolicy.computerModel} is unavailable or does not support AIMEE tools`,
+              },
+              400,
+            );
+          }
+          nextModelCatalog = {
+            ...nextModelCatalog,
+            [nextPolicy.computerModel]: computerMetadata,
+          };
+        }
+        if (!computerMetadata.inputModalities.includes("image")) {
+          return c.json({ error: "The managed computer model must support image input" }, 400);
+        }
+      }
+      const limitTargets = [current, ...sidekickCredentials].filter(
+        (credential) => credential.monthlyLimitMicros !== nextPolicy.monthlyLimitMicros,
+      );
+      if (limitTargets.length > 0) {
+        if (limitTargets.some((credential) => !credential.externalKeyHash)) {
+          return c.json(
+            { error: "Every managed OpenRouter child key must be linked before changing limits" },
+            409,
+          );
+        }
+        if (!deps.updateOpenRouterLimit) {
+          return c.json({ error: "OpenRouter limit management is not configured" }, 503);
+        }
+        const attemptedTargets: typeof limitTargets = [];
+        try {
+          for (const credential of limitTargets) {
+            // A timed-out PATCH is ambiguous: OpenRouter may have applied it even
+            // though no response arrived. Include the target in compensating work
+            // before awaiting the request so rollback covers that case.
+            attemptedTargets.push(credential);
+            await policyLease.renew();
+            await deps.updateOpenRouterLimit(
+              credential.externalKeyHash!,
+              nextPolicy.monthlyLimitMicros,
+            );
+          }
+        } catch {
+          const rollback = await Promise.allSettled(
+            [...attemptedTargets]
+              .reverse()
+              .map((credential) =>
+                deps.updateOpenRouterLimit!(
+                  credential.externalKeyHash!,
+                  credential.monthlyLimitMicros,
+                ),
+              ),
+          );
+          if (rollback.some((result) => result.status === "rejected")) {
+            await markModelPolicyProviderError(
+              deps.prisma,
+              mapping.rakazoWorkspaceId,
+              "OpenRouter limit rollback failed. Reconcile managed keys before the next policy change.",
+            );
+            return c.json(
+              {
+                error:
+                  "OpenRouter limit changes need reconciliation before policy updates can continue",
+              },
+              503,
+            );
+          }
+          return c.json({ error: "OpenRouter rejected the usage-limit update" }, 503);
+        }
+      }
+      let updated: NonNullable<typeof current>;
+      try {
+        await policyLease.renew();
+        updated = await deps.prisma.$transaction(async (tx) => {
+          const providerLimitSynced = limitTargets.length > 0;
+          const sharedPolicyData = {
+            preferredModel: nextPolicy.preferredModel,
+            computerModel: nextPolicy.computerModel,
+            lightweightModel: nextPolicy.lightweightModel,
+            reasoningModel: nextPolicy.reasoningModel,
+            fallbackModels: nextPolicy.fallbackModels,
+            modelCatalog: nextModelCatalog,
+            maxTokens: nextPolicy.maxTokens,
+            thinkingLevel: nextPolicy.thinkingLevel,
+            monthlyLimitMicros: nextPolicy.monthlyLimitMicros,
+            dailyLimitMicros: nextPolicy.dailyLimitMicros,
+            warningLimitMicros: nextPolicy.warningLimitMicros,
+            ...(providerLimitSynced
+              ? {
+                  providerLimitMicros: nextPolicy.monthlyLimitMicros,
+                }
+              : {}),
+          };
+          const row = await tx.brandwellWorkspaceModelCredential.update({
+            where: { id: current.id },
+            data: sharedPolicyData,
+          });
+          await tx.brandwellSidekickModelCredential.updateMany({
+            where: { workspaceId: mapping.rakazoWorkspaceId },
+            data: sharedPolicyData,
+          });
+          await tx.bot.updateMany({
+            where: {
+              workspaceId: mapping.rakazoWorkspaceId,
+              managedByBrandWell: true,
+              archivedAt: null,
+            },
+            data: {
+              modelProvider: row.provider,
+              modelId: row.preferredModel,
+              thinkingLevel: row.thinkingLevel,
+            },
+          });
+          await tx.brandwellAuditLog.create({
+            data: {
+              workspaceId: mapping.rakazoWorkspaceId,
+              actorType: "brandwell_operator",
+              action: "model.policy.update",
+              resourceType: "model_policy",
+              resourceId: row.id,
+              metadata: {
+                preferredModel: row.preferredModel,
+                computerModel: row.computerModel,
+                lightweightModel: row.lightweightModel,
+                reasoningModel: row.reasoningModel,
+                fallbackModels: stringArray(row.fallbackModels),
+                monthlyLimitMicros: row.monthlyLimitMicros.toString(),
+                sidekickCredentialsUpdated: sidekickCredentials.length,
+                openRouterLimitsUpdated: limitTargets.length,
+                ...operatorAuditMetadata(operator.value),
+              },
+            },
+          });
+          return row;
+        });
+      } catch {
+        const rollback = await Promise.allSettled(
+          limitTargets.map((credential) =>
+            deps.updateOpenRouterLimit!(credential.externalKeyHash!, credential.monthlyLimitMicros),
+          ),
+        );
+        if (rollback.some((result) => result.status === "rejected")) {
+          await markModelPolicyProviderError(
+            deps.prisma,
+            mapping.rakazoWorkspaceId,
+            "The policy database update failed and OpenRouter limits need reconciliation.",
+          );
+        }
+        return c.json({ error: "AIMEE could not save the centralized model policy" }, 503);
+      }
+      return c.json({
+        ok: true,
+        modelPolicy: modelPolicyDto(updated),
+        managedCredentialsUpdated: sidekickCredentials.length + 1,
+        sidekickCredentialsUpdated: sidekickCredentials.length,
+        openRouterLimitsUpdated: limitTargets.length,
+      });
+    } finally {
+      await policyLease.release().catch(() => undefined);
+    }
   });
 
   app.post("/internal/alerts/:id/status", async (c) => {
@@ -970,111 +1189,194 @@ async function findWorkspaceMapping(prisma: PrismaClient, id: string) {
 }
 
 async function fleetRow(prisma: PrismaClient, mapping: NonNullable<WorkspaceMapping>) {
-  const [agent, computer, lastRun, nextRoutine, alerts, usage, sidekicks] = await Promise.all([
-    prisma.bot.findFirst({
-      where: {
-        workspaceId: mapping.rakazoWorkspaceId,
-        managedByBrandWell: true,
-        archivedAt: null,
-      },
-      orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
-    }),
-    prisma.computer.findFirst({
-      where: { workspaceId: mapping.rakazoWorkspaceId, scope: "team" },
-      orderBy: [{ updatedAt: "desc" }],
-    }),
-    prisma.run.findFirst({
-      where: { workspaceId: mapping.rakazoWorkspaceId },
-      orderBy: [{ createdAt: "desc" }],
-    }),
-    prisma.routine.findFirst({
-      where: { workspaceId: mapping.rakazoWorkspaceId, active: true },
-      orderBy: [{ nextRunAt: "asc" }],
-    }),
-    prisma.brandwellAlert.count({
-      where: {
-        workspaceId: mapping.rakazoWorkspaceId,
-        status: { notIn: ["RESOLVED", "IGNORED"] },
-      },
-    }),
-    usageDto(prisma, mapping.rakazoWorkspaceId),
-    prisma.brandwellSidekick.findMany({
-      where: { aiWorkspaceId: mapping.id },
-      include: { bot: true, computer: true },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    }),
-  ]);
+  return (await fleetRows(prisma, [mapping]))[0]!;
+}
+
+/** Load an entire Super Admin page with a bounded set of batched queries. */
+async function fleetRows(prisma: PrismaClient, mappings: NonNullable<WorkspaceMapping>[]) {
+  if (mappings.length === 0) return [];
+  const workspaceIds = mappings.map((mapping) => mapping.rakazoWorkspaceId);
+  const mappingIds = mappings.map((mapping) => mapping.id);
+  const [agents, computers, runs, routines, alertGroups, usageGroups, credentials, sidekicks] =
+    await Promise.all([
+      prisma.bot.findMany({
+        where: {
+          workspaceId: { in: workspaceIds },
+          managedByBrandWell: true,
+          archivedAt: null,
+        },
+        orderBy: [{ workspaceId: "asc" }, { pinned: "desc" }, { updatedAt: "desc" }],
+      }),
+      prisma.computer.findMany({
+        where: { workspaceId: { in: workspaceIds }, scope: "team" },
+        orderBy: [{ workspaceId: "asc" }, { updatedAt: "desc" }],
+        distinct: ["workspaceId"],
+      }),
+      prisma.run.findMany({
+        where: { workspaceId: { in: workspaceIds } },
+        orderBy: [{ workspaceId: "asc" }, { createdAt: "desc" }],
+        distinct: ["workspaceId"],
+      }),
+      prisma.routine.findMany({
+        where: { workspaceId: { in: workspaceIds }, active: true },
+        orderBy: [{ workspaceId: "asc" }, { nextRunAt: "asc" }],
+        distinct: ["workspaceId"],
+      }),
+      prisma.brandwellAlert.groupBy({
+        by: ["workspaceId"],
+        where: {
+          workspaceId: { in: workspaceIds },
+          status: { notIn: ["RESOLVED", "IGNORED"] },
+        },
+        _count: { id: true },
+      }),
+      prisma.usageRecord.groupBy({
+        by: ["workspaceId"],
+        where: { workspaceId: { in: workspaceIds } },
+        _sum: { inputTokens: true, outputTokens: true, costMicros: true },
+        _count: { id: true },
+      }),
+      prisma.brandwellWorkspaceModelCredential.findMany({
+        where: { workspaceId: { in: workspaceIds } },
+        select: {
+          workspaceId: true,
+          status: true,
+          monthlyLimitMicros: true,
+          warningLimitMicros: true,
+          currentUsageMicros: true,
+          providerLimitMicros: true,
+          providerUsageSyncedAt: true,
+          providerUsageSyncError: true,
+          preferredModel: true,
+          disabledAt: true,
+        },
+      }),
+      prisma.brandwellSidekick.findMany({
+        where: { aiWorkspaceId: { in: mappingIds } },
+        include: { bot: true, computer: true, modelCredential: true },
+        orderBy: [{ aiWorkspaceId: "asc" }, { createdAt: "asc" }, { id: "asc" }],
+      }),
+    ]);
   const sidekickStats = await sidekickOperationalStats(prisma, sidekicks);
-  return {
-    id: mapping.id,
-    brandwellCustomerId: mapping.brandwellCustomerId,
-    workspaceId: mapping.rakazoWorkspaceId,
-    client: mapping.rakazoWorkspace.name,
-    slug: mapping.rakazoWorkspace.slug,
-    subscriptionStatus: mapping.subscriptionStatus,
-    entitlement: {
-      agencyId: mapping.brandwellAgencyId,
-      clientId: mapping.brandwellClientId,
-      contractId: mapping.brandwellContractId,
-      revision: mapping.commercialRevision.toString(),
-      status: mapping.commercialStatus,
-      masterSeats: mapping.masterSeats,
-      sidekickSeats: mapping.sidekickSeats,
-      skillBundleVersion: mapping.skillBundleVersion,
-    },
-    plan: mapping.plan,
-    provisioningStatus: mapping.provisioningStatus,
-    employee: agent ? agentDto(agent) : null,
-    computer: computer ? computerDto(computer) : null,
-    lastRun,
-    nextRunAt: nextRoutine?.nextRunAt ?? null,
-    openAlerts: alerts,
-    usage,
-    sidekickCount: sidekicks.filter(
-      (sidekick) => !["canceled", "failed"].includes(sidekick.status.toLowerCase()),
-    ).length,
-    sidekicks: sidekicks.map((sidekick) => sidekickDto(sidekick, sidekickStats.get(sidekick.botId))),
+
+  const firstByWorkspace = <T extends { workspaceId: string }>(rows: T[]) => {
+    const result = new Map<string, T>();
+    for (const row of rows) if (!result.has(row.workspaceId)) result.set(row.workspaceId, row);
+    return result;
   };
+  const agentsByWorkspace = firstByWorkspace(agents);
+  const agentsById = new Map(agents.map((agent) => [agent.id, agent]));
+  const computersByWorkspace = firstByWorkspace(computers);
+  const runsByWorkspace = firstByWorkspace(runs);
+  const routinesByWorkspace = firstByWorkspace(routines);
+  const alertsByWorkspace = new Map(alertGroups.map((row) => [row.workspaceId, row._count.id]));
+  const usageByWorkspace = new Map(usageGroups.map((row) => [row.workspaceId, row]));
+  const credentialsByWorkspace = new Map(
+    credentials.map((credential) => [credential.workspaceId, credential]),
+  );
+  const sidekicksByMapping = new Map<string, typeof sidekicks>();
+  for (const sidekick of sidekicks) {
+    const rows = sidekicksByMapping.get(sidekick.aiWorkspaceId) ?? [];
+    rows.push(sidekick);
+    sidekicksByMapping.set(sidekick.aiWorkspaceId, rows);
+  }
+
+  return mappings.map((mapping) => {
+    const workspaceId = mapping.rakazoWorkspaceId;
+    const agent =
+      (mapping.primaryBotId ? agentsById.get(mapping.primaryBotId) : undefined) ??
+      agentsByWorkspace.get(workspaceId);
+    const computer = computersByWorkspace.get(workspaceId);
+    const usage = usageByWorkspace.get(workspaceId);
+    const credential = credentialsByWorkspace.get(workspaceId);
+    const mappingSidekicks = sidekicksByMapping.get(mapping.id) ?? [];
+    return {
+      id: mapping.id,
+      brandwellCustomerId: mapping.brandwellCustomerId,
+      workspaceId,
+      client: mapping.rakazoWorkspace.name,
+      slug: mapping.rakazoWorkspace.slug,
+      subscriptionStatus: mapping.subscriptionStatus,
+      entitlement: {
+        agencyId: mapping.brandwellAgencyId,
+        clientId: mapping.brandwellClientId,
+        contractId: mapping.brandwellContractId,
+        revision: mapping.commercialRevision.toString(),
+        status: mapping.commercialStatus,
+        masterSeats: mapping.masterSeats,
+        sidekickSeats: mapping.sidekickSeats,
+        skillBundleVersion: mapping.skillBundleVersion,
+      },
+      plan: mapping.plan,
+      provisioningStatus: mapping.provisioningStatus,
+      employee: agent ? agentDto(agent) : null,
+      computer: computer ? computerDto(computer) : null,
+      lastRun: runsByWorkspace.get(workspaceId) ?? null,
+      nextRunAt: routinesByWorkspace.get(workspaceId)?.nextRunAt ?? null,
+      openAlerts: alertsByWorkspace.get(workspaceId) ?? 0,
+      usage: {
+        records: usage?._count.id ?? 0,
+        inputTokens: usage?._sum.inputTokens ?? 0,
+        outputTokens: usage?._sum.outputTokens ?? 0,
+        costMicros: (usage?._sum.costMicros ?? 0n).toString(),
+        credential: credential
+          ? {
+              ...credential,
+              monthlyLimitMicros: credential.monthlyLimitMicros.toString(),
+              warningLimitMicros: credential.warningLimitMicros.toString(),
+              currentUsageMicros: credential.currentUsageMicros.toString(),
+              providerLimitMicros: credential.providerLimitMicros?.toString() ?? null,
+            }
+          : null,
+      },
+      sidekickCount: mappingSidekicks.filter(
+        (sidekick) => !["canceled", "failed"].includes(sidekick.status.toLowerCase()),
+      ).length,
+      sidekicks: mappingSidekicks.map((sidekick) =>
+        sidekickDto(sidekick, sidekickStats.get(sidekick.botId)),
+      ),
+    };
+  });
 }
 
 async function workspaceDetail(prisma: PrismaClient, mapping: NonNullable<WorkspaceMapping>) {
-  const [
-    summary,
-    routines,
-    alerts,
-    recentRuns,
-    notifications,
-    integrations,
-    modelPolicy,
-  ] = await Promise.all([
-    fleetRow(prisma, mapping),
-    prisma.routine.findMany({
-      where: { workspaceId: mapping.rakazoWorkspaceId },
-      orderBy: [{ active: "desc" }, { nextRunAt: "asc" }],
-    }),
-    prisma.brandwellAlert.findMany({
-      where: { workspaceId: mapping.rakazoWorkspaceId },
-      orderBy: [{ resolvedAt: "asc" }, { createdAt: "desc" }],
-      take: 50,
-    }),
-    prisma.run.findMany({
-      where: { workspaceId: mapping.rakazoWorkspaceId },
-      orderBy: [{ createdAt: "desc" }],
-      take: 50,
-    }),
-    prisma.brandwellClientNotification.findMany({
-      where: { workspaceId: mapping.rakazoWorkspaceId },
-      orderBy: [{ createdAt: "desc" }],
-      take: 50,
-    }),
-    prisma.connection.findMany({
-      where: { workspaceId: mapping.rakazoWorkspaceId, ownerType: "service" },
-      orderBy: [{ status: "asc" }, { displayName: "asc" }],
-    }),
-    prisma.brandwellWorkspaceModelCredential.findUnique({
-      where: { workspaceId: mapping.rakazoWorkspaceId },
-    }),
-  ]);
+  const [summary, routines, alerts, recentRuns, notifications, integrations, modelPolicy] =
+    await Promise.all([
+      fleetRow(prisma, mapping),
+      prisma.routine.findMany({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
+        orderBy: [{ active: "desc" }, { nextRunAt: "asc" }],
+      }),
+      prisma.brandwellAlert.findMany({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
+        orderBy: [{ resolvedAt: "asc" }, { createdAt: "desc" }],
+        take: 50,
+      }),
+      prisma.run.findMany({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
+        orderBy: [{ createdAt: "desc" }],
+        take: 50,
+      }),
+      prisma.brandwellClientNotification.findMany({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
+        orderBy: [{ createdAt: "desc" }],
+        take: 50,
+      }),
+      prisma.connection.findMany({
+        where: { workspaceId: mapping.rakazoWorkspaceId, ownerType: "service" },
+        orderBy: [{ status: "asc" }, { displayName: "asc" }],
+      }),
+      prisma.brandwellWorkspaceModelCredential.findUnique({
+        where: { workspaceId: mapping.rakazoWorkspaceId },
+      }),
+    ]);
+  const serializedModelPolicy = modelPolicy ? modelPolicyDto(modelPolicy) : null;
+  const sidekickPolicies = summary.sidekicks
+    .map((sidekick) => sidekick.modelPolicy)
+    .filter((policy): policy is NonNullable<typeof policy> => Boolean(policy));
+  const sidekickPolicyDrift = serializedModelPolicy
+    ? sidekickPolicies.filter((policy) => !modelPoliciesMatch(serializedModelPolicy, policy)).length
+    : sidekickPolicies.length;
   return {
     ...summary,
     routines,
@@ -1082,7 +1384,14 @@ async function workspaceDetail(prisma: PrismaClient, mapping: NonNullable<Worksp
     recentRuns,
     notifications,
     integrations: integrations.map(integrationDto),
-    modelPolicy: modelPolicy ? modelPolicyDto(modelPolicy) : null,
+    modelPolicy: serializedModelPolicy
+      ? {
+          ...serializedModelPolicy,
+          managedCredentials: sidekickPolicies.length + 1,
+          sidekickCredentials: sidekickPolicies.length,
+          sidekickPolicyDrift,
+        }
+      : null,
   };
 }
 
@@ -1278,6 +1587,7 @@ function modelPolicyDto(policy: {
   lightweightModel: string | null;
   reasoningModel: string | null;
   fallbackModels: unknown;
+  modelCatalog: unknown;
   maxTokens: number | null;
   thinkingLevel: string | null;
   monthlyLimitMicros: bigint;
@@ -1299,6 +1609,7 @@ function modelPolicyDto(policy: {
     lightweightModel: policy.lightweightModel,
     reasoningModel: policy.reasoningModel,
     fallbackModels: Array.isArray(policy.fallbackModels) ? policy.fallbackModels : [],
+    modelCatalog: modelCatalogRecord(policy.modelCatalog),
     maxTokens: policy.maxTokens,
     thinkingLevel: policy.thinkingLevel,
     monthlyLimitMicros: policy.monthlyLimitMicros.toString(),
@@ -1343,24 +1654,49 @@ function computerDto(computer: {
   };
 }
 
-function sidekickDto(sidekick: {
-  id: string;
-  brandwellSidekickId: string;
-  email: string;
-  name: string;
-  roleTitle: string;
-  status: string;
-  userId: string | null;
-  invitationId: string | null;
-  skillBundleVersion: number;
-  activatedAt: Date | null;
-  pausedAt: Date | null;
-  canceledAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-  bot: Parameters<typeof agentDto>[0] | null;
-  computer: Parameters<typeof computerDto>[0] | null;
-}, stats?: SidekickStats) {
+function sidekickDto(
+  sidekick: {
+    id: string;
+    brandwellSidekickId: string;
+    email: string;
+    name: string;
+    roleTitle: string;
+    status: string;
+    userId: string | null;
+    invitationId: string | null;
+    skillBundleVersion: number;
+    activatedAt: Date | null;
+    pausedAt: Date | null;
+    canceledAt: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+    bot: Parameters<typeof agentDto>[0] | null;
+    computer: Parameters<typeof computerDto>[0] | null;
+    modelCredential?: {
+      id: string;
+      provider: string;
+      status: string;
+      preferredModel: string;
+      computerModel: string | null;
+      lightweightModel: string | null;
+      reasoningModel: string | null;
+      fallbackModels: unknown;
+      modelCatalog: unknown;
+      maxTokens: number | null;
+      thinkingLevel: string | null;
+      monthlyLimitMicros: bigint;
+      dailyLimitMicros: bigint | null;
+      warningLimitMicros: bigint;
+      currentUsageMicros: bigint;
+      providerLimitMicros: bigint | null;
+      providerUsageSyncedAt: Date | null;
+      providerUsageSyncError: string | null;
+      disabledAt: Date | null;
+      updatedAt: Date;
+    } | null;
+  },
+  stats?: SidekickStats,
+) {
   return {
     id: sidekick.id,
     brandwellSidekickId: sidekick.brandwellSidekickId,
@@ -1377,6 +1713,7 @@ function sidekickDto(sidekick: {
     updatedAt: sidekick.updatedAt,
     employee: sidekick.bot ? agentDto(sidekick.bot) : null,
     computer: sidekick.computer ? computerDto(sidekick.computer) : null,
+    modelPolicy: sidekick.modelCredential ? modelPolicyDto(sidekick.modelCredential) : null,
     lastRun: stats?.lastRun ?? null,
     nextRunAt: stats?.nextRunAt ?? null,
     openAlerts: stats?.openAlerts ?? 0,
@@ -1389,10 +1726,67 @@ function sidekickDto(sidekick: {
   };
 }
 
+function modelPoliciesMatch(
+  master: ReturnType<typeof modelPolicyDto>,
+  sidekick: ReturnType<typeof modelPolicyDto>,
+): boolean {
+  return (
+    master.provider === sidekick.provider &&
+    master.preferredModel === sidekick.preferredModel &&
+    master.computerModel === sidekick.computerModel &&
+    master.lightweightModel === sidekick.lightweightModel &&
+    master.reasoningModel === sidekick.reasoningModel &&
+    JSON.stringify(master.fallbackModels) === JSON.stringify(sidekick.fallbackModels) &&
+    JSON.stringify(master.modelCatalog) === JSON.stringify(sidekick.modelCatalog) &&
+    master.maxTokens === sidekick.maxTokens &&
+    master.thinkingLevel === sidekick.thinkingLevel &&
+    master.monthlyLimitMicros === sidekick.monthlyLimitMicros &&
+    master.dailyLimitMicros === sidekick.dailyLimitMicros &&
+    master.warningLimitMicros === sidekick.warningLimitMicros
+  );
+}
+
 function boundedLimit(value: string | undefined): number {
   const parsed = Number(value ?? 50);
   if (!Number.isFinite(parsed)) return 50;
   return Math.min(100, Math.max(1, Math.trunc(parsed)));
+}
+
+function workspaceCursorInput(
+  value: string | undefined,
+): { ok: true; value: { createdAt: Date; id: string } | null } | { ok: false; error: string } {
+  if (value === undefined) return { ok: true, value: null };
+  const encoded = value.trim();
+  if (!encoded || encoded.length > 500 || !/^[A-Za-z0-9_-]+$/.test(encoded)) {
+    return { ok: false, error: "cursor is invalid" };
+  }
+  try {
+    const parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+    const record = parsed as Record<string, unknown>;
+    if (record.v !== 1 || typeof record.createdAt !== "string" || typeof record.id !== "string") {
+      throw new Error();
+    }
+    const createdAt = new Date(record.createdAt);
+    if (
+      !Number.isFinite(createdAt.getTime()) ||
+      createdAt.toISOString() !== record.createdAt ||
+      !record.id ||
+      record.id.length > 200
+    ) {
+      throw new Error();
+    }
+    return { ok: true, value: { createdAt, id: record.id } };
+  } catch {
+    return { ok: false, error: "cursor is invalid" };
+  }
+}
+
+function encodeWorkspaceCursor(createdAt: Date, id: string): string {
+  return Buffer.from(
+    JSON.stringify({ v: 1, createdAt: createdAt.toISOString(), id }),
+    "utf8",
+  ).toString("base64url");
 }
 
 function managementIdempotencyKey(
@@ -1519,6 +1913,86 @@ type ModelPolicyPatch = {
   warningLimitMicros?: bigint;
 };
 
+type StoredModelPolicy = {
+  preferredModel: string;
+  computerModel: string | null;
+  lightweightModel: string | null;
+  reasoningModel: string | null;
+  fallbackModels: unknown;
+  modelCatalog: unknown;
+  maxTokens: number | null;
+  thinkingLevel: string | null;
+  monthlyLimitMicros: bigint;
+  dailyLimitMicros: bigint | null;
+  warningLimitMicros: bigint;
+};
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+}
+
+function modelCatalogRecord(value: unknown): Record<string, ManagedModelCatalogEntry> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, ManagedModelCatalogEntry] =>
+        validOpenRouterModelId(entry[0]) &&
+        Boolean(entry[1]) &&
+        typeof entry[1] === "object" &&
+        !Array.isArray(entry[1]),
+    ),
+  );
+}
+
+function resolvedModelPolicy(current: StoredModelPolicy, patch: ModelPolicyPatch) {
+  return {
+    preferredModel: patch.preferredModel ?? current.preferredModel,
+    computerModel: patch.computerModel === undefined ? current.computerModel : patch.computerModel,
+    lightweightModel:
+      patch.lightweightModel === undefined ? current.lightweightModel : patch.lightweightModel,
+    reasoningModel:
+      patch.reasoningModel === undefined ? current.reasoningModel : patch.reasoningModel,
+    fallbackModels: patch.fallbackModels ?? stringArray(current.fallbackModels),
+    maxTokens: patch.maxTokens === undefined ? current.maxTokens : patch.maxTokens,
+    thinkingLevel: patch.thinkingLevel === undefined ? current.thinkingLevel : patch.thinkingLevel,
+    monthlyLimitMicros: patch.monthlyLimitMicros ?? current.monthlyLimitMicros,
+    dailyLimitMicros:
+      patch.dailyLimitMicros === undefined ? current.dailyLimitMicros : patch.dailyLimitMicros,
+    warningLimitMicros: patch.warningLimitMicros ?? current.warningLimitMicros,
+  };
+}
+
+function modelIdsFromPatch(patch: ModelPolicyPatch): string[] {
+  const values = [
+    patch.preferredModel,
+    patch.computerModel,
+    patch.lightweightModel,
+    patch.reasoningModel,
+    ...(patch.fallbackModels ?? []),
+  ];
+  return [...new Set(values.filter((value): value is string => typeof value === "string"))];
+}
+
+async function markModelPolicyProviderError(
+  prisma: PrismaClient,
+  workspaceId: string,
+  message: string,
+): Promise<void> {
+  await prisma
+    .$transaction([
+      prisma.brandwellWorkspaceModelCredential.update({
+        where: { workspaceId },
+        data: { providerUsageSyncError: message },
+      }),
+      prisma.brandwellSidekickModelCredential.updateMany({
+        where: { workspaceId },
+        data: { providerUsageSyncError: message },
+      }),
+    ])
+    .catch(() => undefined);
+}
+
 function modelPolicyInput(
   body: Record<string, unknown> | null,
 ): { ok: true; value: ModelPolicyPatch } | { ok: false; error: string } {
@@ -1535,8 +2009,8 @@ function modelPolicyInput(
       value[field] = null;
       continue;
     }
-    if (typeof body[field] !== "string" || !body[field].trim() || body[field].trim().length > 200) {
-      return { ok: false, error: `${field} must contain 1 to 200 characters` };
+    if (typeof body[field] !== "string" || !validOpenRouterModelId(body[field].trim())) {
+      return { ok: false, error: `${field} must be a valid OpenRouter vendor/model identifier` };
     }
     value[field] = body[field].trim();
   }
@@ -1545,10 +2019,13 @@ function modelPolicyInput(
       !Array.isArray(body.fallbackModels) ||
       body.fallbackModels.length > 10 ||
       body.fallbackModels.some(
-        (model) => typeof model !== "string" || !model.trim() || model.trim().length > 200,
+        (model) => typeof model !== "string" || !validOpenRouterModelId(model.trim()),
       )
     ) {
-      return { ok: false, error: "fallbackModels must contain up to 10 model identifiers" };
+      return {
+        ok: false,
+        error: "fallbackModels must contain up to 10 valid OpenRouter vendor/model identifiers",
+      };
     }
     value.fallbackModels = [...new Set(body.fallbackModels.map((model) => String(model).trim()))];
   }
@@ -1566,12 +2043,12 @@ function modelPolicyInput(
     if (body.thinkingLevel === null) value.thinkingLevel = null;
     else if (
       typeof body.thinkingLevel !== "string" ||
-      !["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(
+      !["none", "off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(
         body.thinkingLevel,
       )
     ) {
       return { ok: false, error: "thinkingLevel is invalid" };
-    } else value.thinkingLevel = body.thinkingLevel;
+    } else value.thinkingLevel = body.thinkingLevel === "none" ? "off" : body.thinkingLevel;
   }
   for (const field of ["monthlyLimitMicros", "warningLimitMicros"] as const) {
     if (body[field] === undefined) continue;
@@ -1605,6 +2082,10 @@ function nonnegativeBigInt(value: unknown): bigint | null {
   }
 }
 
+function validOpenRouterModelId(value: string): boolean {
+  return /^[A-Za-z0-9~][A-Za-z0-9._~-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/.test(value);
+}
+
 function resolvedModelLimits(
   current: {
     monthlyLimitMicros: bigint;
@@ -1617,6 +2098,12 @@ function resolvedModelLimits(
   const daily =
     patch.dailyLimitMicros === undefined ? current.dailyLimitMicros : patch.dailyLimitMicros;
   const warning = patch.warningLimitMicros ?? current.warningLimitMicros;
+  if (monthly <= 0n || monthly > 200_000_000n) {
+    return {
+      ok: false,
+      error: "monthlyLimitMicros must cap managed OpenRouter usage at $200 or less",
+    };
+  }
   if (monthly > 0n && warning > monthly) {
     return { ok: false, error: "warningLimitMicros cannot exceed the monthly limit" };
   }

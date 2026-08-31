@@ -461,6 +461,7 @@ model Run {
   serviceIdentity   BrandwellServiceIdentity? @relation(fields: [serviceIdentityId], references: [id], onDelete: SetNull)
   status            String
   trigger           String
+  workloadType      String                    @default("general")
   modelProvider     String?
   modelId           String?
   error             String?
@@ -945,35 +946,35 @@ model BotMcpServer {
 /// BrandWell-specific management models are additive so the fork can continue
 /// to merge upstream Rakazo changes without replacing generic core behavior.
 model BrandwellAiWorkspace {
-  id                     String              @id @default(cuid())
-  brandwellCustomerId    String              @unique
-  rakazoWorkspaceId      String              @unique
-  rakazoWorkspace        Organization        @relation(fields: [rakazoWorkspaceId], references: [id], onDelete: Cascade)
-  primaryBotId           String?
-  serviceIdentityId      String?
-  openRouterCredentialId String?
-  subscriptionStatus     String              @default("provisioning")
-  plan                   String              @default("aimee")
-  brandwellAgencyId      String?
-  brandwellClientId      String?
-  brandwellContractId    String?
-  commercialRevision     BigInt              @default(0)
-  commercialStatus       String              @default("pending")
-  masterSeats            Int                 @default(1)
-  sidekickSeats          Int                 @default(0)
-  skillBundleVersion     Int                 @default(1)
-  provisioningStatus     String              @default("pending")
-  provisioningError      String?
-  provisioningMetadata   Json                @default("{}")
+  id                        String              @id @default(cuid())
+  brandwellCustomerId       String              @unique
+  rakazoWorkspaceId         String              @unique
+  rakazoWorkspace           Organization        @relation(fields: [rakazoWorkspaceId], references: [id], onDelete: Cascade)
+  primaryBotId              String?
+  serviceIdentityId         String?
+  openRouterCredentialId    String?
+  subscriptionStatus        String              @default("provisioning")
+  plan                      String              @default("aimee")
+  brandwellAgencyId         String?
+  brandwellClientId         String?
+  brandwellContractId       String?
+  commercialRevision        BigInt              @default(0)
+  commercialStatus          String              @default("pending")
+  masterSeats               Int                 @default(1)
+  sidekickSeats             Int                 @default(0)
+  skillBundleVersion        Int                 @default(1)
+  provisioningStatus        String              @default("pending")
+  provisioningError         String?
+  provisioningMetadata      Json                @default("{}")
   modelPolicyLeaseOwner     String?
   modelPolicyLeaseExpiresAt DateTime?
-  timezone               String              @default("UTC")
-  primaryContactEmail    String
-  retentionEndsAt        DateTime?
-  canceledAt             DateTime?
-  createdAt              DateTime            @default(now())
-  updatedAt              DateTime            @updatedAt
-  sidekicks              BrandwellSidekick[]
+  timezone                  String              @default("UTC")
+  primaryContactEmail       String
+  retentionEndsAt           DateTime?
+  canceledAt                DateTime?
+  createdAt                 DateTime            @default(now())
+  updatedAt                 DateTime            @updatedAt
+  sidekicks                 BrandwellSidekick[]
 
   @@index([subscriptionStatus, provisioningStatus])
   @@index([modelPolicyLeaseExpiresAt])
@@ -985,31 +986,31 @@ model BrandwellAiWorkspace {
 /// dedicated computer and inference key while sharing centrally managed model
 /// policy and BrandWell service connections.
 model BrandwellSidekick {
-  id                     String                            @id @default(cuid())
-  brandwellSidekickId    String                            @unique
+  id                     String                                @id @default(cuid())
+  brandwellSidekickId    String                                @unique
   aiWorkspaceId          String
-  aiWorkspace            BrandwellAiWorkspace              @relation(fields: [aiWorkspaceId], references: [id], onDelete: Cascade)
+  aiWorkspace            BrandwellAiWorkspace                  @relation(fields: [aiWorkspaceId], references: [id], onDelete: Cascade)
   workspaceId            String
-  workspace              Organization                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace              Organization                          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   email                  String
   name                   String
-  roleTitle              String                            @default("GTM Teammate")
-  status                 String                            @default("provisioning")
+  roleTitle              String                                @default("GTM Teammate")
+  status                 String                                @default("provisioning")
   userId                 String?
-  user                   User?                             @relation(fields: [userId], references: [id], onDelete: SetNull)
-  botId                  String?                           @unique
-  bot                    Bot?                              @relation(fields: [botId], references: [id], onDelete: SetNull)
-  computerId             String?                           @unique
-  computer               Computer?                         @relation(fields: [computerId], references: [id], onDelete: SetNull)
+  user                   User?                                 @relation(fields: [userId], references: [id], onDelete: SetNull)
+  botId                  String?                               @unique
+  bot                    Bot?                                  @relation(fields: [botId], references: [id], onDelete: SetNull)
+  computerId             String?                               @unique
+  computer               Computer?                             @relation(fields: [computerId], references: [id], onDelete: SetNull)
   invitationId           String?
-  workspaceAccessManaged Boolean                           @default(false)
-  skillBundleVersion     Int                               @default(1)
-  commercialRevision     BigInt                            @default(0)
+  workspaceAccessManaged Boolean                               @default(false)
+  skillBundleVersion     Int                                   @default(1)
+  commercialRevision     BigInt                                @default(0)
   activatedAt            DateTime?
   pausedAt               DateTime?
   canceledAt             DateTime?
-  createdAt              DateTime                          @default(now())
-  updatedAt              DateTime                          @updatedAt
+  createdAt              DateTime                              @default(now())
+  updatedAt              DateTime                              @updatedAt
   modelCredential        BrandwellSidekickModelCredential?
   lifecycleOperations    BrandwellSidekickLifecycleOperation[]
 
@@ -1076,72 +1077,78 @@ model BrandwellServiceIdentity {
 }
 
 model BrandwellWorkspaceModelCredential {
-  id                     String                   @id @default(cuid())
-  workspaceId            String                   @unique
-  workspace              Organization             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  serviceIdentityId      String                   @unique
-  serviceIdentity        BrandwellServiceIdentity @relation(fields: [serviceIdentityId], references: [id], onDelete: Cascade)
-  provider               String                   @default("openrouter")
-  secretId               String                   @unique
-  secret                 Secret                   @relation(fields: [secretId], references: [id], onDelete: Cascade)
-  externalKeyHash        String?                  @unique
-  externalWorkspaceId    String?
-  limitReset             String                   @default("monthly")
-  status                 String                   @default("active")
-  monthlyLimitMicros     BigInt                   @default(0)
-  dailyLimitMicros       BigInt?
-  warningLimitMicros     BigInt                   @default(0)
-  currentUsageMicros     BigInt                   @default(0)
-  providerLimitMicros    BigInt?
-  providerUsageSyncedAt  DateTime?
-  providerUsageSyncError String?
-  preferredModel         String
-  computerModel          String?
-  lightweightModel       String?
-  reasoningModel         String?
-  fallbackModels         Json                     @default("[]")
-  maxTokens              Int?
-  thinkingLevel          String?
-  disabledAt             DateTime?
-  createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
+  id                         String                   @id @default(cuid())
+  workspaceId                String                   @unique
+  workspace                  Organization             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  serviceIdentityId          String                   @unique
+  serviceIdentity            BrandwellServiceIdentity @relation(fields: [serviceIdentityId], references: [id], onDelete: Cascade)
+  provider                   String                   @default("openrouter")
+  secretId                   String                   @unique
+  secret                     Secret                   @relation(fields: [secretId], references: [id], onDelete: Cascade)
+  externalKeyHash            String?                  @unique
+  externalWorkspaceId        String?
+  limitReset                 String                   @default("monthly")
+  status                     String                   @default("active")
+  monthlyLimitMicros         BigInt                   @default(0)
+  dailyLimitMicros           BigInt?
+  warningLimitMicros         BigInt                   @default(0)
+  currentUsageMicros         BigInt                   @default(0)
+  providerLimitMicros        BigInt?
+  providerLimitReset         String?
+  providerIncludeByokInLimit Boolean?
+  providerUsageSyncedAt      DateTime?
+  providerUsageSyncError     String?
+  preferredModel             String
+  computerModel              String?
+  lightweightModel           String?
+  reasoningModel             String?
+  fallbackModels             Json                     @default("[]")
+  modelCatalog               Json                     @default("{}")
+  maxTokens                  Int?
+  thinkingLevel              String?
+  disabledAt                 DateTime?
+  createdAt                  DateTime                 @default(now())
+  updatedAt                  DateTime                 @updatedAt
 
   @@index([status, disabledAt])
   @@map("brandwell_workspace_model_credentials")
 }
 
 model BrandwellSidekickModelCredential {
-  id                     String                   @id @default(cuid())
-  sidekickId             String                   @unique
-  sidekick               BrandwellSidekick        @relation(fields: [sidekickId], references: [id], onDelete: Cascade)
-  workspaceId            String
-  workspace              Organization             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  serviceIdentityId      String
-  serviceIdentity        BrandwellServiceIdentity @relation(fields: [serviceIdentityId], references: [id], onDelete: Cascade)
-  provider               String                   @default("openrouter")
-  secretId               String                   @unique
-  secret                 Secret                   @relation(fields: [secretId], references: [id], onDelete: Cascade)
-  externalKeyHash        String?                  @unique
-  externalWorkspaceId    String?
-  limitReset             String                   @default("monthly")
-  status                 String                   @default("active")
-  monthlyLimitMicros     BigInt                   @default(0)
-  dailyLimitMicros       BigInt?
-  warningLimitMicros     BigInt                   @default(0)
-  currentUsageMicros     BigInt                   @default(0)
-  providerLimitMicros    BigInt?
-  providerUsageSyncedAt  DateTime?
-  providerUsageSyncError String?
-  preferredModel         String
-  computerModel          String?
-  lightweightModel       String?
-  reasoningModel         String?
-  fallbackModels         Json                     @default("[]")
-  maxTokens              Int?
-  thinkingLevel          String?
-  disabledAt             DateTime?
-  createdAt              DateTime                 @default(now())
-  updatedAt              DateTime                 @updatedAt
+  id                         String                   @id @default(cuid())
+  sidekickId                 String                   @unique
+  sidekick                   BrandwellSidekick        @relation(fields: [sidekickId], references: [id], onDelete: Cascade)
+  workspaceId                String
+  workspace                  Organization             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  serviceIdentityId          String
+  serviceIdentity            BrandwellServiceIdentity @relation(fields: [serviceIdentityId], references: [id], onDelete: Cascade)
+  provider                   String                   @default("openrouter")
+  secretId                   String                   @unique
+  secret                     Secret                   @relation(fields: [secretId], references: [id], onDelete: Cascade)
+  externalKeyHash            String?                  @unique
+  externalWorkspaceId        String?
+  limitReset                 String                   @default("monthly")
+  status                     String                   @default("active")
+  monthlyLimitMicros         BigInt                   @default(0)
+  dailyLimitMicros           BigInt?
+  warningLimitMicros         BigInt                   @default(0)
+  currentUsageMicros         BigInt                   @default(0)
+  providerLimitMicros        BigInt?
+  providerLimitReset         String?
+  providerIncludeByokInLimit Boolean?
+  providerUsageSyncedAt      DateTime?
+  providerUsageSyncError     String?
+  preferredModel             String
+  computerModel              String?
+  lightweightModel           String?
+  reasoningModel             String?
+  fallbackModels             Json                     @default("[]")
+  modelCatalog               Json                     @default("{}")
+  maxTokens                  Int?
+  thinkingLevel              String?
+  disabledAt                 DateTime?
+  createdAt                  DateTime                 @default(now())
+  updatedAt                  DateTime                 @updatedAt
 
   @@index([workspaceId, status])
   @@index([status, disabledAt])

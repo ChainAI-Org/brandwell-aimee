@@ -4,6 +4,7 @@ import {
   type PrismaBrandwellSidekickLifecycleOptions,
   provisionBrandwellSidekickWithPrisma,
   setBrandwellSidekickLifecycleWithPrisma,
+  sidekickBudgetFromMaster,
   syncBrandwellWorkspaceDesiredStateWithPrisma,
 } from "./prisma-sidekicks.js";
 
@@ -311,6 +312,27 @@ function lifecycleHarness(
 }
 
 describe("BrandWell Sidekick model-key lifecycle", () => {
+  it("inherits negotiated model budgets from the master policy", () => {
+    expect(
+      sidekickBudgetFromMaster({
+        monthlyLimitMicros: 175_000_000n,
+        dailyLimitMicros: 8_000_000n,
+        warningLimitMicros: 125_000_000n,
+      }),
+    ).toEqual({
+      monthlyLimitMicros: 175_000_000n,
+      dailyLimitMicros: 8_000_000n,
+      warningLimitMicros: 125_000_000n,
+    });
+    expect(() =>
+      sidekickBudgetFromMaster({
+        monthlyLimitMicros: 200_000_001n,
+        dailyLimitMicros: null,
+        warningLimitMicros: 150_000_000n,
+      }),
+    ).toThrowError(expect.objectContaining({ code: "primary_aimee_budget_invalid" }));
+  });
+
   it("revokes only the canceled Sidekick key and removes only its stored credential", async () => {
     const harness = lifecycleHarness();
 
@@ -592,6 +614,7 @@ describe("BrandWell Sidekick model-key lifecycle", () => {
     const prisma = {
       brandwellAiWorkspace: {
         findFirst: vi.fn(async () => ({ id: "mapping-1" })),
+        updateMany: vi.fn(async () => ({ count: 1 })),
       },
       brandwellSidekick: {
         findUnique: vi.fn(async () => ({

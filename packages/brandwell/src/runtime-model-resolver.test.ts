@@ -32,6 +32,19 @@ function activePrisma(
     lightweightModel: null,
     reasoningModel: null,
     fallbackModels: ["openai/gpt-5.4-mini", "anthropic/claude-sonnet-4.6"],
+    modelCatalog: {
+      "anthropic/claude-sonnet-4.6": {
+        id: "anthropic/claude-sonnet-4.6",
+        name: "Claude Sonnet 4.6",
+        inputModalities: ["text", "image"],
+        outputModalities: ["text"],
+        supportedParameters: ["tools", "reasoning"],
+        reasoning: true,
+        contextLength: 200_000,
+        maxCompletionTokens: 64_000,
+        pricing: {},
+      },
+    },
     maxTokens: 8_192,
     thinkingLevel: "medium",
   };
@@ -109,7 +122,36 @@ describe("BrandWell managed runtime model resolver", () => {
       thinkingLevel: "medium",
       maxTokens: 8_192,
       fallbackModels: ["openai/gpt-5.4-mini"],
+      modelMetadata: expect.objectContaining({
+        id: "anthropic/claude-sonnet-4.6",
+        inputModalities: ["text", "image"],
+      }),
+      computerModel: "anthropic/claude-sonnet-4.6",
+      computerModelMetadata: expect.objectContaining({
+        id: "anthropic/claude-sonnet-4.6",
+      }),
       warningExceeded: true,
+    });
+  });
+
+  it("supplies persisted metadata for managed fallbacks", async () => {
+    const resolver = createBrandwellManagedModelResolver(activePrisma());
+
+    await expect(
+      resolver({
+        workspaceId: "workspace-acme",
+        userId: "client-admin",
+        botId: "bot-acme",
+        workloadType: "general",
+      }),
+    ).resolves.toMatchObject({
+      fallbackModels: ["anthropic/claude-sonnet-4.6"],
+      fallbackModelMetadata: {
+        "anthropic/claude-sonnet-4.6": expect.objectContaining({
+          id: "anthropic/claude-sonnet-4.6",
+          inputModalities: ["text", "image"],
+        }),
+      },
     });
   });
 

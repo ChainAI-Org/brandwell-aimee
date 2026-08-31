@@ -75,6 +75,36 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
   if (brandwellPlatformServiceToken && brandwellPlatformServiceToken.length < 32) {
     throw new Error("BRANDWELL_PLATFORM_SERVICE_TOKEN must be at least 32 characters");
   }
+  const brandwellOpenRouterMonthlyLimitUsd = positiveNumber(
+    source.BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD,
+    200,
+    "BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD",
+  );
+  if (brandwellOpenRouterMonthlyLimitUsd > 200) {
+    throw new Error("BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD must not exceed 200");
+  }
+  const brandwellOpenRouterWarningLimitUsd = positiveNumber(
+    source.BRANDWELL_OPENROUTER_WARNING_LIMIT_USD,
+    Math.min(150, brandwellOpenRouterMonthlyLimitUsd * 0.75),
+    "BRANDWELL_OPENROUTER_WARNING_LIMIT_USD",
+  );
+  if (brandwellOpenRouterWarningLimitUsd > brandwellOpenRouterMonthlyLimitUsd) {
+    throw new Error(
+      "BRANDWELL_OPENROUTER_WARNING_LIMIT_USD must not exceed BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD",
+    );
+  }
+  const brandwellOpenRouterDailyLimitUsd = optionalPositiveNumber(
+    source.BRANDWELL_OPENROUTER_DAILY_LIMIT_USD,
+    "BRANDWELL_OPENROUTER_DAILY_LIMIT_USD",
+  );
+  if (
+    brandwellOpenRouterDailyLimitUsd !== undefined &&
+    brandwellOpenRouterDailyLimitUsd > brandwellOpenRouterMonthlyLimitUsd
+  ) {
+    throw new Error(
+      "BRANDWELL_OPENROUTER_DAILY_LIMIT_USD must not exceed BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD",
+    );
+  }
   return {
     databaseUrl: required(source, "DATABASE_URL"),
     realtimeDatabaseUrl: source.REALTIME_DATABASE_URL ?? required(source, "DATABASE_URL"),
@@ -139,20 +169,9 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     brandwellManagementApiToken,
     brandwellSystemUserId: optional(source.BRANDWELL_SYSTEM_USER_ID),
     openRouterManagementKey: optional(source.OPENROUTER_MANAGEMENT_KEY),
-    brandwellOpenRouterMonthlyLimitUsd: positiveNumber(
-      source.BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD,
-      200,
-      "BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD",
-    ),
-    brandwellOpenRouterWarningLimitUsd: positiveNumber(
-      source.BRANDWELL_OPENROUTER_WARNING_LIMIT_USD,
-      150,
-      "BRANDWELL_OPENROUTER_WARNING_LIMIT_USD",
-    ),
-    brandwellOpenRouterDailyLimitUsd: optionalPositiveNumber(
-      source.BRANDWELL_OPENROUTER_DAILY_LIMIT_USD,
-      "BRANDWELL_OPENROUTER_DAILY_LIMIT_USD",
-    ),
+    brandwellOpenRouterMonthlyLimitUsd,
+    brandwellOpenRouterWarningLimitUsd,
+    brandwellOpenRouterDailyLimitUsd,
     brandwellComputerModel: optional(source.BRANDWELL_COMPUTER_MODEL),
     brandwellLightweightModel: optional(source.BRANDWELL_LIGHTWEIGHT_MODEL),
     brandwellReasoningModel: optional(source.BRANDWELL_REASONING_MODEL),

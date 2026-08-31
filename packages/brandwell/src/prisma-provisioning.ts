@@ -12,7 +12,14 @@ import {
 } from "./aimee-baseline.js";
 import { BRANDWELL_BRAND } from "./brand-config.js";
 import { brandwellMasterOpenRouterKeyLabel } from "./openrouter-key-labels.js";
-import { microsToUsd, type OpenRouterManagementClient } from "./openrouter-management.js";
+import {
+  microsToUsd,
+  type OpenRouterKeyLimitReset,
+  type OpenRouterManagementClient,
+  type OpenRouterModelStatus,
+  usdToMicros,
+} from "./openrouter-management.js";
+import { acquireBrandwellModelPolicyLease } from "./prisma-model-policy-lease.js";
 import { installBrandwellSkillBundle } from "./prisma-skills.js";
 import {
   type BrandwellProvisioningCheckpoint,
@@ -37,7 +44,10 @@ export type BrandwellSecretCipher = {
 export type PrismaBrandwellProvisioningOptions = {
   prisma: PrismaClient;
   secretCipher: BrandwellSecretCipher;
-  openRouter: Pick<OpenRouterManagementClient, "createKey" | "deleteKey">;
+  openRouter: Pick<
+    OpenRouterManagementClient,
+    "createKey" | "deleteKey" | "getModel" | "updateKey"
+  >;
   systemUserId?: string;
   sandboxKind: string;
   defaultModel: string;
@@ -55,8 +65,17 @@ export type PrismaBrandwellProvisioningOptions = {
 export function createPrismaBrandwellProvisioningRunner(
   options: PrismaBrandwellProvisioningOptions,
 ): BrandwellProvisioningRunner {
+  validateProvisioningBudget(options);
   const now = options.now ?? (() => new Date());
   const createId = options.createId ?? randomUUID;
+  let modelCatalog: Record<string, OpenRouterModelStatus> | undefined;
+
+  async function validatedModelCatalog() {
+    if (modelCatalog) return modelCatalog;
+    const validated = await validateBrandwellProvisioningModels(options);
+    modelCatalog = validated;
+    return validated;
+  }
 
   async function mappingFor(idempotencyKey: string) {
     return options.prisma.brandwellAiWorkspace.findUnique({
@@ -297,6 +316,7 @@ export function createPrismaBrandwellProvisioningRunner(
           });
           if (existing) return { resourceId: existing.id, metadata: { created: false } };
           const serviceIdentityId = await requireServiceIdentityId(options.prisma, workspaceId);
+          const modelCatalog = await validatedModelCatalog();
           // OpenRouter workspace_id is a provider-owned UUID, not AIMEE's
           // workspace ID. A unique child key still isolates spend and revocation
           // for this BrandWell client inside the configured OpenRouter workspace.
@@ -339,6 +359,7 @@ export function createPrismaBrandwellProvisioningRunner(
                   lightweightModel: options.lightweightModel,
                   reasoningModel: options.reasoningModel,
                   fallbackModels: options.fallbackModels ?? [],
+                  modelCatalog,
                 },
               });
             });
@@ -356,20 +377,47 @@ export function createPrismaBrandwellProvisioningRunner(
           }
         }
         case "model_configuration": {
-          const credential = await options.prisma.brandwellWorkspaceModelCredential.update({
-            where: { workspaceId },
-            data: {
-              preferredModel: options.defaultModel,
-              computerModel: options.computerModel,
-              lightweightModel: options.lightweightModel,
-              reasoningModel: options.reasoningModel,
-              fallbackModels: options.fallbackModels ?? [],
-              monthlyLimitMicros: options.monthlyLimitMicros,
-              warningLimitMicros: options.warningLimitMicros,
-              dailyLimitMicros: options.dailyLimitMicros,
-            },
-          });
-          return { resourceId: credential.id };
+          const policyLease = await acquireBrandwellModelPolicyLease(
+            options.prisma,
+            mapping.id,
+            "provision-model-configuration",
+            now,
+          );
+          if (!policyLease) {
+            throw new Error("AIMEE model policy is being updated by another operation");
+          }
+          try {
+            // The preceding credential step creates the complete policy. On a
+            // retry, persisted policy may already include a newer central
+            // update, so it remains authoritative over stale provisioning env.
+            const credential =
+              await options.prisma.brandwellWorkspaceModelCredential.findUniqueOrThrow({
+                where: { workspaceId },
+              });
+            if (!credential.externalKeyHash) {
+              throw new Error("The AIMEE OpenRouter credential has no provider key hash");
+            }
+            const desiredReset = openRouterLimitReset(credential.limitReset);
+            const provider = await options.openRouter.updateKey(credential.externalKeyHash, {
+              limitUsd: microsToUsd(credential.monthlyLimitMicros),
+              limitReset: desiredReset,
+            });
+            await policyLease.renew();
+            await options.prisma.brandwellWorkspaceModelCredential.update({
+              where: { id: credential.id },
+              data: {
+                providerLimitMicros:
+                  provider.limitUsd === undefined
+                    ? credential.monthlyLimitMicros
+                    : usdToMicros(provider.limitUsd),
+                providerLimitReset: provider.limitReset ?? desiredReset,
+                providerIncludeByokInLimit: provider.includeByokInLimit ?? true,
+              },
+            });
+            return { resourceId: credential.id };
+          } finally {
+            await policyLease.release();
+          }
         }
         case "default_routines": {
           const botId = await requirePrimaryBotId(options.prisma, workspaceId);
@@ -587,6 +635,56 @@ export function createPrismaBrandwellProvisioningRunner(
       }
     },
   };
+}
+
+function openRouterLimitReset(value: string): OpenRouterKeyLimitReset {
+  if (value === "daily" || value === "weekly" || value === "monthly") return value;
+  throw new Error("The AIMEE OpenRouter reset policy is invalid");
+}
+
+const MAX_MANAGED_OPENROUTER_MONTHLY_LIMIT_MICROS = 200_000_000n;
+
+function validateProvisioningBudget(options: PrismaBrandwellProvisioningOptions): void {
+  if (
+    options.monthlyLimitMicros <= 0n ||
+    options.monthlyLimitMicros > MAX_MANAGED_OPENROUTER_MONTHLY_LIMIT_MICROS
+  ) {
+    throw new Error("AIMEE OpenRouter monthly limits must be greater than $0 and at most $200");
+  }
+  if (options.warningLimitMicros <= 0n || options.warningLimitMicros > options.monthlyLimitMicros) {
+    throw new Error("AIMEE OpenRouter warning limits must be within the monthly limit");
+  }
+  if (
+    options.dailyLimitMicros !== undefined &&
+    (options.dailyLimitMicros <= 0n || options.dailyLimitMicros > options.monthlyLimitMicros)
+  ) {
+    throw new Error("AIMEE OpenRouter daily limits must be within the monthly limit");
+  }
+}
+
+export async function validateBrandwellProvisioningModels(
+  options: PrismaBrandwellProvisioningOptions,
+): Promise<Record<string, OpenRouterModelStatus>> {
+  const configured = [
+    options.defaultModel,
+    options.computerModel,
+    options.lightweightModel,
+    options.reasoningModel,
+    ...(options.fallbackModels ?? []),
+  ];
+  const modelIds = [...new Set(configured.filter((value): value is string => Boolean(value)))];
+  const catalog: Record<string, OpenRouterModelStatus> = {};
+  for (const modelId of modelIds) {
+    const model = await options.openRouter.getModel(modelId);
+    if (!model?.outputModalities.includes("text") || !model.supportedParameters.includes("tools")) {
+      throw new Error(`${modelId} is unavailable or does not support AIMEE tools`);
+    }
+    if (modelId === options.computerModel && !model.inputModalities.includes("image")) {
+      throw new Error("The managed computer model must support image input");
+    }
+    catalog[modelId] = model;
+  }
+  return catalog;
 }
 
 export async function provisionBrandwellWorkspaceWithPrisma(

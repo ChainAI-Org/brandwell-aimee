@@ -21,6 +21,19 @@ const credential: WorkspaceModelCredential = {
   lightweightModel: "google/gemini-3.1-flash-lite-preview",
   reasoningModel: "openai/gpt-5.4",
   fallbackModels: ["openai/gpt-5.4-mini", "anthropic/claude-sonnet-4.6"],
+  modelCatalog: {
+    "anthropic/claude-sonnet-4.6": {
+      id: "anthropic/claude-sonnet-4.6",
+      name: "Claude Sonnet 4.6",
+      inputModalities: ["text", "image"],
+      outputModalities: ["text"],
+      supportedParameters: ["tools", "reasoning"],
+      reasoning: true,
+      contextLength: 200_000,
+      maxCompletionTokens: 64_000,
+      pricing: {},
+    },
+  },
   maxTokens: 8_192,
   thinkingLevel: "medium",
 };
@@ -34,6 +47,10 @@ describe("BrandWell model routing", () => {
       maxTokens: 8_192,
       thinkingLevel: "medium",
       fallbackModels: ["openai/gpt-5.4-mini"],
+      modelMetadata: expect.objectContaining({
+        id: "anthropic/claude-sonnet-4.6",
+        inputModalities: ["text", "image"],
+      }),
       costPolicy: {
         monthlyLimitMicros: 250_000_000n,
         dailyLimitMicros: 25_000_000n,
@@ -42,6 +59,26 @@ describe("BrandWell model routing", () => {
         hardLimitExceeded: false,
       },
     });
+  });
+
+  it("returns persisted metadata for each centrally validated fallback", () => {
+    const resolved = resolveModelConfig(credential, "general");
+
+    expect(resolved.fallbackModels).toEqual(["anthropic/claude-sonnet-4.6"]);
+    expect(resolved.fallbackMetadata).toEqual({
+      "anthropic/claude-sonnet-4.6": expect.objectContaining({
+        id: "anthropic/claude-sonnet-4.6",
+        inputModalities: ["text", "image"],
+      }),
+    });
+  });
+
+  it.each([
+    ["general", "openai/gpt-5.4-mini"],
+    ["lightweight", "google/gemini-3.1-flash-lite-preview"],
+    ["reasoning", "openai/gpt-5.4"],
+  ] as const)("selects the %s workload's central model", (workloadType, expectedModel) => {
+    expect(resolveModelConfig(credential, workloadType).model).toBe(expectedModel);
   });
 
   it("fails closed when cancellation disables the workspace credential", () => {

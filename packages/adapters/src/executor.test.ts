@@ -509,7 +509,32 @@ description: Prepare standup notes
       secretId: "secret-acme",
       serviceIdentityId: "svc-acme",
       thinkingLevel: "medium",
-      fallbackModels: [],
+      maxTokens: 12_345,
+      fallbackModels: ["anthropic/claude-sonnet-4.5"],
+      fallbackModelMetadata: {
+        "anthropic/claude-sonnet-4.5": {
+          id: "anthropic/claude-sonnet-4.5",
+          name: "Claude Sonnet 4.5",
+          inputModalities: ["text", "image"],
+          outputModalities: ["text"],
+          supportedParameters: ["tools", "reasoning"],
+          reasoning: true,
+          contextLength: 200_000,
+          maxCompletionTokens: 64_000,
+          pricing: {},
+        },
+      },
+      modelMetadata: {
+        id: "openai/gpt-5.4-mini",
+        name: "GPT 5.4 Mini",
+        inputModalities: ["text", "image"],
+        outputModalities: ["text"],
+        supportedParameters: ["tools"],
+        reasoning: false,
+        contextLength: 400_000,
+        maxCompletionTokens: 128_000,
+        pricing: {},
+      },
       warningExceeded: false,
     }));
     const prisma = { secret: { findFirst } } as unknown as PrismaClient;
@@ -531,6 +556,18 @@ description: Prepare standup notes
       id: "openai/gpt-5.4-mini",
       apiKey: "sk-managed-acme",
       thinkingLevel: "medium",
+      maxTokens: 12_345,
+      fallbackModels: ["anthropic/claude-sonnet-4.5"],
+      fallbackMetadata: {
+        "anthropic/claude-sonnet-4.5": expect.objectContaining({
+          id: "anthropic/claude-sonnet-4.5",
+          reasoning: true,
+        }),
+      },
+      metadata: expect.objectContaining({
+        id: "openai/gpt-5.4-mini",
+        inputModalities: ["text", "image"],
+      }),
     });
     expect(findFirst).toHaveBeenCalledWith({
       where: {
@@ -540,6 +577,186 @@ description: Prepare standup notes
         serviceIdentityId: "svc-acme",
       },
     });
+  });
+
+  it("sends a persisted reasoning workload's centrally resolved model to the runtime", async () => {
+    const run = {
+      id: "run-reasoning",
+      workspaceId: "workspace-acme",
+      userId: "client-admin",
+      botId: "bot-acme",
+      threadId: "thread-acme",
+      taskId: "task-acme",
+      status: "queued",
+      trigger: "skill",
+      workloadType: "reasoning",
+      checkpoint: null,
+      leaseFence: 0,
+      serviceIdentityId: null,
+      sourceMessageId: null,
+      routineId: null,
+    };
+    const computer = {
+      id: "computer-acme",
+      botId: "bot-acme",
+      homeKey: "home-acme",
+      kind: "fake",
+      scope: "dedicated",
+      state: "running",
+      providerRef: "provider-computer-acme",
+      controlLeaseId: null,
+      controlLeaseExpiresAt: null,
+    };
+    const bot = {
+      id: "bot-acme",
+      name: "AIMEE",
+      title: "",
+      description: "",
+      instructions: "",
+      modelProvider: null,
+      modelId: null,
+      thinkingLevel: null,
+      memoryScope: "isolated",
+      notifyOnFinish: false,
+      computer,
+    };
+    const thread = {
+      id: "thread-acme",
+      groupId: null,
+      historyCompactionSummary: null,
+      historyCompactedUpToSeq: null,
+      historyCompactionGeneration: 0,
+    };
+    const runtimeRun = vi.fn(async function* (_request: {
+      model: { id: string };
+      workloadType?: string;
+    }) {
+      yield { type: "done" as const, text: "completed" };
+    });
+    const managedModelResolver = vi.fn(async () => ({
+      provider: "openrouter",
+      id: "provider/reasoning-model",
+      secretId: "secret-acme",
+      serviceIdentityId: "svc-acme",
+      fallbackModels: [],
+      modelMetadata: {
+        id: "provider/reasoning-model",
+        name: "Reasoning model",
+        inputModalities: ["text"],
+        outputModalities: ["text"],
+        supportedParameters: ["tools", "reasoning"],
+        reasoning: true,
+        pricing: {},
+      },
+      warningExceeded: false,
+    }));
+    const prisma = {
+      run: {
+        findUnique: vi.fn(async () => run),
+        findUniqueOrThrow: vi.fn(async () => ({ ...run, status: "leased", startedAt: null })),
+        updateMany: vi.fn(async () => ({ count: 1 })),
+      },
+      bot: {
+        findUniqueOrThrow: vi.fn(async (args: { select?: unknown }) =>
+          args.select ? { computerId: computer.id, computerSwitching: false } : bot,
+        ),
+        findMany: vi.fn(async () => []),
+      },
+      computer: {
+        findUniqueOrThrow: vi.fn(async () => computer),
+        updateMany: vi.fn(async () => ({ count: 1 })),
+      },
+      attempt: {
+        create: vi.fn(async () => ({ id: "attempt-1" })),
+        update: vi.fn(async () => ({})),
+        updateMany: vi.fn(async () => ({ count: 0 })),
+      },
+      thread: {
+        findUniqueOrThrow: vi.fn(async (args: { select?: unknown }) =>
+          args.select ? { nextMessageSeq: 1, historyCompactedUpToSeq: null } : thread,
+        ),
+      },
+      message: { findMany: vi.fn(async () => []) },
+      task: { findUniqueOrThrow: vi.fn(async () => ({ id: "task-acme", prompt: "test" })) },
+      connection: { findMany: vi.fn(async () => []) },
+      deploymentSettings: { findUnique: vi.fn(async () => null) },
+      taughtSkill: { findMany: vi.fn(async () => []) },
+      agentSkill: { findMany: vi.fn(async () => []) },
+      scratchpadItem: { findMany: vi.fn(async () => []) },
+      externalEffect: { findMany: vi.fn(async () => []) },
+      actionApprovalRule: { findMany: vi.fn(async () => []) },
+      secret: {
+        findFirst: vi.fn(async () => ({ id: "secret-acme", ciphertext: "encrypted" })),
+      },
+      usageRecord: { create: vi.fn(async () => ({})) },
+    } as unknown as PrismaClient;
+    const executor = createRunExecutor({
+      prisma,
+      managedModelResolver,
+      runtime: {
+        describe: () => ({
+          id: "test",
+          contractVersion: "1",
+          adapterVersion: "1",
+          capabilities: { streaming: true, compaction: true, tools: true, scripted: false },
+        }),
+        run: runtimeRun,
+        abort: vi.fn(async () => undefined),
+      },
+      sandbox: {
+        describe: () => ({
+          id: "fake",
+          contractVersion: "1",
+          adapterVersion: "1",
+          capabilities: {
+            graphical: false,
+            pty: false,
+            snapshots: false,
+            takeover: false,
+            persistentHome: true,
+          },
+        }),
+        provision: vi.fn(async () => ({
+          id: computer.id,
+          botId: bot.id,
+          kind: "fake",
+          providerRef: computer.providerRef,
+        })),
+        prepare: vi.fn(async () => undefined),
+        exportWorkspace: async function* () {},
+        releaseScreen: vi.fn(async () => undefined),
+      },
+      home: {
+        commit: vi.fn(async () => "revision-1"),
+      },
+      memory: {
+        read: vi.fn(async () => ({ documents: [] })),
+      },
+      memoryProviders: { resolve: vi.fn(async () => null) },
+      events: {
+        append: vi.fn(async () => undefined),
+        finalizeRun: vi.fn(async () => true),
+      },
+      jobs: {
+        enqueue: vi.fn(async () => undefined),
+        cancel: vi.fn(async () => undefined),
+      },
+      secretStore: { load: vi.fn(() => "sk-managed-acme"), put: vi.fn() },
+      secrets: [],
+    } as unknown as Parameters<typeof createRunExecutor>[0]);
+
+    await executor.continueRun(run.id, "worker-1");
+
+    expect(managedModelResolver).toHaveBeenCalledWith(
+      expect.objectContaining({ workloadType: "reasoning" }),
+    );
+    expect(runtimeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        workloadType: "reasoning",
+        model: expect.objectContaining({ id: "provider/reasoning-model" }),
+      }),
+      expect.anything(),
+    );
   });
 
   it("does not fall back to a deployment key when a managed secret is missing", async () => {

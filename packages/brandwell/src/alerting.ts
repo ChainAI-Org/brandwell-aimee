@@ -38,6 +38,8 @@ export function routeBrandwellAlert(type: string): BrandwellAlertAudience {
       "OPENROUTER_DISABLED",
       "OPENROUTER_BUDGET",
       "OPENROUTER_USAGE_SYNC_FAILED",
+      "OPENROUTER_USAGE_SYNC_STALE",
+      "OPENROUTER_LIMIT_DRIFT",
       "WORKER_RETRY",
       "CHECKPOINT_WARNING",
       "COMPUTER_PROVISIONING_FAILED",

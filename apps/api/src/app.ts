@@ -468,6 +468,16 @@ export async function createApp(
               rolloutBrandwellSkillBundleWithPrisma(workspaceId, prisma),
             reconcileModelUsage: (workspaceId) =>
               reconcileBrandwellOpenRouterUsage(prisma, openRouterManagement, workspaceId),
+            validateOpenRouterModel: async (modelId) => {
+              const model = await openRouterManagement.getModel(modelId);
+              if (
+                !model?.outputModalities.includes("text") ||
+                !model.supportedParameters.includes("tools")
+              ) {
+                return null;
+              }
+              return model;
+            },
             updateOpenRouterLimit: async (keyHash, monthlyLimitMicros) => {
               await openRouterManagement.updateKey(keyHash, {
                 limitUsd: monthlyLimitMicros > 0n ? microsToUsd(monthlyLimitMicros) : null,

@@ -16,6 +16,38 @@ describe("loadEnv", () => {
     expect(env.brandwellOpenRouterWarningLimitUsd).toBe(150);
   });
 
+  it("caps managed OpenRouter child-key budgets at $200 per month", () => {
+    expect(() =>
+      loadEnv({
+        ...base,
+        BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD: "200.01",
+      }),
+    ).toThrow(/must not exceed 200/);
+  });
+
+  it("keeps managed OpenRouter warning and daily limits within the monthly budget", () => {
+    expect(() =>
+      loadEnv({
+        ...base,
+        BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD: "100",
+        BRANDWELL_OPENROUTER_WARNING_LIMIT_USD: "101",
+      }),
+    ).toThrow(/WARNING.*must not exceed.*MONTHLY/);
+    expect(() =>
+      loadEnv({
+        ...base,
+        BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD: "100",
+        BRANDWELL_OPENROUTER_DAILY_LIMIT_USD: "101",
+      }),
+    ).toThrow(/DAILY.*must not exceed.*MONTHLY/);
+    expect(
+      loadEnv({
+        ...base,
+        BRANDWELL_OPENROUTER_MONTHLY_LIMIT_USD: "100",
+      }).brandwellOpenRouterWarningLimitUsd,
+    ).toBe(75);
+  });
+
   it("keeps explicit emulator settings for pnpm test", () => {
     const env = loadEnv({
       ...base,

@@ -299,10 +299,14 @@ export interface SemanticMemoryPurgeHistoryRequest {
   generations: number[];
 }
 
+export type AgentWorkloadType = "general" | "computer" | "lightweight" | "reasoning";
+
 export interface AgentRunRequest {
   botId: string;
   threadId: string;
   runId: string;
+  /** Explicit workload selected by orchestration before the provider call. */
+  workloadType?: AgentWorkloadType;
   prompt: string;
   instructions: string;
   history: Array<{ role: "user" | "assistant" | "system"; content: string }>;
@@ -317,6 +321,32 @@ export interface AgentRunRequest {
     id: string;
     apiKey?: string;
     baseUrl?: string;
+    /** Per-run output-token ceiling from the managed workspace policy. */
+    maxTokens?: number;
+    /** Ordered provider model ids tried only when the prior model fails before output. */
+    fallbackModels?: string[];
+    /** Provider catalog metadata validated when a managed model policy is saved. */
+    metadata?: {
+      id: string;
+      name: string;
+      inputModalities: string[];
+      outputModalities: string[];
+      supportedParameters: string[];
+      reasoning: boolean;
+      contextLength?: number;
+      maxCompletionTokens?: number;
+      pricing: {
+        prompt?: string;
+        completion?: string;
+        inputCacheRead?: string;
+        inputCacheWrite?: string;
+      };
+    };
+    /** Catalog metadata for each validated managed fallback, keyed by provider model id. */
+    fallbackMetadata?: Record<string, NonNullable<AgentRunRequest["model"]["metadata"]>>;
+    /** Optional managed model used after computer tools return image context. */
+    computerModel?: string;
+    computerMetadata?: AgentRunRequest["model"]["metadata"];
     /** Preferred thinking effort for reasoning models; clamped to the model’s supported set. */
     thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | null;
     /** In-process OAuth credential from the encrypted store for this run. */
@@ -363,6 +393,7 @@ export type AgentRuntimeEvent =
       costMicros: number;
       provider: string;
       model: string;
+      workloadType?: AgentWorkloadType;
     }
   | { type: "checkpoint"; blob: string }
   | {
