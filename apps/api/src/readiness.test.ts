@@ -76,7 +76,7 @@ describe("production readiness", () => {
         managedAdmin: { status: "pass", code: "ok" },
         openRouterManagement: { status: "pass", code: "ok" },
         runtimeInference: { status: "pass", code: "ok" },
-        daytona: { status: "pass", code: "ok" },
+        computer: { status: "pass", code: "ok" },
         brandwellBridge: { status: "pass", code: "ok" },
       },
     });
@@ -115,7 +115,7 @@ describe("production readiness", () => {
       managedAdmin: { status: "fail", code: "configuration_missing" },
       openRouterManagement: { status: "fail", code: "configuration_missing" },
       runtimeInference: { status: "fail", code: "unsupported_runtime" },
-      daytona: { status: "fail", code: "unsupported_sandbox" },
+      computer: { status: "fail", code: "unsupported_sandbox" },
       brandwellBridge: { status: "fail", code: "configuration_missing" },
       worker: { status: "fail", code: "unsupported_job_driver" },
     });

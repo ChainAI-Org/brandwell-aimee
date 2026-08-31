@@ -69,7 +69,7 @@ describe("BrandWell AIMEE session access", () => {
     ).rejects.toMatchObject({
       code: "aimee_billing_past_due",
       statusCode: 402,
-      message: expect.stringMatching(/last AIMEE invoice failed/i),
+      message: expect.stringMatching(/last BrandWell invoice failed/i),
     });
   });
 });

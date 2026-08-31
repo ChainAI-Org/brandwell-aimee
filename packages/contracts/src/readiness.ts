@@ -22,7 +22,7 @@ export const ProductionReadinessSchema = z
         managedAdmin: ProductionReadinessCheckSchema,
         openRouterManagement: ProductionReadinessCheckSchema,
         runtimeInference: ProductionReadinessCheckSchema,
-        daytona: ProductionReadinessCheckSchema,
+        computer: ProductionReadinessCheckSchema,
         brandwellBridge: ProductionReadinessCheckSchema,
       })
       .strict(),

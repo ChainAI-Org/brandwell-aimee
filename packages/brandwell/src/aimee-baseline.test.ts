@@ -24,11 +24,15 @@ describe("AIMEE managed workspace baseline", () => {
       "Never access, infer, or reveal another workspace",
     );
     expect(BRANDWELL_AIMEE_INSTRUCTIONS).toContain("Ask for explicit approval");
+    expect(BRANDWELL_AIMEE_INSTRUCTIONS).toContain("private BrandWell-managed computer");
+    expect(BRANDWELL_AIMEE_INSTRUCTIONS).toContain("do not speculate about vendors");
+    expect(BRANDWELL_AIMEE_INSTRUCTIONS).not.toMatch(/daytona/i);
   });
 
   it("provisions a GTM operating skill plus the native BrandWell skills and routines", () => {
-    expect(BRANDWELL_AIMEE_SKILLS.map((skill) => skill.name).slice(0, 5)).toEqual([
+    expect(BRANDWELL_AIMEE_SKILLS.map((skill) => skill.name).slice(0, 6)).toEqual([
       "BrandWell GTM Operating System",
+      "BrandWell Application Operator",
       "BrandWell Intent",
       "BrandWell TrafficID",
       "BrandWell Postcard Offer Hooks",
@@ -56,10 +60,10 @@ describe("AIMEE managed workspace baseline", () => {
       "BrandWell Link Prospecting",
       "BrandWell AI Citation Analysis",
     ]);
-    expect(BRANDWELL_AIMEE_SKILLS).toHaveLength(17);
-    expect(BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION).toBe(3);
-    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.key)).size).toBe(17);
-    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.name.toLowerCase())).size).toBe(17);
+    expect(BRANDWELL_AIMEE_SKILLS).toHaveLength(18);
+    expect(BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION).toBe(4);
+    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.key)).size).toBe(18);
+    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.name.toLowerCase())).size).toBe(18);
     expect(JSON.stringify(BRANDWELL_AIMEE_VISIBILITY_SKILLS)).not.toMatch(/open[\s-]*seo/i);
   });
 

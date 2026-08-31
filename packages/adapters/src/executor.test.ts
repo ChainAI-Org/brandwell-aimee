@@ -630,6 +630,7 @@ description: Prepare standup notes
     const runtimeRun = vi.fn(async function* (_request: {
       model: { id: string };
       workloadType?: string;
+      instructions?: string;
     }) {
       yield { type: "done" as const, text: "completed" };
     });
@@ -757,6 +758,10 @@ description: Prepare standup notes
       }),
       expect.anything(),
     );
+    const managedRequest = runtimeRun.mock.calls[0]?.[0];
+    expect(managedRequest?.instructions).toContain("private BrandWell-managed computer");
+    expect(managedRequest?.instructions).toContain("do not speculate about vendors");
+    expect(managedRequest?.instructions).not.toMatch(/daytona/i);
   });
 
   it("does not fall back to a deployment key when a managed secret is missing", async () => {

@@ -62,7 +62,7 @@ describe("DaytonaSandboxProvider", () => {
     ]);
     expect(fixture.executeCommand).toHaveBeenCalledWith(
       "'echo' 'hello'",
-      "/home/daytona/rakazo-home",
+      "/home/daytona/aimee-home",
       undefined,
       300,
     );
@@ -192,7 +192,7 @@ describe("DaytonaSandboxProvider", () => {
     expect(fixture.start).toHaveBeenCalledTimes(1);
     expect(
       fixture.executeCommand.mock.calls.filter(([command]) =>
-        String(command).startsWith("mkdir -p -- "),
+        String(command).includes("mkdir -p -- "),
       ),
     ).toHaveLength(1);
   });
@@ -351,7 +351,7 @@ function daytonaFixture(options: { id?: string; state?: string; prepareFails?: b
       if (registryResult) return registryResult;
       if (command === "'echo' 'hello'") return { exitCode: 0, result: "hello\n" };
       if (command.includes("/tmp/.X11-unix/X*")) return { exitCode: 0, result: ":0\n" };
-      if (options.prepareFails && command.startsWith("mkdir -p -- ")) {
+      if (options.prepareFails && command.includes("mkdir -p -- ")) {
         return { exitCode: 1, result: "could not create Daytona workspace" };
       }
       if (command.startsWith("chmod 700 -- ")) {
