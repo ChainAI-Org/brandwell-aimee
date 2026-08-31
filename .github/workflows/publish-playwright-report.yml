@@ -18,6 +18,7 @@ concurrency:
 jobs:
   publish:
     if: >-
+      vars.PLAYWRIGHT_REPORT_PUBLICATION_ENABLED == 'true' &&
       (github.event.workflow_run.conclusion == 'success' ||
        github.event.workflow_run.conclusion == 'failure' ||
        github.event.workflow_run.conclusion == 'timed_out') &&

@@ -185,6 +185,12 @@ remains disabled through `BRANDWELL_PRODUCTION_DEPLOY_ENABLED=false` until stagi
 complete. The separate `brandwell-desktop-release` environment must be created and protected before
 the first stable desktop tag is pushed.
 
+Public Playwright report publication is optional and disabled by default. To enable it, configure
+the `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` repository secrets, configure the `S3_REGION`,
+`S3_BUCKET`, `S3_ENDPOINT`, and `PLAYWRIGHT_PUBLIC_BASE_URL` repository variables, and then set
+`PLAYWRIGHT_REPORT_PUBLICATION_ENABLED=true`. Leave that flag unset or false when no report bucket
+is configured. The trusted publication workflow then skips cleanly instead of failing the CI run.
+
 ## Staging release
 
 1. Run all local checks.
