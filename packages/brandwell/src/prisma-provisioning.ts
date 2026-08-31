@@ -355,6 +355,7 @@ export function createPrismaBrandwellProvisioningRunner(
                   dailyLimitMicros: options.dailyLimitMicros,
                   warningLimitMicros: options.warningLimitMicros,
                   preferredModel: options.defaultModel,
+                  inheritsPlatformModelDefault: true,
                   computerModel: options.computerModel,
                   lightweightModel: options.lightweightModel,
                   reasoningModel: options.reasoningModel,
@@ -728,6 +729,7 @@ async function createWorkspaceMapping(
           bootstrapRunId: checkpoint.runId,
         },
         timezone: checkpoint.input.timezone,
+        primaryBrandwellUserId: checkpoint.input.primaryBrandwellUserId,
         primaryContactEmail: checkpoint.input.primaryContactEmail,
       },
     });

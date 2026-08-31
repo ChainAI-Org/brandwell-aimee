@@ -1,12 +1,14 @@
 import { timingSafeEqual } from "node:crypto";
 import {
   acquireBrandwellModelPolicyLease,
+  BRANDWELL_OPENROUTER_PROVIDER,
   type BrandwellProvisioningCheckpoint,
   BrandwellProvisioningError,
   type BrandwellProvisioningInput,
   BrandwellSidekickError,
   type BrandwellSidekickProvisioningInput,
   type BrandwellWorkspaceDesiredStateInput,
+  brandwellPlatformModelDefault,
 } from "@brandwell/aimee";
 import {
   type JobPublisher,
@@ -113,6 +115,130 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
       return c.json({ error: "Unauthorized" }, 401);
     }
     await next();
+  });
+
+  app.get("/internal/model-policy", async (c) => {
+    const defaultModel = await brandwellPlatformModelDefault(deps.prisma);
+    const [inheritedWorkspaces, customWorkspaces, sidekickCredentials] = await Promise.all([
+      deps.prisma.brandwellWorkspaceModelCredential.count({
+        where: { inheritsPlatformModelDefault: true },
+      }),
+      deps.prisma.brandwellWorkspaceModelCredential.count({
+        where: { inheritsPlatformModelDefault: false },
+      }),
+      deps.prisma.brandwellSidekickModelCredential.count(),
+    ]);
+    return c.json({
+      provider: BRANDWELL_OPENROUTER_PROVIDER,
+      defaultModel,
+      inheritedWorkspaces,
+      customWorkspaces,
+      sidekickCredentials,
+    });
+  });
+
+  app.post("/internal/model-policy", async (c) => {
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
+    const body = await c.req.json<Record<string, unknown>>().catch(() => null);
+    const input = platformModelPolicyInput(body);
+    if (!input.ok) return c.json({ error: input.error }, 400);
+    if (!deps.validateOpenRouterModel) {
+      return c.json({ error: "OpenRouter model validation is not configured" }, 503);
+    }
+    let metadata: ManagedModelCatalogEntry | null;
+    try {
+      metadata = await deps.validateOpenRouterModel(input.value.modelId);
+    } catch {
+      return c.json({ error: "OpenRouter model validation is temporarily unavailable" }, 503);
+    }
+    if (!metadata) {
+      return c.json(
+        { error: `${input.value.modelId} is unavailable or does not support AIMEE tools` },
+        400,
+      );
+    }
+    if (!metadata.inputModalities.includes("image")) {
+      return c.json({ error: "The BrandWell default model must support image input" }, 400);
+    }
+
+    const previousDefault = await brandwellPlatformModelDefault(deps.prisma);
+    const inherited = await deps.prisma.brandwellWorkspaceModelCredential.findMany({
+      where: { inheritsPlatformModelDefault: true },
+      select: { id: true, workspaceId: true, modelCatalog: true },
+    });
+    let sidekickCredentialsUpdated = 0;
+    let workspacesUpdated = 0;
+    try {
+      await deps.prisma.$transaction(async (tx) => {
+        await tx.deploymentSettings.upsert({
+          where: { id: "default" },
+          create: {
+            id: "default",
+            brandwellDefaultModelId: input.value.modelId,
+          },
+          update: { brandwellDefaultModelId: input.value.modelId },
+        });
+        for (const current of inherited) {
+          const modelCatalog = {
+            ...modelCatalogRecord(current.modelCatalog),
+            [input.value.modelId]: metadata,
+          };
+          const updated = await tx.brandwellWorkspaceModelCredential.updateMany({
+            where: { id: current.id, inheritsPlatformModelDefault: true },
+            data: {
+              preferredModel: input.value.modelId,
+              modelCatalog,
+            },
+          });
+          if (!updated.count) continue;
+          workspacesUpdated += 1;
+          const sidekicks = await tx.brandwellSidekickModelCredential.updateMany({
+            where: { workspaceId: current.workspaceId },
+            data: {
+              preferredModel: input.value.modelId,
+              modelCatalog,
+            },
+          });
+          sidekickCredentialsUpdated += sidekicks.count;
+          await tx.bot.updateMany({
+            where: {
+              workspaceId: current.workspaceId,
+              managedByBrandWell: true,
+              archivedAt: null,
+            },
+            data: {
+              modelProvider: BRANDWELL_OPENROUTER_PROVIDER,
+              modelId: input.value.modelId,
+            },
+          });
+          await tx.brandwellAuditLog.create({
+            data: {
+              workspaceId: current.workspaceId,
+              actorType: "brandwell_operator",
+              action: "model.platform_default.update",
+              resourceType: "model_policy",
+              resourceId: current.id,
+              metadata: {
+                previousDefault,
+                defaultModel: input.value.modelId,
+                ...operatorAuditMetadata(operator.value),
+              },
+            },
+          });
+        }
+      });
+    } catch {
+      return c.json({ error: "AIMEE could not save the BrandWell default model" }, 503);
+    }
+    return c.json({
+      ok: true,
+      provider: BRANDWELL_OPENROUTER_PROVIDER,
+      defaultModel: input.value.modelId,
+      workspacesUpdated,
+      sidekickCredentialsUpdated,
+      managedCredentialsUpdated: workspacesUpdated + sidekickCredentialsUpdated,
+    });
   });
 
   app.get("/internal/workspaces", async (c) => {
@@ -716,7 +842,8 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
       const sidekickCredentials = await deps.prisma.brandwellSidekickModelCredential.findMany({
         where: { workspaceId: mapping.rakazoWorkspaceId },
       });
-      const nextPolicy = resolvedModelPolicy(current, input.value);
+      const platformDefaultModel = await brandwellPlatformModelDefault(deps.prisma);
+      const nextPolicy = resolvedModelPolicy(current, input.value, platformDefaultModel);
       let nextModelCatalog = modelCatalogRecord(current.modelCatalog);
       const changedModelIds = modelIdsFromPatch(input.value);
       const configuredModelIds = [
@@ -872,6 +999,7 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
             where: { id: current.id },
             data: {
               ...sharedPolicyData,
+              inheritsPlatformModelDefault: nextPolicy.inheritsPlatformModelDefault,
               ...(masterLimitUpdated ? unknownProviderPolicy : {}),
             },
           });
@@ -909,6 +1037,7 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
               resourceId: row.id,
               metadata: {
                 preferredModel: row.preferredModel,
+                inheritsPlatformModelDefault: row.inheritsPlatformModelDefault,
                 computerModel: row.computerModel,
                 lightweightModel: row.lightweightModel,
                 reasoningModel: row.reasoningModel,
@@ -1598,6 +1727,7 @@ function modelPolicyDto(policy: {
   provider: string;
   status: string;
   preferredModel: string;
+  inheritsPlatformModelDefault?: boolean;
   computerModel: string | null;
   lightweightModel: string | null;
   reasoningModel: string | null;
@@ -1620,6 +1750,7 @@ function modelPolicyDto(policy: {
     provider: policy.provider,
     status: policy.status,
     preferredModel: policy.preferredModel,
+    inheritsPlatformModelDefault: policy.inheritsPlatformModelDefault ?? false,
     computerModel: policy.computerModel,
     lightweightModel: policy.lightweightModel,
     reasoningModel: policy.reasoningModel,
@@ -1916,6 +2047,7 @@ function validTimezone(value: string): boolean {
 }
 
 type ModelPolicyPatch = {
+  inheritPlatformDefault?: boolean;
   preferredModel?: string;
   computerModel?: string | null;
   lightweightModel?: string | null;
@@ -1929,6 +2061,7 @@ type ModelPolicyPatch = {
 };
 
 type StoredModelPolicy = {
+  inheritsPlatformModelDefault: boolean;
   preferredModel: string;
   computerModel: string | null;
   lightweightModel: string | null;
@@ -1960,9 +2093,19 @@ function modelCatalogRecord(value: unknown): Record<string, ManagedModelCatalogE
   );
 }
 
-function resolvedModelPolicy(current: StoredModelPolicy, patch: ModelPolicyPatch) {
+function resolvedModelPolicy(
+  current: StoredModelPolicy,
+  patch: ModelPolicyPatch,
+  platformDefaultModel: string,
+) {
+  const inheritsPlatformModelDefault =
+    patch.inheritPlatformDefault ??
+    (patch.preferredModel !== undefined ? false : current.inheritsPlatformModelDefault);
   return {
-    preferredModel: patch.preferredModel ?? current.preferredModel,
+    inheritsPlatformModelDefault,
+    preferredModel: inheritsPlatformModelDefault
+      ? platformDefaultModel
+      : (patch.preferredModel ?? current.preferredModel),
     computerModel: patch.computerModel === undefined ? current.computerModel : patch.computerModel,
     lightweightModel:
       patch.lightweightModel === undefined ? current.lightweightModel : patch.lightweightModel,
@@ -2013,6 +2156,12 @@ function modelPolicyInput(
 ): { ok: true; value: ModelPolicyPatch } | { ok: false; error: string } {
   if (!body) return { ok: false, error: "A JSON request body is required" };
   const value: ModelPolicyPatch = {};
+  if (body.inheritPlatformDefault !== undefined) {
+    if (typeof body.inheritPlatformDefault !== "boolean") {
+      return { ok: false, error: "inheritPlatformDefault must be a boolean" };
+    }
+    value.inheritPlatformDefault = body.inheritPlatformDefault;
+  }
   for (const field of [
     "preferredModel",
     "computerModel",
@@ -2058,7 +2207,7 @@ function modelPolicyInput(
     if (body.thinkingLevel === null) value.thinkingLevel = null;
     else if (
       typeof body.thinkingLevel !== "string" ||
-      !["none", "off", "minimal", "low", "medium", "high", "xhigh", "max"].includes(
+      !["none", "off", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"].includes(
         body.thinkingLevel,
       )
     ) {
@@ -2085,6 +2234,16 @@ function modelPolicyInput(
     return { ok: false, error: "At least one model policy setting is required" };
   }
   return { ok: true, value };
+}
+
+function platformModelPolicyInput(
+  body: Record<string, unknown> | null,
+): { ok: true; value: { modelId: string } } | { ok: false; error: string } {
+  if (!body) return { ok: false, error: "A JSON request body is required" };
+  if (typeof body.modelId !== "string" || !validOpenRouterModelId(body.modelId.trim())) {
+    return { ok: false, error: "modelId must be a valid OpenRouter vendor/model identifier" };
+  }
+  return { ok: true, value: { modelId: body.modelId.trim() } };
 }
 
 function nonnegativeBigInt(value: unknown): bigint | null {
@@ -2308,6 +2467,7 @@ function provisioningInput(
   if (!body) return { ok: false, error: "A JSON request body is required" };
   const required = [
     "brandwellCustomerId",
+    "primaryBrandwellUserId",
     "companyName",
     "primaryContactName",
     "primaryContactEmail",
@@ -2322,6 +2482,7 @@ function provisioningInput(
     ok: true,
     value: {
       brandwellCustomerId: String(body.brandwellCustomerId),
+      primaryBrandwellUserId: String(body.primaryBrandwellUserId),
       companyName: String(body.companyName),
       primaryContactName: String(body.primaryContactName),
       primaryContactEmail: String(body.primaryContactEmail),
@@ -2341,13 +2502,18 @@ function desiredStateInput(
   }
   const agencyId = compactIdentifier(body.agencyId);
   const clientId = compactIdentifier(body.clientId);
+  const primaryBrandwellUserId = compactIdentifier(body.primaryBrandwellUserId);
   const contractId = body.contractId === null ? null : compactIdentifier(body.contractId);
   if (
     !agencyId ||
     !clientId ||
+    !primaryBrandwellUserId ||
     (body.contractId !== undefined && body.contractId !== null && !contractId)
   ) {
-    return { ok: false, error: "agencyId, clientId, and contractId must be valid identifiers" };
+    return {
+      ok: false,
+      error: "agencyId, clientId, contractId, and primaryBrandwellUserId must be valid identifiers",
+    };
   }
   const status = String(body.status ?? "").trim();
   if (!["trialing", "active", "past_due", "paused", "canceling", "canceled"].includes(status)) {
@@ -2375,6 +2541,7 @@ function desiredStateInput(
       agencyId,
       clientId,
       contractId,
+      primaryBrandwellUserId,
       status: status as BrandwellWorkspaceDesiredStateInput["status"],
       plan,
       masterSeats: 1,
@@ -2389,12 +2556,14 @@ function sidekickProvisioningInput(
 ): { ok: true; value: BrandwellSidekickProvisioningInput } | { ok: false; error: string } {
   if (!body) return { ok: false, error: "A JSON request body is required" };
   const brandwellSidekickId = compactIdentifier(body.brandwellSidekickId);
+  const brandwellUserId = compactIdentifier(body.brandwellUserId);
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
   const name = typeof body.name === "string" ? body.name.replace(/\s+/g, " ").trim() : "";
   const roleTitle =
     typeof body.roleTitle === "string" ? body.roleTitle.replace(/\s+/g, " ").trim() : "";
   const timezone = typeof body.timezone === "string" ? body.timezone.trim() : "";
   if (!brandwellSidekickId) return { ok: false, error: "brandwellSidekickId is invalid" };
+  if (!brandwellUserId) return { ok: false, error: "brandwellUserId is invalid" };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
     return { ok: false, error: "email is invalid" };
   }
@@ -2404,7 +2573,7 @@ function sidekickProvisioningInput(
     return { ok: false, error: "timezone must be a valid IANA timezone" };
   return {
     ok: true,
-    value: { brandwellSidekickId, email, name, roleTitle, timezone },
+    value: { brandwellSidekickId, brandwellUserId, email, name, roleTitle, timezone },
   };
 }
 

@@ -5016,7 +5016,7 @@ function CreateBotForm({
           maxLength={BOT_NAME_MAX_LENGTH}
           onChange={(e) => setName(e.target.value)}
           placeholder={t`Name this bot`}
-          className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
+          className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE] outline-none focus:border-[#8B5CF6] focus:ring-2 focus:ring-[#8B5CF6]/35"
         />
       </label>
       <label className="mt-4 block text-[14px] text-[#85858A]">
@@ -5026,7 +5026,7 @@ function CreateBotForm({
           maxLength={BOT_TITLE_MAX_LENGTH}
           onChange={(e) => setTitle(e.target.value)}
           placeholder={t`Describe what this bot does`}
-          className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
+          className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE] outline-none focus:border-[#8B5CF6] focus:ring-2 focus:ring-[#8B5CF6]/35"
         />
       </label>
       <label className="mt-4 block text-[14px] text-[#85858A]">
@@ -5037,7 +5037,7 @@ function CreateBotForm({
           onChange={(e) => setDescription(e.target.value)}
           placeholder={t`What this bot is for`}
           rows={4}
-          className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
+          className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE] outline-none focus:border-[#8B5CF6] focus:ring-2 focus:ring-[#8B5CF6]/35"
         />
       </label>
       <ComputerModePicker value={computerMode} onChange={setComputerMode} />

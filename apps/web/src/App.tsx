@@ -40,6 +40,9 @@ export function App() {
   if (showSessionUnavailable(gate, nextHolding)) {
     return <SessionUnavailable refetch={session.refetch} />;
   }
+  if (gate === "access_locked") {
+    return <AccessLocked message={session.error?.message} />;
+  }
   if (gate === "loading") {
     return window.location.pathname.startsWith("/app") ? (
       <ShellSkeleton />
@@ -59,14 +62,8 @@ export function App() {
       <Suspense fallback={<div className="h-full bg-[#050506]" />}>
         <Routes>
           <Route path="/" element={user ? <Navigate to="/app" replace /> : <WelcomePage />} />
-          <Route
-            path="/sign-in"
-            element={user ? <Navigate to="/app" replace /> : <AuthPage mode="in" />}
-          />
-          <Route
-            path="/sign-up"
-            element={user ? <Navigate to="/onboarding" replace /> : <AuthPage mode="up" />}
-          />
+          <Route path="/sign-in" element={user ? <Navigate to="/app" replace /> : <AuthPage />} />
+          <Route path="/sign-up" element={<Navigate to="/sign-in" replace />} />
           <Route
             path="/onboarding"
             element={user ? <OnboardingPage /> : <Navigate to="/sign-in" replace />}
@@ -93,6 +90,29 @@ export function App() {
           />
         </Routes>
       </Suspense>
+    </div>
+  );
+}
+
+function AccessLocked({ message }: { message?: string }) {
+  return (
+    <div className="grid h-full place-items-center bg-[#050506] px-6 text-center text-[#f7f7fa]">
+      <div className="max-w-[520px] rounded-[24px] border border-[#30323a] bg-[#15161a] p-8 shadow-[0_30px_90px_rgba(0,0,0,.42)]">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#b786ff]">
+          AIMEE access locked
+        </p>
+        <h1 className="mt-3 text-[26px] font-semibold">BrandWell account action required</h1>
+        <p className="mt-3 text-[14px] leading-6 text-[#a6a7b1]">
+          {message ||
+            "This BrandWell user does not currently have active AIMEE master or Sidekick access."}
+        </p>
+        <a
+          className="mt-6 inline-flex rounded-xl bg-[#6f1cff] px-5 py-3 text-[14px] font-semibold text-white hover:bg-[#8340ff]"
+          href="/sign-in"
+        >
+          Return to sign in
+        </a>
+      </div>
     </div>
   );
 }

@@ -282,6 +282,53 @@ test("a post-session ready app mount is accepted", async () => {
   }
 });
 
+test("a session-ready AIMEE welcome screen is accepted", async () => {
+  const welcomeHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>AIMEE</title></head>
+<body><div id="root"><div data-rakazo-app-state="ready"><main><h1>Your AI employee, with its own computer.</h1><button>Open AIMEE</button></main></div></div></body></html>`;
+  const welcome = createServer((request, response) => {
+    if (request.url === "/rpc/health" && request.method === "POST") {
+      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.end(JSON.stringify({ json: { ok: true, version: "0.1.0" } }));
+      return;
+    }
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    response.end(welcomeHtml);
+  });
+  await new Promise<void>((resolve) => welcome.listen(0, "127.0.0.1", resolve));
+  const address = welcome.address();
+  if (address === null || typeof address === "string")
+    throw new Error("welcome server has no port");
+
+  try {
+    app = await launch();
+    const setup = await app.firstWindow();
+    await setup.getByRole("radio", { name: /Existing instance/ }).check();
+    await setup.locator("#server-url").fill(`http://127.0.0.1:${address.port}`);
+    const appWindow = await Promise.all([
+      app.waitForEvent("window"),
+      setup.getByRole("button", { name: "Continue" }).click(),
+    ]).then(([window]) => window);
+
+    await expect(appWindow.getByRole("button", { name: "Open AIMEE" })).toBeVisible();
+    await expect
+      .poll(async () => {
+        try {
+          return JSON.parse(await readFile(path.join(userData, "setup.json"), "utf8"));
+        } catch {
+          return null;
+        }
+      })
+      .toEqual({
+        mode: "existing",
+        serverUrl: `http://127.0.0.1:${address.port}`,
+      });
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      welcome.close((error) => (error ? reject(error) : resolve()));
+    });
+  }
+});
+
 test("a shell mount before workspace bootstrap is not accepted", async () => {
   const preBootstrapHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>AIMEE</title></head>
 <body><div id="root"><div data-rakazo-app-state="ready"><div data-testid="shell-root" data-ready="false">Workspace</div></div></div></body></html>`;

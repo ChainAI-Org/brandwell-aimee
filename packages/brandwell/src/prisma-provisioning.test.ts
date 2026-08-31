@@ -280,6 +280,7 @@ function provisioningCheckpoint(): BrandwellProvisioningCheckpoint {
     idempotencyKey: "brandwell:provision:customer-acme",
     input: {
       brandwellCustomerId: "customer-acme",
+      primaryBrandwellUserId: "brandwell-user-1",
       companyName: "Acme",
       primaryContactName: "Alex",
       primaryContactEmail: "alex@example.test",

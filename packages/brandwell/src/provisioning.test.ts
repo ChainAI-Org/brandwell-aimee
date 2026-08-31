@@ -13,6 +13,7 @@ describe("BrandWell AIMEE provisioning", () => {
   it("builds the complete idempotent 15-step plan", () => {
     const plan = buildBrandwellProvisioningPlan({
       brandwellCustomerId: "customer-acme",
+      primaryBrandwellUserId: "brandwell-user-1",
       companyName: "Acme Roofing",
       primaryContactName: "Alex",
       primaryContactEmail: "alex@example.com",
@@ -47,6 +48,7 @@ describe("BrandWell AIMEE provisioning", () => {
     };
     const input = {
       brandwellCustomerId: " customer-acme ",
+      primaryBrandwellUserId: " brandwell-user-1 ",
       companyName: " Acme Roofing ",
       primaryContactName: " Alex ",
       primaryContactEmail: " ALEX@EXAMPLE.COM ",
@@ -89,6 +91,7 @@ describe("BrandWell AIMEE provisioning", () => {
       await provisionBrandwellWorkspace(
         {
           brandwellCustomerId: "customer-acme",
+          primaryBrandwellUserId: "brandwell-user-1",
           companyName: "Acme Roofing",
           primaryContactName: "Alex",
           primaryContactEmail: "alex@example.com",
@@ -117,6 +120,7 @@ describe("BrandWell AIMEE provisioning", () => {
       idempotencyKey: "brandwell:provision:customer-acme",
       input: {
         brandwellCustomerId: "customer-acme",
+        primaryBrandwellUserId: "brandwell-user-1",
         companyName: "Acme Roofing",
         primaryContactName: "Alex",
         primaryContactEmail: "alex@example.com",

@@ -88,14 +88,15 @@ describe("probeApiBase", () => {
   });
 });
 
-describe("mobile custom server UI", () => {
-  it("exposes a sign-in control that writes the stored origin", () => {
+describe("mobile managed server UI", () => {
+  it("does not expose server selection in the managed sign-in screen", () => {
     const dir = path.dirname(fileURLToPath(import.meta.url));
     const signIn = readFileSync(path.join(dir, "../app/sign-in.tsx"), "utf8");
     const api = readFileSync(path.join(dir, "api.ts"), "utf8");
-    expect(signIn).toContain("Use a custom server");
-    expect(signIn).toContain("saveApiBase");
-    expect(signIn).toContain("probeApiBase");
+    expect(signIn).toContain("Sign in with your BrandWell account");
+    expect(signIn).not.toContain("Use a custom server");
+    expect(signIn).not.toContain("saveApiBase");
+    expect(signIn).not.toContain("probeApiBase");
     expect(api).toContain("currentApiBase()");
     expect(api).not.toMatch(/export const API /);
   });

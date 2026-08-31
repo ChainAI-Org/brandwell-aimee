@@ -22,7 +22,7 @@
       <p id="setup-subheading" class="subheading">Choose which server this app should use.</p>
 
       <form id="setup" class="card" novalidate>
-        <fieldset id="server-choices" class="choices">
+        <fieldset id="server-choices" class="choices" hidden>
           <legend class="sr-only">Instance</legend>
 
           <label class="choice" for="mode-new">
@@ -42,7 +42,7 @@
           </label>
         </fieldset>
 
-        <section id="panel-new" class="panel">
+        <section id="panel-new" class="panel" hidden>
           <label class="field-label" for="local-url">Local address</label>
           <input id="local-url" class="field" type="text" spellcheck="false" autocomplete="off" />
           <p class="hint">If it isn’t running yet, start with <code>pnpm dev</code>.</p>
@@ -64,12 +64,14 @@
         <p id="status" class="status" role="status" aria-live="polite"></p>
 
         <div class="actions">
-          <button id="check" class="button button-secondary" type="button">Check connection</button>
+          <button id="check" class="button button-secondary" type="button" hidden>
+            Check connection
+          </button>
           <button id="continue" class="button button-primary" type="submit">Continue</button>
         </div>
       </form>
 
-      <p id="support-footnote" class="footnote">
+      <p id="support-footnote" class="footnote" hidden>
         Change later from the AIMEE menu (⌘/Ctrl+Shift+K).
       </p>
     </main>

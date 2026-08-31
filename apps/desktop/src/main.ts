@@ -38,6 +38,8 @@ import { clearSetup, readSetup, writeSetup } from "./setup-store.js";
 import { browserWindowOptions, setupWindowOptions, warmWindowTtlMs } from "./window-options.js";
 
 app.setName("BrandWell's AIMEE");
+const HAS_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
+if (!HAS_SINGLE_INSTANCE_LOCK) app.quit();
 
 const PERFORMANCE_USER_DATA = process.env.RAKAZO_PERFORMANCE_USER_DATA;
 const SERVER_CHOOSER_ENABLED = isServerChooserEnabled(app.isPackaged);
@@ -56,6 +58,23 @@ let pendingPreviousWindow: BrowserWindow | null = null;
 let quitting = false;
 let warmWindowTimer: NodeJS.Timeout | undefined;
 const WARM_WINDOW_TTL_MS = warmWindowTtlMs(process.env.RAKAZO_WARM_WINDOW_TTL_MS);
+
+function focusOpenAimeeWindow() {
+  const win =
+    setupWindow !== null && !setupWindow.isDestroyed()
+      ? setupWindow
+      : mainWindow !== null && !mainWindow.isDestroyed()
+        ? mainWindow
+        : null;
+  if (win === null) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+if (HAS_SINGLE_INSTANCE_LOCK) {
+  app.on("second-instance", focusOpenAimeeWindow);
+}
 
 const updaterEnvironment = {
   packaged: app.isPackaged,
@@ -428,7 +447,7 @@ async function waitForMountedAppDocument(contents: Electron.WebContents) {
           'form input[type="email"], form input[name="email"], form input#email',
         ) ||
           Array.from(document.querySelectorAll("button")).some((button) =>
-            /sign\\s*in/i.test((button.textContent || "").trim()),
+            /(?:sign\\s*in|open\\s*aimee)/i.test((button.textContent || "").trim()),
           ) ||
           document.querySelector(
             '[aria-label="Model"], [aria-label="Model id"], [aria-label="Models from server"]',

@@ -56,6 +56,10 @@ export function OnboardingPage() {
           navigate("/app", { replace: true });
           return;
         }
+        if (!me.needsModel) {
+          setStep("bot");
+          return;
+        }
         const models = await rpc.models.list().catch(() => []);
         setCatalog(models);
         const preferred =
@@ -521,7 +525,7 @@ export function OnboardingPage() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t`Name this bot`}
-                className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
+                className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE] outline-none focus:border-[#8B5CF6] focus:ring-2 focus:ring-[#8B5CF6]/35"
               />
             </label>
             <label className="mt-4 block text-sm text-[#85858A]">
@@ -530,7 +534,7 @@ export function OnboardingPage() {
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder={t`Describe what this bot does`}
-                className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
+                className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE] outline-none focus:border-[#8B5CF6] focus:ring-2 focus:ring-[#8B5CF6]/35"
               />
             </label>
             <label className="mt-4 block text-sm text-[#85858A]">
@@ -540,7 +544,7 @@ export function OnboardingPage() {
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder={t`What this bot is for`}
                 rows={4}
-                className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
+                className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE] outline-none focus:border-[#8B5CF6] focus:ring-2 focus:ring-[#8B5CF6]/35"
               />
             </label>
             {error ? <p className="mt-3 text-sm text-[#E65707]">{error}</p> : null}

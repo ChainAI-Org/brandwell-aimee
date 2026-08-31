@@ -1,5 +1,7 @@
 import { rm } from "node:fs/promises";
 import {
+  bindBrandwellUserAccess,
+  brandwellPlatformModelDefault,
   cancelBrandwellWorkspaceWithPrisma,
   createBrandwellManagedModelResolver,
   microsToUsd,
@@ -7,6 +9,7 @@ import {
   provisionBrandwellSidekickWithPrisma,
   provisionBrandwellWorkspaceWithPrisma,
   reconcileBrandwellOpenRouterUsage,
+  requireBrandwellUserAccess,
   rolloutBrandwellSkillBundleWithPrisma,
   setBrandwellSidekickLifecycleWithPrisma,
   syncBrandwellWorkspaceDesiredStateWithPrisma,
@@ -58,7 +61,7 @@ import {
 import { blockedAuthPaths, createAuth } from "@rakazo/auth";
 import { createDb, createThreadEvents, type PrismaClient, requireMembership } from "@rakazo/db";
 import { MarkdownMemoryStore } from "@rakazo/memory";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import { mountBrandwellManagementRoutes } from "./brandwell-management.js";
 import {
@@ -67,6 +70,7 @@ import {
   releaseBrandwellSupportControl,
   takeBrandwellSupportControl,
 } from "./brandwell-support.js";
+import { BrandwellPlatformAuthClient } from "./brandwell-user-auth.js";
 import { type AppEnv, loadEnv } from "./env.js";
 import {
   createPrismaProductionReadinessDataSource,
@@ -191,12 +195,28 @@ export async function createApp(
   const runtime =
     env.agentRuntime === "scripted" ? new ScriptedAgentRuntime() : new PiAgentRuntime();
   const notifications = new ExpoPushProvider(env.dataDir);
+  const brandwellUserAuth =
+    env.brandwellPlatformApiUrl && env.brandwellPlatformServiceToken
+      ? new BrandwellPlatformAuthClient(
+          env.brandwellPlatformApiUrl,
+          env.brandwellPlatformServiceToken,
+        )
+      : null;
   const auth = createAuth(prisma, {
     secret: env.authSecret,
     baseURL: env.authUrl,
     webOrigin: env.webOrigin,
     signupsEnabled: env.signupsEnabled,
     signupAllowlist: env.signupAllowlist,
+    ...(brandwellUserAuth
+      ? {
+          authenticateBrandwell: async (credentials) =>
+            bindBrandwellUserAccess(
+              prisma,
+              await brandwellUserAuth.authenticate(credentials.email, credentials.password),
+            ),
+        }
+      : {}),
     extraOrigins: [
       "aimee://",
       "rakazo://",
@@ -319,6 +339,36 @@ export async function createApp(
     if (blockedAuthPaths.some((blocked) => path.startsWith(blocked))) {
       return c.json({ error: "Not available in version 1" }, 404);
     }
+    if (
+      brandwellUserAuth &&
+      [
+        "/sign-in/email",
+        "/sign-up/email",
+        "/change-password",
+        "/set-password",
+        "/change-email",
+        "/delete-user",
+      ].some((blocked) => path.startsWith(blocked))
+    ) {
+      return c.json(
+        {
+          error: "Sign in with your BrandWell account.",
+          code: "aimee_brandwell_login_required",
+        },
+        404,
+      );
+    }
+    if (brandwellUserAuth && path === "/get-session") {
+      const session = await auth.api.getSession({ headers: sessionHeaders(c.req.raw) });
+      if (session?.user) {
+        try {
+          await requireBrandwellUserAccess(prisma, session.user.id);
+        } catch (error) {
+          await prisma.session.deleteMany({ where: { userId: session.user.id } });
+          return managedAccessError(c, error);
+        }
+      }
+    }
     return auth.handler(c.req.raw);
   });
   if (env.brandwellManagementApiToken) {
@@ -354,7 +404,7 @@ export async function createApp(
         : {}),
       ...(openRouterManagement
         ? {
-            provisionWorkspace: (input) =>
+            provisionWorkspace: async (input) =>
               provisionBrandwellWorkspaceWithPrisma(input, {
                 prisma,
                 secretCipher: {
@@ -372,7 +422,7 @@ export async function createApp(
                 openRouter: openRouterManagement,
                 systemUserId: env.brandwellSystemUserId,
                 sandboxKind: env.sandboxProvider,
-                defaultModel: env.defaultModel,
+                defaultModel: await brandwellPlatformModelDefault(prisma),
                 computerModel: env.brandwellComputerModel,
                 lightweightModel: env.brandwellLightweightModel,
                 reasoningModel: env.brandwellReasoningModel,
@@ -416,7 +466,7 @@ export async function createApp(
                 prisma,
                 openRouterManagement,
               ),
-            provisionSidekick: (workspaceId, input) =>
+            provisionSidekick: async (workspaceId, input) =>
               provisionBrandwellSidekickWithPrisma(workspaceId, input, {
                 prisma,
                 secretCipher: {
@@ -434,7 +484,7 @@ export async function createApp(
                 openRouter: openRouterManagement,
                 systemUserId: env.brandwellSystemUserId,
                 sandboxKind: env.sandboxProvider,
-                defaultModel: env.defaultModel,
+                defaultModel: await brandwellPlatformModelDefault(prisma),
                 monthlyLimitMicros: usdToMicros(env.brandwellOpenRouterMonthlyLimitUsd),
                 warningLimitMicros: usdToMicros(env.brandwellOpenRouterWarningLimitUsd),
                 ...(env.brandwellOpenRouterDailyLimitUsd
@@ -494,9 +544,19 @@ export async function createApp(
   }
   app.use("/rpc/*", async (c, next) => {
     const session = await auth.api.getSession({ headers: sessionHeaders(c.req.raw) });
-    const actor = session?.user
-      ? await requireMembership(prisma, session.user.id).catch(() => null)
-      : null;
+    let actor = null;
+    if (session?.user) {
+      if (brandwellUserAuth) {
+        try {
+          actor = await requireBrandwellUserAccess(prisma, session.user.id);
+        } catch (error) {
+          await prisma.session.deleteMany({ where: { userId: session.user.id } });
+          return managedAccessError(c, error, true);
+        }
+      } else {
+        actor = await requireMembership(prisma, session.user.id).catch(() => null);
+      }
+    }
     const { matched, response } = await rpc.handle(c.req.raw, {
       prefix: "/rpc",
       context: { actor, signal: c.req.raw.signal },
@@ -507,6 +567,12 @@ export async function createApp(
   mountVoiceHttpRoutes(app, { prisma, secrets }, async (c) => {
     const session = await auth.api.getSession({ headers: sessionHeaders(c.req.raw) });
     if (!session?.user) return null;
+    if (brandwellUserAuth) {
+      return requireBrandwellUserAccess(prisma, session.user.id).catch(async () => {
+        await prisma.session.deleteMany({ where: { userId: session.user.id } });
+        return null;
+      });
+    }
     return requireMembership(prisma, session.user.id).catch(() => null);
   });
   mountProductionReadinessRoute(app, {
@@ -605,4 +671,21 @@ function sessionHeaders(request: Request) {
     headers.set("cookie", `better-auth.session_token=${authz.slice(7).trim()}`);
   }
   return headers;
+}
+
+function managedAccessError(c: Context, error: unknown, nested = false) {
+  const candidate = error as { message?: unknown; code?: unknown; statusCode?: unknown };
+  const status = Number(candidate?.statusCode || 403);
+  const allowedStatus = [400, 401, 402, 403, 409, 500, 502, 503].includes(status) ? status : 403;
+  const details = {
+    message:
+      typeof candidate?.message === "string" && candidate.message.trim()
+        ? candidate.message
+        : "AIMEE access is not active for this BrandWell user.",
+    code: typeof candidate?.code === "string" ? candidate.code : "aimee_access_inactive",
+  };
+  return c.json(
+    nested ? { error: details } : details,
+    allowedStatus as 400 | 401 | 402 | 403 | 409 | 500 | 502 | 503,
+  );
 }

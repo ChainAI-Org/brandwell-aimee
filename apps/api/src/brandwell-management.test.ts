@@ -412,6 +412,7 @@ describe("BrandWell management API authentication", () => {
       },
       body: JSON.stringify({
         brandwellCustomerId: "customer-acme",
+        primaryBrandwellUserId: "brandwell-user-42",
         companyName: "Acme Roofing",
         primaryContactName: "Alex",
         primaryContactEmail: "alex@example.com",
@@ -492,6 +493,7 @@ describe("BrandWell management API authentication", () => {
         agencyId: "42",
         clientId: "99",
         contractId: "contract-5",
+        primaryBrandwellUserId: "brandwell-user-42",
         status: "active",
         plan: "aimee",
         masterSeats: 1,
@@ -541,6 +543,7 @@ describe("BrandWell management API authentication", () => {
       },
       body: JSON.stringify({
         brandwellSidekickId: "portal-sidekick:101",
+        brandwellUserId: "brandwell-user-101",
         email: "sam@example.com",
         name: "Sam Lee",
         roleTitle: "Demand Generation Manager",
@@ -1096,6 +1099,115 @@ describe("BrandWell management API authentication", () => {
     });
   });
 
+  it("updates the BrandWell default model only for inherited client workspaces", async () => {
+    const deploymentUpsert = vi.fn(async () => ({ id: "default" }));
+    const workspaceUpdateMany = vi.fn(async () => ({ count: 1 }));
+    const sidekickUpdateMany = vi.fn(async () => ({ count: 2 }));
+    const botUpdateMany = vi.fn(async () => ({ count: 3 }));
+    const auditCreate = vi.fn(async () => ({ id: "audit-1" }));
+    const validateOpenRouterModel = vi.fn(async (id: string) => ({
+      id,
+      name: "OpenAI: GPT-5.6 Terra",
+      inputModalities: ["text", "image"],
+      outputModalities: ["text"],
+      supportedParameters: ["tools"],
+      reasoning: true,
+      pricing: {},
+    }));
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      validateOpenRouterModel,
+      prisma: {
+        deploymentSettings: {
+          findUnique: vi.fn(async () => ({
+            brandwellDefaultModelId: "provider/previous-default",
+          })),
+        },
+        brandwellWorkspaceModelCredential: {
+          count: vi.fn(async ({ where }) => (where.inheritsPlatformModelDefault === true ? 1 : 1)),
+          findMany: vi.fn(async () => [
+            {
+              id: "policy-inherited",
+              workspaceId: "workspace-inherited",
+              modelCatalog: {},
+            },
+          ]),
+        },
+        brandwellSidekickModelCredential: {
+          count: vi.fn(async () => 2),
+        },
+        $transaction: vi.fn(async (callback) =>
+          callback({
+            deploymentSettings: { upsert: deploymentUpsert },
+            brandwellWorkspaceModelCredential: { updateMany: workspaceUpdateMany },
+            brandwellSidekickModelCredential: { updateMany: sidekickUpdateMany },
+            bot: { updateMany: botUpdateMany },
+            brandwellAuditLog: { create: auditCreate },
+          }),
+        ),
+      } as unknown as PrismaClient,
+    });
+
+    const summary = await app.request("/internal/model-policy", {
+      headers: { authorization: "Bearer management-secret" },
+    });
+    expect(summary.status).toBe(200);
+    await expect(summary.json()).resolves.toMatchObject({
+      provider: "openrouter",
+      defaultModel: "provider/previous-default",
+      inheritedWorkspaces: 1,
+      customWorkspaces: 1,
+      sidekickCredentials: 2,
+    });
+
+    const response = await app.request("/internal/model-policy", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer management-secret",
+        "content-type": "application/json",
+        ...OPERATOR_HEADERS,
+      },
+      body: JSON.stringify({ modelId: "openai/gpt-5.6-terra" }),
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      provider: "openrouter",
+      defaultModel: "openai/gpt-5.6-terra",
+      workspacesUpdated: 1,
+      sidekickCredentialsUpdated: 2,
+      managedCredentialsUpdated: 3,
+    });
+    expect(deploymentUpsert).toHaveBeenCalledWith({
+      where: { id: "default" },
+      create: { id: "default", brandwellDefaultModelId: "openai/gpt-5.6-terra" },
+      update: { brandwellDefaultModelId: "openai/gpt-5.6-terra" },
+    });
+    expect(workspaceUpdateMany).toHaveBeenCalledWith({
+      where: { id: "policy-inherited", inheritsPlatformModelDefault: true },
+      data: expect.objectContaining({ preferredModel: "openai/gpt-5.6-terra" }),
+    });
+    expect(sidekickUpdateMany).toHaveBeenCalledWith({
+      where: { workspaceId: "workspace-inherited" },
+      data: expect.objectContaining({ preferredModel: "openai/gpt-5.6-terra" }),
+    });
+    expect(botUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ workspaceId: "workspace-inherited" }),
+        data: {
+          modelProvider: "openrouter",
+          modelId: "openai/gpt-5.6-terra",
+        },
+      }),
+    );
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "model.platform_default.update",
+        metadata: expect.objectContaining({ operatorReference: "user:42" }),
+      }),
+    });
+  });
+
   it("updates model routing and spend limits without returning credential secrets", async () => {
     const current = {
       id: "model-policy-1",
@@ -1105,6 +1217,7 @@ describe("BrandWell management API authentication", () => {
       secretId: "secret-never-returned",
       externalKeyHash: "hash-acme",
       preferredModel: "provider/old",
+      inheritsPlatformModelDefault: true,
       computerModel: null,
       lightweightModel: null,
       reasoningModel: null,
@@ -1160,6 +1273,9 @@ describe("BrandWell management API authentication", () => {
         brandwellSidekickModelCredential: {
           findMany: vi.fn(async () => [sidekickCredential]),
         },
+        deploymentSettings: {
+          findUnique: vi.fn(async () => ({ brandwellDefaultModelId: "provider/platform" })),
+        },
         $transaction: vi.fn(async (callback) =>
           callback({
             brandwellWorkspaceModelCredential: {
@@ -1194,6 +1310,7 @@ describe("BrandWell management API authentication", () => {
     expect(payload.modelPolicy).toMatchObject({
       provider: "openrouter",
       preferredModel: "provider/general",
+      inheritsPlatformModelDefault: false,
       computerModel: "provider/vision",
       monthlyLimitMicros: "175000000",
     });
@@ -1217,6 +1334,7 @@ describe("BrandWell management API authentication", () => {
     const savedPolicyData = workspacePolicyUpdate.mock.calls[0]?.[0].data;
     expect(savedPolicyData).toMatchObject({
       limitReset: "monthly",
+      inheritsPlatformModelDefault: false,
       providerLimitMicros: null,
       providerLimitReset: null,
       providerIncludeByokInLimit: null,

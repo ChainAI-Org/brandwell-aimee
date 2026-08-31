@@ -87,7 +87,7 @@ async function authHeaders(): Promise<Record<string, string>> {
 }
 
 export async function signIn(email: string, password: string) {
-  const res = await fetch(`${currentApiBase()}/api/auth/sign-in/email`, {
+  const res = await fetch(`${currentApiBase()}/api/auth/sign-in/brandwell`, {
     method: "POST",
     headers: { "content-type": "application/json", origin: AIMEE_ORIGIN },
     body: JSON.stringify({ email, password }),
@@ -99,6 +99,23 @@ export async function signIn(email: string, password: string) {
   const token = tokenFromAuthResponse(res, body);
   if (!token) throw new Error("Sign-in did not return a session");
   await saveSessionToken(token);
+}
+
+export async function loadValidatedSession() {
+  const token = await loadSessionToken();
+  if (!token) return { token: null, error: null };
+  const response = await fetch(`${currentApiBase()}/api/auth/get-session`, {
+    headers: { origin: AIMEE_ORIGIN, authorization: `Bearer ${token}` },
+  }).catch(() => null);
+  if (!response) return { token, error: null };
+  if (response.ok) return { token, error: null };
+  const body = await response.json().catch(() => ({}));
+  if (![401, 402, 403].includes(response.status)) return { token, error: null };
+  await clearSessionToken();
+  return {
+    token: null,
+    error: responseErrorMessage(body, "AIMEE access is not active for this BrandWell user."),
+  };
 }
 
 export async function signOut() {
@@ -139,7 +156,10 @@ export async function rpc<T>(
     signal: options.signal,
   });
   const parsed = (await res.json()) as { json?: T; error?: { message?: string } };
-  if (!res.ok || parsed.error) throw new Error(parsed.error?.message ?? `rpc ${proc} failed`);
+  if (!res.ok || parsed.error) {
+    if ([401, 402, 403].includes(res.status)) await clearSessionToken();
+    throw new Error(parsed.error?.message ?? `rpc ${proc} failed`);
+  }
   return parsed.json as T;
 }
 

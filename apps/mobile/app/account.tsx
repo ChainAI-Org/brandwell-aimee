@@ -10,7 +10,6 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -18,7 +17,7 @@ import { useAvatarStyle } from "../components/avatar-style";
 import { BotAvatar } from "../components/bot-avatar";
 import { NativeSymbol } from "../components/native-symbol";
 import type { MobileBot } from "../lib/api";
-import { deleteAccount, type MobileMe, rpc, signOut } from "../lib/api";
+import { type MobileMe, rpc, signOut } from "../lib/api";
 import { confirmDeleteBot } from "../lib/bot-lifecycle";
 import { native } from "../lib/native";
 
@@ -26,11 +25,9 @@ export default function Account() {
   const router = useRouter();
   const { focus } = useLocalSearchParams<{ focus?: string }>();
   const [me, setMe] = useState<MobileMe | null>(null);
-  const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
   const [avatarPending, setAvatarPending] = useState(false);
   const [avatarError, setAvatarError] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [archivedBots, setArchivedBots] = useState<MobileBot[]>([]);
   const [usage, setUsage] = useState<{
     runs: number;
@@ -93,36 +90,6 @@ export default function Account() {
     await signOut();
     router.dismissAll();
     router.replace("/sign-in");
-  }
-
-  function confirmDeletion() {
-    setError(null);
-    Alert.alert(
-      "Delete your account?",
-      "This permanently deletes your account, bots, conversations, memories, files, and saved connections. This cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete account",
-          style: "destructive",
-          onPress: () => void handleDeletion(),
-        },
-      ],
-    );
-  }
-
-  async function handleDeletion() {
-    setPending(true);
-    setError(null);
-    try {
-      await deleteAccount(password);
-      router.dismissAll();
-      router.replace("/sign-in");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not delete account");
-    } finally {
-      setPending(false);
-    }
   }
 
   if (!me) {
@@ -332,44 +299,11 @@ export default function Account() {
         ) : null}
 
         <View style={styles.dangerZone}>
-          <Text style={styles.dangerTitle}>Delete account</Text>
+          <Text style={styles.dangerTitle}>BrandWell account access</Text>
           <Text style={styles.explanation}>
-            Enter your current password, then confirm permanent deletion of your account and all
-            associated data.
+            Your company administrator manages this user, AIMEE access, and paid Sidekick seats in
+            BrandWell.
           </Text>
-          <TextInput
-            accessibilityLabel="Current password"
-            autoCapitalize="none"
-            autoCorrect={false}
-            editable={!pending}
-            onChangeText={(value) => {
-              setPassword(value);
-              setError(null);
-            }}
-            placeholder="Current password"
-            placeholderTextColor={native.tertiaryLabel}
-            secureTextEntry
-            style={styles.password}
-            textContentType="password"
-            value={password}
-          />
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-          <Pressable
-            accessibilityRole="button"
-            disabled={pending || !password}
-            onPress={confirmDeletion}
-            style={({ pressed }) => [
-              styles.deleteButton,
-              (pending || !password) && styles.disabled,
-              pressed && styles.pressed,
-            ]}
-          >
-            {pending ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.deleteLabel}>Delete account</Text>
-            )}
-          </Pressable>
         </View>
       </ScrollView>
     </SafeAreaView>

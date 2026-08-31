@@ -5,8 +5,20 @@ import { emailAllowed, parseAllowlist, signupsOpen } from "@rakazo/core";
 import type { PrismaClient } from "@rakazo/db";
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { APIError } from "better-auth/api";
+import { APIError, createAuthEndpoint } from "better-auth/api";
+import { setSessionCookie } from "better-auth/cookies";
 import { bearer, organization } from "better-auth/plugins";
+import { z } from "zod";
+
+type BrandwellAuthUser = {
+  id: string;
+  name: string;
+  email: string;
+  emailVerified: boolean;
+  image: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
 
 export interface AuthEnv {
   secret: string;
@@ -16,6 +28,10 @@ export interface AuthEnv {
   signupAllowlist: string | undefined;
   extraOrigins?: string[];
   beforeDeleteUser?: (userId: string) => Promise<void>;
+  authenticateBrandwell?: (input: {
+    email: string;
+    password: string;
+  }) => Promise<BrandwellAuthUser>;
 }
 
 function newId(): string {
@@ -30,8 +46,8 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
     trustedOrigins: [env.webOrigin, env.baseURL, ...(env.extraOrigins ?? [])],
     database: prismaAdapter(prisma, { provider: "postgresql" }),
     emailAndPassword: {
-      enabled: true,
-      disableSignUp: !signupsOpen(env.signupsEnabled),
+      enabled: !env.authenticateBrandwell,
+      disableSignUp: Boolean(env.authenticateBrandwell) || !signupsOpen(env.signupsEnabled),
     },
     user: {
       deleteUser: {
@@ -65,6 +81,7 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
     },
     plugins: [
       bearer(),
+      ...(env.authenticateBrandwell ? [brandwellSignIn(env.authenticateBrandwell)] : []),
       organization({
         allowUserToCreateOrganization: false,
         creatorRole: "owner",
@@ -144,6 +161,76 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
       },
     },
   });
+}
+
+function brandwellSignIn(authenticate: NonNullable<AuthEnv["authenticateBrandwell"]>) {
+  return {
+    id: "brandwell-sign-in",
+    endpoints: {
+      signInBrandwell: createAuthEndpoint(
+        "/sign-in/brandwell",
+        {
+          method: "POST",
+          body: z.object({
+            email: z.string().email().max(254),
+            password: z.string().min(1).max(128),
+            rememberMe: z.boolean().optional(),
+          }),
+        },
+        async (ctx) => {
+          let user: BrandwellAuthUser;
+          try {
+            user = await authenticate({ email: ctx.body.email, password: ctx.body.password });
+          } catch (error) {
+            const details = managedAuthError(error);
+            throw new APIError(details.status, {
+              message: details.message,
+              code: details.code,
+            });
+          }
+          const session = await ctx.context.internalAdapter.createSession(
+            user.id,
+            ctx.body.rememberMe === false,
+          );
+          if (!session) {
+            throw new APIError("INTERNAL_SERVER_ERROR", {
+              message: "AIMEE could not create a session.",
+              code: "aimee_session_failed",
+            });
+          }
+          await setSessionCookie(ctx, { session, user }, ctx.body.rememberMe === false);
+          return ctx.json({
+            redirect: false,
+            token: session.token,
+            user,
+          });
+        },
+      ),
+    },
+  };
+}
+
+function managedAuthError(error: unknown) {
+  const candidate = error as { message?: unknown; code?: unknown; statusCode?: unknown };
+  const statusCode = Number(candidate?.statusCode || 500);
+  const statuses = {
+    400: "BAD_REQUEST",
+    401: "UNAUTHORIZED",
+    402: "PAYMENT_REQUIRED",
+    403: "FORBIDDEN",
+    404: "NOT_FOUND",
+    409: "CONFLICT",
+    502: "BAD_GATEWAY",
+    503: "SERVICE_UNAVAILABLE",
+  } as const;
+  return {
+    status: statuses[statusCode as keyof typeof statuses] || "INTERNAL_SERVER_ERROR",
+    message:
+      typeof candidate?.message === "string" && candidate.message.trim()
+        ? candidate.message
+        : "BrandWell sign-in failed.",
+    code: typeof candidate?.code === "string" ? candidate.code : "brandwell_auth_failed",
+  };
 }
 
 export async function claimBrandwellInvitation(
