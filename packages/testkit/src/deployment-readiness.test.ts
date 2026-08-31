@@ -35,7 +35,8 @@ describe("BrandWell deployment readiness gates", () => {
     }
     expect(compose).toContain("fetch('http://127.0.0.1:3100/health')");
     expect(compose).not.toContain("fetch('http://127.0.0.1:3100/ready')");
-    expect(compose.match(/GIT_SHA: \$\{GIT_SHA:-\}/g)).toHaveLength(2);
+    expect(compose).toMatch(/api:[\s\S]*?environment:\s+NODE_ENV: production\s+GIT_SHA: \$\{GIT_SHA:-\}/);
+    expect(compose).toMatch(/worker:[\s\S]*?environment:\s+NODE_ENV: production\s+GIT_SHA: \$\{GIT_SHA:-\}/);
     expect(caddy).toMatch(/handle \/ready \{\s+reverse_proxy api:3100\s+\}/);
   });
 });
