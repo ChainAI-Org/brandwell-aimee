@@ -259,7 +259,7 @@ describeWithDatabase("API authorization and resource isolation", () => {
       },
     });
     const ownerThread = await handles.prisma.thread.findUniqueOrThrow({
-      where: { botId: ownerBot.id },
+      where: { id: ownerBot.threadId },
     });
     const ownerTask = await handles.prisma.task.create({
       data: {
@@ -873,6 +873,7 @@ interface ModelCredential {
 
 interface Bot {
   id: string;
+  threadId: string;
 }
 
 function exhaustiveProtectedCalls<

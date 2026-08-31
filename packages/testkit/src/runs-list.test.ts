@@ -41,14 +41,14 @@ describeRunsList("runs.list activity tracker", () => {
 
   it("lists active runs from two bots and keeps completed runs under recent", async () => {
     const cookie = await signup(app, `runs-${stamp}@rakazo.test`, "Runs User");
-    const alpha = await rpc<{ id: string }>(app, cookie, "bots/create", {
+    const alpha = await rpc<{ id: string; threadId: string }>(app, cookie, "bots/create", {
       name: "Alpha",
       title: "Alpha",
       description: "",
       instructions: "",
       notifyOnFinish: true,
     });
-    const beta = await rpc<{ id: string }>(app, cookie, "bots/create", {
+    const beta = await rpc<{ id: string; threadId: string }>(app, cookie, "bots/create", {
       name: "Beta",
       title: "Beta",
       description: "",
@@ -56,9 +56,9 @@ describeRunsList("runs.list activity tracker", () => {
       notifyOnFinish: true,
     });
 
-    await seedRun(prisma, alpha.id, "running", "alpha in flight");
-    await seedRun(prisma, beta.id, "queued", "beta in flight");
-    await seedRun(prisma, alpha.id, "completed", "alpha done");
+    await seedRun(prisma, alpha, "running", "alpha in flight");
+    await seedRun(prisma, beta, "queued", "beta in flight");
+    await seedRun(prisma, alpha, "completed", "alpha done");
 
     const active = await rpc<{ runs: RunActivityRow[] }>(app, cookie, "runs/list", {
       filter: "active",
@@ -77,14 +77,14 @@ describeRunsList("runs.list activity tracker", () => {
 
   it("never returns runs from another workspace", async () => {
     const ownerCookie = await signup(app, `runs-owner-${stamp}@rakazo.test`, "Owner");
-    const ownerBot = await rpc<{ id: string }>(app, ownerCookie, "bots/create", {
+    const ownerBot = await rpc<{ id: string; threadId: string }>(app, ownerCookie, "bots/create", {
       name: "OwnerBot",
       title: "OwnerBot",
       description: "",
       instructions: "",
       notifyOnFinish: true,
     });
-    await seedRun(prisma, ownerBot.id, "running", "owner active run");
+    await seedRun(prisma, ownerBot, "running", "owner active run");
 
     const intruderCookie = await signup(app, `runs-intruder-${stamp}@rakazo.test`, "Intruder");
     const active = await rpc<{ runs: RunActivityRow[] }>(app, intruderCookie, "runs/list", {
@@ -95,14 +95,14 @@ describeRunsList("runs.list activity tracker", () => {
 
   it("excludes archived bots from recent before applying the limit", async () => {
     const cookie = await signup(app, `runs-archived-${stamp}@rakazo.test`, "Archive User");
-    const archivedBot = await rpc<{ id: string }>(app, cookie, "bots/create", {
+    const archivedBot = await rpc<{ id: string; threadId: string }>(app, cookie, "bots/create", {
       name: "Archived",
       title: "Archived",
       description: "",
       instructions: "",
       notifyOnFinish: true,
     });
-    const visibleBot = await rpc<{ id: string }>(app, cookie, "bots/create", {
+    const visibleBot = await rpc<{ id: string; threadId: string }>(app, cookie, "bots/create", {
       name: "Visible",
       title: "Visible",
       description: "",
@@ -114,13 +114,13 @@ describeRunsList("runs.list activity tracker", () => {
     for (let i = 0; i < 21; i += 1) {
       await seedRun(
         prisma,
-        archivedBot.id,
+        archivedBot,
         "completed",
         `archived filler ${i}`,
         new Date(Date.now() - i * 1_000),
       );
     }
-    await seedRun(prisma, visibleBot.id, "completed", "visible run", olderVisibleAt);
+    await seedRun(prisma, visibleBot, "completed", "visible run", olderVisibleAt);
 
     const recent = await rpc<{ runs: RunActivityRow[] }>(app, cookie, "runs/list", {
       filter: "recent",
@@ -185,17 +185,17 @@ describeRunsList("runs.list activity tracker", () => {
 
 async function seedRun(
   prisma: PrismaClient,
-  botId: string,
+  bot: { id: string; threadId: string },
   status: "queued" | "running" | "completed",
   prompt: string,
   completedAt?: Date | null,
 ) {
-  const thread = await prisma.thread.findUniqueOrThrow({ where: { botId } });
+  const thread = await prisma.thread.findUniqueOrThrow({ where: { id: bot.threadId } });
   const task = await prisma.task.create({
     data: {
       workspaceId: thread.workspaceId,
       userId: thread.userId,
-      botId,
+      botId: bot.id,
       threadId: thread.id,
       prompt,
       status,
@@ -205,7 +205,7 @@ async function seedRun(
     data: {
       workspaceId: thread.workspaceId,
       userId: thread.userId,
-      botId,
+      botId: bot.id,
       threadId: thread.id,
       taskId: task.id,
       status,

@@ -308,7 +308,7 @@ describeJourneys("required product journeys", () => {
       notify: false,
       active: false,
     });
-    const thread = await prisma.thread.findUniqueOrThrow({ where: { botId: bot.id } });
+    const thread = await prisma.thread.findUniqueOrThrow({ where: { id: bot.threadId } });
     const task = await prisma.task.create({
       data: {
         workspaceId: thread.workspaceId,
@@ -928,7 +928,7 @@ describeJourneys("required product journeys", () => {
       instructions: "",
       notifyOnFinish: false,
     });
-    const thread = await prisma.thread.findUniqueOrThrow({ where: { botId: bot.id } });
+    const thread = await prisma.thread.findUniqueOrThrow({ where: { id: bot.threadId } });
 
     await Promise.all(
       Array.from({ length: 40 }, (_, index) =>
@@ -2197,6 +2197,7 @@ describeJourneys("required product journeys", () => {
 type Me = { workspaceId: string; userId: string; canChooseHostComputer: boolean };
 type Bot = {
   id: string;
+  threadId: string;
   name: string;
   title: string;
   description: string;

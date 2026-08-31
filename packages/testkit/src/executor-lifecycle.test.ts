@@ -279,14 +279,14 @@ describeIntegration("run executor lifecycle", () => {
   ) {
     const cookie = await signup(`executor-${label}-${stamp}@rakazo.test`, `Executor ${label}`);
     const me = await rpc<{ userId: string; workspaceId: string }>(cookie, "me");
-    const bot = await rpc<{ id: string }>(cookie, "bots/create", {
+    const bot = await rpc<{ id: string; threadId: string }>(cookie, "bots/create", {
       name: `Executor ${label}`,
       title: "",
       description: "",
       instructions: "",
       notifyOnFinish: false,
     });
-    const thread = await handles.prisma.thread.findUniqueOrThrow({ where: { botId: bot.id } });
+    const thread = await handles.prisma.thread.findUniqueOrThrow({ where: { id: bot.threadId } });
     const task = await handles.prisma.task.create({
       data: {
         workspaceId: me.workspaceId,
