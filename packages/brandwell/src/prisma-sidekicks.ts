@@ -65,6 +65,7 @@ export type BrandwellWorkspaceDesiredStateInput = {
   agencyId: string;
   clientId: string;
   contractId?: string | null;
+  primaryBrandwellUserId: string;
   status: "trialing" | "active" | "past_due" | "paused" | "canceling" | "canceled";
   plan: string;
   masterSeats: 1;
@@ -74,6 +75,7 @@ export type BrandwellWorkspaceDesiredStateInput = {
 
 export type BrandwellSidekickProvisioningInput = {
   brandwellSidekickId: string;
+  brandwellUserId: string;
   email: string;
   name: string;
   roleTitle: string;
@@ -235,6 +237,7 @@ export async function syncBrandwellWorkspaceDesiredStateWithPrisma(
           brandwellAgencyId: input.agencyId,
           brandwellClientId: input.clientId,
           brandwellContractId: input.contractId ?? null,
+          primaryBrandwellUserId: input.primaryBrandwellUserId,
           commercialRevision: input.revision,
           commercialStatus: input.status,
           subscriptionStatus: inferenceEnabled ? "active" : input.status,
@@ -334,7 +337,11 @@ export async function provisionBrandwellSidekickWithPrisma(
       include: { bot: true, computer: true, modelCredential: true },
     });
     if (existing) {
-      if (existing.email !== email || existing.aiWorkspaceId !== mapping.id) {
+      if (
+        existing.email !== email ||
+        existing.aiWorkspaceId !== mapping.id ||
+        (existing.brandwellUserId && existing.brandwellUserId !== input.brandwellUserId)
+      ) {
         throw new BrandwellSidekickError(
           "The Sidekick idempotency identity is already assigned",
           "sidekick_identity_conflict",
@@ -387,7 +394,10 @@ export async function provisionBrandwellSidekickWithPrisma(
     if (!existing) {
       const [duplicate, allocated] = await Promise.all([
         options.prisma.brandwellSidekick.findFirst({
-          where: { aiWorkspaceId: mapping.id, email },
+          where: {
+            aiWorkspaceId: mapping.id,
+            OR: [{ email }, { brandwellUserId: input.brandwellUserId }],
+          },
         }),
         options.prisma.brandwellSidekick.count({
           where: { aiWorkspaceId: mapping.id, status: { in: COUNTED_SIDEKICK_STATES } },
@@ -495,7 +505,11 @@ export async function provisionBrandwellSidekickWithPrisma(
           include: { bot: true, computer: true, modelCredential: true },
         });
         if (replay) {
-          if (replay.email !== email || replay.aiWorkspaceId !== mapping.id) {
+          if (
+            replay.email !== email ||
+            replay.aiWorkspaceId !== mapping.id ||
+            (replay.brandwellUserId && replay.brandwellUserId !== input.brandwellUserId)
+          ) {
             throw new BrandwellSidekickError(
               "The Sidekick idempotency identity is already assigned",
               "sidekick_identity_conflict",
@@ -506,7 +520,10 @@ export async function provisionBrandwellSidekickWithPrisma(
           return { sidekick: replay, replayed: true, credentialCreated: !replay.modelCredential };
         }
         const duplicate = await tx.brandwellSidekick.findFirst({
-          where: { aiWorkspaceId: mapping.id, email },
+          where: {
+            aiWorkspaceId: mapping.id,
+            OR: [{ email }, { brandwellUserId: input.brandwellUserId }],
+          },
         });
         if (duplicate) {
           throw new BrandwellSidekickError(
@@ -672,6 +689,7 @@ export async function provisionBrandwellSidekickWithPrisma(
         const created = await tx.brandwellSidekick.create({
           data: {
             brandwellSidekickId: input.brandwellSidekickId,
+            brandwellUserId: input.brandwellUserId,
             aiWorkspaceId: mapping.id,
             workspaceId: mapping.rakazoWorkspaceId,
             email,
@@ -707,12 +725,20 @@ export async function provisionBrandwellSidekickWithPrisma(
 
 export async function claimBrandwellSidekickInTransaction(
   tx: Prisma.TransactionClient,
-  input: { workspaceId: string; userId: string; email: string; now: Date },
+  input: {
+    workspaceId: string;
+    userId: string;
+    brandwellUserId?: string;
+    email: string;
+    now: Date;
+  },
 ) {
   const sidekick = await tx.brandwellSidekick.findFirst({
     where: {
       workspaceId: input.workspaceId,
-      email: input.email.trim().toLowerCase(),
+      ...(input.brandwellUserId
+        ? { brandwellUserId: input.brandwellUserId }
+        : { email: input.email.trim().toLowerCase() }),
       userId: null,
       status: "invited",
     },
@@ -745,7 +771,12 @@ export async function claimBrandwellSidekickInTransaction(
   await installBrandwellSkillBundle(tx, { workspaceId: input.workspaceId, userId: input.userId });
   return tx.brandwellSidekick.update({
     where: { id: sidekick.id },
-    data: { userId: input.userId, status: "active", activatedAt: input.now },
+    data: {
+      userId: input.userId,
+      ...(input.brandwellUserId ? { brandwellUserId: input.brandwellUserId } : {}),
+      status: "active",
+      activatedAt: input.now,
+    },
   });
 }
 

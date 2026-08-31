@@ -25,6 +25,15 @@ describe("session gate", () => {
     expect(sessionGate({ data: null, isPending: false, error: { status: 401 } })).toBe("anonymous");
   });
 
+  it("shows a billing or entitlement lock instead of a connection error", () => {
+    expect(sessionGate({ data: null, isPending: false, error: { status: 402 } })).toBe(
+      "access_locked",
+    );
+    expect(sessionGate({ data: null, isPending: false, error: { status: 403 } })).toBe(
+      "access_locked",
+    );
+  });
+
   it("does not sign out a cold load that could not reach the server", () => {
     expect(sessionGate({ data: null, isPending: false, error: { status: 503 } })).toBe(
       "unreachable",

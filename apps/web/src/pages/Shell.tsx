@@ -137,6 +137,7 @@ import {
   computerPanelAutoBoot,
   computerPanelAutoUsesBoot,
   computerTakeoverBlocked,
+  computerTransitionClosesPreview,
   isComputerStatusEvent,
   isThreadSnapshotEvent,
   prependThreadMessagePage,
@@ -352,12 +353,17 @@ export function ShellPage() {
   const [screenUrl, setScreenUrl] = useState<string | null>(null);
   const [computerOpen, setComputerOpen] = useState(false);
   const [computerError, setComputerError] = useState<string | null>(null);
+  const [shuttingDownComputer, setShuttingDownComputer] = useState(false);
   const [usage, setUsage] = useState<{
     inputTokens: number;
     outputTokens: number;
     runs: number;
   } | null>(null);
   const autoBooted = useRef<string | null>(null);
+  const previousComputerState = useRef<{
+    botId: string;
+    state: ComputerStatus["state"] | undefined;
+  } | null>(null);
   const routineSavePending = useRef(false);
   const routineSaveRequest = useRef(0);
   const routineRunPending = useRef(false);
@@ -1852,6 +1858,23 @@ export function ShellPage() {
   }, [computer?.busyBotName]);
 
   useEffect(() => {
+    if (!active) {
+      previousComputerState.current = null;
+      return;
+    }
+    const previous = previousComputerState.current;
+    previousComputerState.current = { botId: active.id, state: computer?.state };
+    if (previous?.botId !== active.id) return;
+    if (!computerTransitionClosesPreview(previous.state, computer?.state)) return;
+    screenRequest.current += 1;
+    setScreenUrl(null);
+    cacheComputerFor(active.id, { computer, screenUrl: null });
+    setComputerOpen(false);
+    setPanel((current) => (current === "computer" ? null : current));
+    autoBooted.current = null;
+  }, [active?.id, computer?.state]);
+
+  useEffect(() => {
     if (panel !== "routine") {
       routineSaveRequest.current += 1;
       setRoutineError(null);
@@ -1919,9 +1942,39 @@ export function ShellPage() {
     await refreshThread(active.id);
   }
 
+  async function shutdownComputer() {
+    const id = activeBotId.current;
+    if (!id || shuttingDownComputer) return;
+    setShuttingDownComputer(true);
+    setComputerError(null);
+    try {
+      const stopped = await rpc.computer.stop({ botId: id });
+      if (activeBotId.current !== id) return;
+      screenRequest.current += 1;
+      commitComputer(stopped);
+      setScreenUrl(null);
+      cacheComputerFor(id, { computer: stopped, screenUrl: null });
+      setComputerOpen(false);
+      setPanel((current) => (current === "computer" ? null : current));
+      autoBooted.current = null;
+    } catch (error) {
+      if (activeBotId.current === id) {
+        setComputerError(error instanceof Error ? error.message : t`Could not shut down computer`);
+      }
+    } finally {
+      setShuttingDownComputer(false);
+    }
+  }
+
   const embeddedScreenUrl = embeddableScreenUrl(screenUrl);
   const hasControl = userHoldsComputerControl(computer, active?.id);
   const takeoverBlocked = computerTakeoverBlocked(computer, snapshot?.run?.status);
+  const canShutDownComputer = Boolean(
+    computer &&
+      computer.kind !== "desktop" &&
+      computer.state !== "stopped" &&
+      computer.state !== "booting",
+  );
 
   const userName = session.data?.user.name ?? t`You`;
   const initials = userName
@@ -2706,23 +2759,42 @@ export function ShellPage() {
                             ? t`Asleep`
                             : computerLabel(computer?.mode, active.name)}
                   </span>
-                  {hasControl ? (
-                    <ComputerReleaseActions
-                      takeoverRequested={computer?.takeoverRequested ?? false}
-                      onRelease={releaseComputer}
-                    />
-                  ) : (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      disabled={takeoverBlocked}
-                      title={takeoverBlocked ? t`Stop the bot first` : undefined}
-                      onClick={() => void openComputer()}
-                    >
-                      <Trans>Take control</Trans>
-                    </Button>
-                  )}
+                  <div className="flex shrink-0 items-center gap-2">
+                    {canShutDownComputer ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        aria-label={t`Shut down computer`}
+                        disabled={shuttingDownComputer || takeoverBlocked}
+                        title={takeoverBlocked ? t`Stop the bot first` : undefined}
+                        onClick={() => void shutdownComputer()}
+                      >
+                        {shuttingDownComputer ? (
+                          <Trans>Shutting down…</Trans>
+                        ) : (
+                          <Trans>Shut down</Trans>
+                        )}
+                      </Button>
+                    ) : null}
+                    {hasControl ? (
+                      <ComputerReleaseActions
+                        takeoverRequested={computer?.takeoverRequested ?? false}
+                        onRelease={releaseComputer}
+                      />
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={takeoverBlocked}
+                        title={takeoverBlocked ? t`Stop the bot first` : undefined}
+                        onClick={() => void openComputer()}
+                      >
+                        <Trans>Take control</Trans>
+                      </Button>
+                    )}
+                  </div>
                 </div>
                 {!managedWorkspace &&
                 (computer?.state === "error" ||
@@ -3306,24 +3378,47 @@ export function ShellPage() {
               ) : null}
               {recordingSkill ? (
                 <TeachStopButton busy={teachBusy} onStop={stopTeaching} />
-              ) : hasControl ? (
-                <ComputerReleaseActions
-                  takeoverRequested={computer?.takeoverRequested ?? false}
-                  onRelease={releaseComputer}
-                />
               ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={takeoverBlocked}
-                  title={takeoverBlocked ? t`Stop the bot first` : undefined}
-                  onClick={() =>
-                    void bootComputer({ takeControl: true, overlay: false }).catch(() => undefined)
-                  }
-                >
-                  <Trans>Take control</Trans>
-                </Button>
+                <>
+                  {canShutDownComputer ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      aria-label={t`Shut down computer`}
+                      disabled={shuttingDownComputer || takeoverBlocked}
+                      title={takeoverBlocked ? t`Stop the bot first` : undefined}
+                      onClick={() => void shutdownComputer()}
+                    >
+                      {shuttingDownComputer ? (
+                        <Trans>Shutting down…</Trans>
+                      ) : (
+                        <Trans>Shut down</Trans>
+                      )}
+                    </Button>
+                  ) : null}
+                  {hasControl ? (
+                    <ComputerReleaseActions
+                      takeoverRequested={computer?.takeoverRequested ?? false}
+                      onRelease={releaseComputer}
+                    />
+                  ) : (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={takeoverBlocked}
+                      title={takeoverBlocked ? t`Stop the bot first` : undefined}
+                      onClick={() =>
+                        void bootComputer({ takeControl: true, overlay: false }).catch(
+                          () => undefined,
+                        )
+                      }
+                    >
+                      <Trans>Take control</Trans>
+                    </Button>
+                  )}
+                </>
               )}
               <button
                 type="button"
@@ -4921,7 +5016,7 @@ function CreateBotForm({
           maxLength={BOT_NAME_MAX_LENGTH}
           onChange={(e) => setName(e.target.value)}
           placeholder={t`Name this bot`}
-          className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
+          className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE] outline-none focus:border-[#8B5CF6] focus:ring-2 focus:ring-[#8B5CF6]/35"
         />
       </label>
       <label className="mt-4 block text-[14px] text-[#85858A]">
@@ -4931,7 +5026,7 @@ function CreateBotForm({
           maxLength={BOT_TITLE_MAX_LENGTH}
           onChange={(e) => setTitle(e.target.value)}
           placeholder={t`Describe what this bot does`}
-          className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
+          className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE] outline-none focus:border-[#8B5CF6] focus:ring-2 focus:ring-[#8B5CF6]/35"
         />
       </label>
       <label className="mt-4 block text-[14px] text-[#85858A]">
@@ -4942,7 +5037,7 @@ function CreateBotForm({
           onChange={(e) => setDescription(e.target.value)}
           placeholder={t`What this bot is for`}
           rows={4}
-          className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
+          className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE] outline-none focus:border-[#8B5CF6] focus:ring-2 focus:ring-[#8B5CF6]/35"
         />
       </label>
       <ComputerModePicker value={computerMode} onChange={setComputerMode} />

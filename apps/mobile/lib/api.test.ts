@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyMobileThreadEvent,
   blockText,
+  loadValidatedSession,
   type MobileMessage,
   type MobileSnapshot,
   mergeMobileSnapshot,
@@ -39,7 +40,7 @@ describe("mobile API authentication", () => {
     await signIn("ada@example.com", "correct horse");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://ai.brandwell.ai/api/auth/sign-in/email",
+      "https://ai.brandwell.ai/api/auth/sign-in/brandwell",
       expect.objectContaining({
         method: "POST",
         headers: { "content-type": "application/json", origin: "aimee://" },
@@ -67,6 +68,28 @@ describe("mobile API authentication", () => {
     );
 
     await expect(signOut()).resolves.toBeUndefined();
+    expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith("rakazo.session_token");
+  });
+
+  it("clears a stored token and shows the failed-invoice message", async () => {
+    vi.mocked(SecureStore.getItemAsync).mockResolvedValue("session-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(
+          {
+            message:
+              "The last AIMEE invoice failed. Ask your BrandWell account administrator to pay the past-due invoice to restore access.",
+          },
+          { status: 402 },
+        ),
+      ),
+    );
+
+    await expect(loadValidatedSession()).resolves.toMatchObject({
+      token: null,
+      error: expect.stringMatching(/account administrator/i),
+    });
     expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith("rakazo.session_token");
   });
 

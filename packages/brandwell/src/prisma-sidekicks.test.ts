@@ -596,6 +596,7 @@ describe("BrandWell Sidekick model-key lifecycle", () => {
           revision: 2n,
           agencyId: "agency-1",
           clientId: "client-1",
+          primaryBrandwellUserId: "brandwell-user-master",
           status: "paused",
           plan: "aimee",
           masterSeats: 1,
@@ -634,6 +635,7 @@ describe("BrandWell Sidekick model-key lifecycle", () => {
         "workspace-1",
         {
           brandwellSidekickId: "portal-sidekick-1",
+          brandwellUserId: "brandwell-user-1",
           email: "casey@example.com",
           name: "Casey",
           roleTitle: "Sales",

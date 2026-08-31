@@ -9,6 +9,7 @@ datasource db {
 
 model User {
   id                                String                        @id
+  brandwellUserId                   String?                       @unique
   name                              String
   email                             String
   emailVerified                     Boolean                       @default(false)
@@ -86,7 +87,7 @@ model Verification {
 }
 
 model Organization {
-  id                                String                             @id
+  id                                String                                @id
   name                              String
   slug                              String
   logo                              String?
@@ -190,6 +191,7 @@ model DeploymentSettings {
   signupAllowlist                 String   @default("")
   defaultModelProvider            String?
   defaultModelId                  String?
+  brandwellDefaultModelId         String   @default("openai/gpt-5.6-terra")
   deploymentModelCredentialCipher String?
   computerHost                    String?
   createdAt                       DateTime @default(now())
@@ -968,6 +970,7 @@ model BrandwellAiWorkspace {
   brandwellAgencyId         String?
   brandwellClientId         String?
   brandwellContractId       String?
+  primaryBrandwellUserId    String?
   commercialRevision        BigInt              @default(0)
   commercialStatus          String              @default("pending")
   masterSeats               Int                 @default(1)
@@ -987,6 +990,7 @@ model BrandwellAiWorkspace {
   sidekicks                 BrandwellSidekick[]
 
   @@index([subscriptionStatus, provisioningStatus])
+  @@index([primaryBrandwellUserId])
   @@index([modelPolicyLeaseExpiresAt])
   @@map("brandwell_ai_workspaces")
 }
@@ -998,6 +1002,7 @@ model BrandwellAiWorkspace {
 model BrandwellSidekick {
   id                     String                                @id @default(cuid())
   brandwellSidekickId    String                                @unique
+  brandwellUserId        String?
   aiWorkspaceId          String
   aiWorkspace            BrandwellAiWorkspace                  @relation(fields: [aiWorkspaceId], references: [id], onDelete: Cascade)
   workspaceId            String
@@ -1025,6 +1030,7 @@ model BrandwellSidekick {
   lifecycleOperations    BrandwellSidekickLifecycleOperation[]
 
   @@unique([aiWorkspaceId, email])
+  @@unique([aiWorkspaceId, brandwellUserId])
   @@index([workspaceId, status])
   @@index([userId, status])
   @@map("brandwell_sidekicks")
@@ -1087,38 +1093,39 @@ model BrandwellServiceIdentity {
 }
 
 model BrandwellWorkspaceModelCredential {
-  id                         String                   @id @default(cuid())
-  workspaceId                String                   @unique
-  workspace                  Organization             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  serviceIdentityId          String                   @unique
-  serviceIdentity            BrandwellServiceIdentity @relation(fields: [serviceIdentityId], references: [id], onDelete: Cascade)
-  provider                   String                   @default("openrouter")
-  secretId                   String                   @unique
-  secret                     Secret                   @relation(fields: [secretId], references: [id], onDelete: Cascade)
-  externalKeyHash            String?                  @unique
-  externalWorkspaceId        String?
-  limitReset                 String                   @default("monthly")
-  status                     String                   @default("active")
-  monthlyLimitMicros         BigInt                   @default(0)
-  dailyLimitMicros           BigInt?
-  warningLimitMicros         BigInt                   @default(0)
-  currentUsageMicros         BigInt                   @default(0)
-  providerLimitMicros        BigInt?
-  providerLimitReset         String?
-  providerIncludeByokInLimit Boolean?
-  providerUsageSyncedAt      DateTime?
-  providerUsageSyncError     String?
-  preferredModel             String
-  computerModel              String?
-  lightweightModel           String?
-  reasoningModel             String?
-  fallbackModels             Json                     @default("[]")
-  modelCatalog               Json                     @default("{}")
-  maxTokens                  Int?
-  thinkingLevel              String?
-  disabledAt                 DateTime?
-  createdAt                  DateTime                 @default(now())
-  updatedAt                  DateTime                 @updatedAt
+  id                           String                   @id @default(cuid())
+  workspaceId                  String                   @unique
+  workspace                    Organization             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  serviceIdentityId            String                   @unique
+  serviceIdentity              BrandwellServiceIdentity @relation(fields: [serviceIdentityId], references: [id], onDelete: Cascade)
+  provider                     String                   @default("openrouter")
+  secretId                     String                   @unique
+  secret                       Secret                   @relation(fields: [secretId], references: [id], onDelete: Cascade)
+  externalKeyHash              String?                  @unique
+  externalWorkspaceId          String?
+  limitReset                   String                   @default("monthly")
+  status                       String                   @default("active")
+  monthlyLimitMicros           BigInt                   @default(0)
+  dailyLimitMicros             BigInt?
+  warningLimitMicros           BigInt                   @default(0)
+  currentUsageMicros           BigInt                   @default(0)
+  providerLimitMicros          BigInt?
+  providerLimitReset           String?
+  providerIncludeByokInLimit   Boolean?
+  providerUsageSyncedAt        DateTime?
+  providerUsageSyncError       String?
+  preferredModel               String
+  inheritsPlatformModelDefault Boolean                  @default(true)
+  computerModel                String?
+  lightweightModel             String?
+  reasoningModel               String?
+  fallbackModels               Json                     @default("[]")
+  modelCatalog                 Json                     @default("{}")
+  maxTokens                    Int?
+  thinkingLevel                String?
+  disabledAt                   DateTime?
+  createdAt                    DateTime                 @default(now())
+  updatedAt                    DateTime                 @updatedAt
 
   @@index([status, disabledAt])
   @@map("brandwell_workspace_model_credentials")

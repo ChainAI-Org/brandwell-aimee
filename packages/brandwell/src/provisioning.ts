@@ -22,6 +22,7 @@ export type BrandwellProvisioningStep = (typeof BRANDWELL_PROVISIONING_STEPS)[nu
 
 export type BrandwellProvisioningInput = {
   brandwellCustomerId: string;
+  primaryBrandwellUserId: string;
   companyName: string;
   primaryContactName: string;
   primaryContactEmail: string;
@@ -106,6 +107,8 @@ export function buildBrandwellProvisioningPlan(
   if (!customerId) throw new Error("brandwellCustomerId is required");
   const companyName = input.companyName.trim();
   if (!companyName) throw new Error("companyName is required");
+  const primaryBrandwellUserId = input.primaryBrandwellUserId.trim();
+  if (!primaryBrandwellUserId) throw new Error("primaryBrandwellUserId is required");
   const primaryContactEmail = input.primaryContactEmail.trim().toLowerCase();
   if (!primaryContactEmail?.includes("@")) {
     throw new Error("primaryContactEmail must be valid");
@@ -118,6 +121,7 @@ export function buildBrandwellProvisioningPlan(
     input: {
       ...input,
       brandwellCustomerId: customerId,
+      primaryBrandwellUserId,
       companyName,
       primaryContactEmail,
       primaryContactName: input.primaryContactName.trim(),

@@ -1,42 +1,44 @@
 import { BRANDWELL_BRAND } from "@brandwell/aimee/brand-config";
-import { ArrowLeft, Eye, EyeOff, LockKeyhole, Mail, UserRound } from "lucide-react";
+import { ArrowLeft, Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { BrandwellLogo } from "../components/brandwell/BrandwellLogo";
-import { authClient } from "../lib/auth";
 
-export function AuthPage({ mode }: { mode: "in" | "up" }) {
-  const navigate = useNavigate();
+export function AuthPage() {
   const firstFieldRef = useRef<HTMLInputElement>(null);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
     firstFieldRef.current?.focus();
-  }, [mode]);
+  }, []);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setPending(true);
     setError(null);
-    const result =
-      mode === "up"
-        ? await authClient.signUp.email({
-            email,
-            password,
-            name: name || email.split("@")[0] || "User",
-          })
-        : await authClient.signIn.email({ email, password });
+    const response = await fetch("/api/auth/sign-in/brandwell", {
+      method: "POST",
+      credentials: "include",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    }).catch(() => null);
+    const result = await response?.json().catch(() => ({}));
     setPending(false);
-    if (result.error) {
-      setError(result.error.message ?? "Could not continue");
+    if (!response?.ok) {
+      setError(
+        typeof result?.message === "string"
+          ? result.message
+          : typeof result?.error === "string"
+            ? result.error
+            : "Could not sign in with BrandWell",
+      );
       return;
     }
-    navigate(mode === "up" ? "/onboarding" : "/app");
+    window.location.assign("/app");
   }
 
   return (
@@ -59,33 +61,16 @@ export function AuthPage({ mode }: { mode: "in" | "up" }) {
             {BRANDWELL_BRAND.productName}
           </p>
           <h1 className="mt-2 text-[28px] font-semibold tracking-[-0.03em]">
-            {mode === "in" ? "Sign in to your account" : "Activate your AIMEE access"}
+            Sign in with BrandWell
           </h1>
           <p className="mx-auto mt-2 max-w-[330px] text-[13.5px] leading-5 text-[#8c8e98]">
-            {mode === "in"
-              ? "Continue to your AI employee, activity, routines, and computer."
-              : "Use the email address where BrandWell sent your invitation."}
+            Use your existing BrandWell account to access your AI employee, activity, and computer.
           </p>
         </div>
 
-        {mode === "up" ? (
-          <AuthField id="name" label="Name" icon={<UserRound size={16} />}>
-            <input
-              ref={firstFieldRef}
-              id="name"
-              name="name"
-              autoComplete="name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Your name"
-              className="w-full bg-transparent text-[15px] text-[#f7f7fa] outline-none placeholder:text-[#5f616b]"
-            />
-          </AuthField>
-        ) : null}
-
         <AuthField id="email" label="Email" icon={<Mail size={16} />}>
           <input
-            ref={mode === "in" ? firstFieldRef : undefined}
+            ref={firstFieldRef}
             id="email"
             name="email"
             autoComplete="username"
@@ -98,15 +83,11 @@ export function AuthPage({ mode }: { mode: "in" | "up" }) {
           />
         </AuthField>
 
-        <AuthField
-          id={mode === "in" ? "current-password" : "new-password"}
-          label="Password"
-          icon={<LockKeyhole size={16} />}
-        >
+        <AuthField id="current-password" label="Password" icon={<LockKeyhole size={16} />}>
           <input
-            id={mode === "in" ? "current-password" : "new-password"}
+            id="current-password"
             name="password"
-            autoComplete={mode === "in" ? "current-password" : "new-password"}
+            autoComplete="current-password"
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             placeholder="Password"
@@ -138,25 +119,12 @@ export function AuthPage({ mode }: { mode: "in" | "up" }) {
           disabled={pending}
           className="mt-5 w-full rounded-xl bg-[#ed168c] py-3.5 text-center text-[15px] font-semibold text-white shadow-[0_10px_28px_rgba(237,22,140,.18)] hover:bg-[#ff279d] disabled:cursor-wait disabled:opacity-60"
         >
-          {pending ? "Working..." : mode === "in" ? "Sign in" : "Create access"}
+          {pending ? "Signing in..." : "Sign in"}
         </button>
 
         <p className="mt-6 text-center text-[13.5px] text-[#858792]">
-          {mode === "in" ? (
-            <>
-              Have an invitation?{" "}
-              <Link to="/sign-up" className="font-medium text-[#cfb1ff] hover:text-white">
-                Activate access
-              </Link>
-            </>
-          ) : (
-            <>
-              Already activated?{" "}
-              <Link to="/sign-in" className="font-medium text-[#cfb1ff] hover:text-white">
-                Sign in
-              </Link>
-            </>
-          )}
+          Need access? Ask your BrandWell account administrator to assign an AIMEE master or paid
+          Sidekick seat to your user.
         </p>
         <p className="mt-7 text-center text-[11.5px] leading-5 text-[#62646e]">
           By continuing, you agree to the{" "}

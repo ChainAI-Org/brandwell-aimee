@@ -4,7 +4,12 @@ export interface SessionGateInput {
   error: { status?: number } | null;
 }
 
-export type SessionGate = "loading" | "unreachable" | "authenticated" | "anonymous";
+export type SessionGate =
+  | "loading"
+  | "unreachable"
+  | "authenticated"
+  | "anonymous"
+  | "access_locked";
 
 /**
  * A failed session fetch is not a sign-out. Better Auth keeps the last known
@@ -16,6 +21,7 @@ export type SessionGate = "loading" | "unreachable" | "authenticated" | "anonymo
 export function sessionGate(session: SessionGateInput): SessionGate {
   if (session.data?.user) return "authenticated";
   if (session.isPending) return "loading";
+  if (session.error && [402, 403].includes(Number(session.error.status))) return "access_locked";
   // 401 is the server answering: there is genuinely no session.
   if (session.error && session.error.status !== 401) return "unreachable";
   return "anonymous";
@@ -29,7 +35,7 @@ export function sessionGate(session: SessionGateInput): SessionGate {
  */
 export function holdUnreachableGate(gate: SessionGate, holding: boolean): boolean {
   if (gate === "unreachable") return true;
-  if (gate === "authenticated" || gate === "anonymous") return false;
+  if (gate === "authenticated" || gate === "anonymous" || gate === "access_locked") return false;
   return holding;
 }
 

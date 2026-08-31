@@ -11,6 +11,7 @@ import {
   computerPanelAutoBoot,
   computerPanelAutoUsesBoot,
   computerTakeoverBlocked,
+  computerTransitionClosesPreview,
   isThreadSnapshotEvent,
   mergeThreadSnapshot,
   prependThreadMessagePage,
@@ -1158,6 +1159,14 @@ describe("computer event reduction", () => {
     expect(computerPanelAutoUsesBoot("boot")).toBe(true);
     expect(computerPanelAutoUsesBoot("wait")).toBe(false);
   });
+
+  it("closes a visible preview only when the current computer goes offline", () => {
+    expect(computerTransitionClosesPreview("running", "stopped")).toBe(true);
+    expect(computerTransitionClosesPreview("running", "suspended")).toBe(true);
+    expect(computerTransitionClosesPreview("running", "error")).toBe(false);
+    expect(computerTransitionClosesPreview("stopped", "stopped")).toBe(false);
+    expect(computerTransitionClosesPreview(undefined, "stopped")).toBe(false);
+  });
 });
 
 function snapshot(messages: ThreadMessage[], olderCursor: number | null = null): ThreadSnapshot {
@@ -1214,7 +1223,6 @@ function computer(overrides: Partial<ComputerStatus> = {}): ComputerStatus {
     ...overrides,
   };
 }
-
 function message(id: string, blocks: ThreadMessage["blocks"], seq = 3): ThreadMessage {
   return {
     id,

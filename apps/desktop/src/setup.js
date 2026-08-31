@@ -47,6 +47,9 @@
       supportFootnote.hidden = true;
       return;
     }
+    choices.hidden = false;
+    checkButton.hidden = false;
+    supportFootnote.hidden = false;
     const mode = selectedMode();
     panelNew.hidden = mode !== "new";
     panelExisting.hidden = mode === "new";

@@ -101,6 +101,7 @@ describePostgres("BrandWell AIMEE managed lifecycle (PostgreSQL acceptance)", ()
       const provisioned = await provisionBrandwellWorkspaceWithPrisma(
         {
           brandwellCustomerId: customerId,
+          primaryBrandwellUserId: `brandwell-user-${suffix}`,
           companyName: `Acme Roofing ${suffix}`,
           primaryContactName: "Alex Client",
           primaryContactEmail: clientEmail,
@@ -182,6 +183,7 @@ describePostgres("BrandWell AIMEE managed lifecycle (PostgreSQL acceptance)", ()
           revision: 1n,
           agencyId: `agency-${suffix}`,
           clientId: customerId,
+          primaryBrandwellUserId: `brandwell-user-${suffix}`,
           status: "active",
           plan: "aimee",
           masterSeats: 1,

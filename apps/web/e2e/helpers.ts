@@ -70,15 +70,26 @@ export async function signup(
   name: string,
   testInfo?: TestInfo,
 ) {
-  await page.goto("/sign-up");
-  await expect(
-    page.getByRole("heading", { name: /Create your AIMEE|Activate your AIMEE access/ }),
-  ).toBeVisible();
-  if (testInfo) await captureScreenshot(page, testInfo, "01-sign-up");
-  await page.getByPlaceholder("Your name").fill(name);
-  await page.getByLabel("Email").fill(email);
-  await page.getByPlaceholder("Password").fill(password);
-  await page.getByRole("button", { name: /Create account|Create access/ }).click();
+  // Production AIMEE never exposes local account creation. The browser harness
+  // uses Better Auth's local endpoint only to seed an isolated test identity;
+  // the customer-visible route remains BrandWell sign-in only.
+  const response = await page.request.post("/api/auth/sign-up/email", {
+    data: { email, password, name },
+  });
+  if (!response.ok()) {
+    throw new Error(`test identity setup failed ${response.status()}: ${await response.text()}`);
+  }
+  await page.goto("/onboarding");
+  if (testInfo) await captureScreenshot(page, testInfo, "01-managed-test-session");
+}
+
+export async function signInTestUser(page: Page, email: string, password: string) {
+  const response = await page.request.post("/api/auth/sign-in/email", {
+    data: { email, password },
+  });
+  if (!response.ok()) {
+    throw new Error(`test identity sign-in failed ${response.status()}: ${await response.text()}`);
+  }
 }
 
 export async function captureScreenshot(page: Page, testInfo: TestInfo, name: string) {

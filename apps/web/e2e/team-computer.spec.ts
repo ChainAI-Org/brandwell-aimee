@@ -3,6 +3,7 @@ import {
   activeBotId,
   captureScreenshot,
   completeOnboarding,
+  isRealSandboxProvider,
   openNewBot,
   realSandboxTimeout,
   rpc,
@@ -122,6 +123,55 @@ test("user control leaves another Team bot's screen available", async ({ page },
     ok: false,
   });
   await captureScreenshot(page, testInfo, "47-team-computer-control-released");
+});
+
+test("Team Sidekicks get separate previews and shutdown closes the computer panel", async ({
+  page,
+}, testInfo) => {
+  const stamp = Date.now();
+
+  await signup(page, `team-previews-${stamp}@rakazo.test`, "password12", "Team Previews");
+  await completeOnboarding(page);
+  const chiefId = activeBotId(page);
+
+  await openComputerPanel(page);
+  await waitForComputerState(page, chiefId, "running");
+  const chiefScreen = await waitForScreenUrl(page, chiefId);
+  await captureScreenshot(page, testInfo, "47b-chief-team-computer-preview");
+
+  const workerId = await createBot(page, "Sidekick", "team");
+  await openComputerPanel(page);
+  await waitForComputerState(page, workerId, "running");
+  const workerScreen = await waitForScreenUrl(page, workerId);
+  expect(workerScreen).not.toBe(chiefScreen);
+  await captureScreenshot(page, testInfo, "47c-sidekick-separate-computer-preview");
+
+  await page.getByRole("button", { name: "Open computer", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Close computer", exact: true })).toBeVisible();
+  if (isRealSandboxProvider()) {
+    await expect(page.locator('iframe[title="Bot screen"]')).toBeVisible();
+  }
+  await page.getByRole("button", { name: "Close computer", exact: true }).click();
+
+  await openBot(page, "Chief");
+  const restoredChiefScreen = await waitForScreenUrl(page, chiefId);
+  expect(restoredChiefScreen).toBe(chiefScreen);
+  const stopped = page.waitForResponse(
+    (response) => response.url().includes("/rpc/computer/stop") && response.ok(),
+    { timeout: realSandboxTimeout(180_000, 20_000) },
+  );
+  await page.getByRole("button", { name: "Shut down computer", exact: true }).click();
+  await stopped;
+
+  await expect(page.getByTestId("side-panel")).toHaveAttribute("data-panel", "closed");
+  await waitForComputerState(page, chiefId, "stopped");
+  await waitForComputerState(page, workerId, "stopped");
+  await page.waitForTimeout(750);
+  await expect(
+    rpc<{ state: string }>(page, "computer/status", { botId: chiefId }),
+  ).resolves.toMatchObject({ state: "stopped" });
+  await expect(page.getByRole("button", { name: "Shut down computer" })).toHaveCount(0);
+  await captureScreenshot(page, testInfo, "47d-team-computer-shutdown-closes-panel");
 });
 
 test("an active Team bot must be stopped before user takeover", async ({ page }, testInfo) => {
@@ -288,6 +338,28 @@ async function waitForIdle(page: Page, botId: string) {
       timeout: realSandboxTimeout(90_000, 20_000),
     })
     .toBe("idle");
+}
+
+async function waitForComputerState(page: Page, botId: string, state: string) {
+  await expect
+    .poll(async () => (await rpc<{ state: string }>(page, "computer/status", { botId })).state, {
+      timeout: realSandboxTimeout(180_000, 20_000),
+    })
+    .toBe(state);
+}
+
+async function waitForScreenUrl(page: Page, botId: string) {
+  let url: string | null = null;
+  await expect
+    .poll(
+      async () => {
+        url = (await rpc<{ url: string | null }>(page, "computer/screenUrl", { botId })).url;
+        return url;
+      },
+      { timeout: realSandboxTimeout(180_000, 20_000) },
+    )
+    .not.toBeNull();
+  return url!;
 }
 
 function threadSnapshot(page: Page, botId: string) {
