@@ -237,6 +237,21 @@ describe("AIMEE production readiness response", () => {
     ).toBe(false);
   });
 
+  it("rejects malformed revisions, timestamps, and unexpected fields", () => {
+    expect(isAimeeReady({ ...ready, revision: "main" })).toBe(false);
+    expect(isAimeeReady({ ...ready, checkedAt: "not-a-date" })).toBe(false);
+    expect(isAimeeReady({ ...ready, openRouterKey: "must-not-appear" })).toBe(false);
+    expect(
+      isAimeeReady({
+        ...ready,
+        checks: {
+          ...ready.checks,
+          worker: { ...ready.checks.worker, detail: "unexpected" },
+        },
+      }),
+    ).toBe(false);
+  });
+
   it("requires readiness for exact managed production and staging origins only", () => {
     expect(isManagedReadinessOrigin(MANAGED_WEB_URL)).toBe(true);
     expect(isManagedReadinessOrigin(`${MANAGED_STAGING_WEB_URL}/path`)).toBe(true);

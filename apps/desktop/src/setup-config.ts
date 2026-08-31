@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
-import { type DesktopSetup, ProductionReadinessSchema } from "@rakazo/contracts";
+import type { DesktopSetup } from "@rakazo/contracts";
 
 /** Where `pnpm dev` serves the AIMEE web app on this machine. */
 export const DEFAULT_LOCAL_WEB_URL = "http://127.0.0.1:5173";
@@ -16,6 +16,20 @@ export type StartupTarget =
   | { kind: "setup" };
 
 const SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
+const READINESS_CODE = /^[a-z][a-z0-9_]*$/;
+const DEPLOYMENT_REVISION = /^[0-9a-f]{40}$/;
+const ISO_UTC_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
+const READINESS_CHECK_NAMES = [
+  "deploymentRevision",
+  "database",
+  "migrations",
+  "worker",
+  "managedAdmin",
+  "openRouterManagement",
+  "runtimeInference",
+  "daytona",
+  "brandwellBridge",
+] as const;
 
 /**
  * Accepts what a person would actually type ("localhost:5173", "aimee.example.com")
@@ -166,13 +180,44 @@ export function isAimeeHealth(value: unknown): boolean {
 }
 
 export function isAimeeReady(value: unknown): boolean {
-  const parsed = ProductionReadinessSchema.safeParse(value);
-  return parsed.success && parsed.data.ok;
+  if (!isRecordWithExactKeys(value, ["ok", "service", "revision", "checkedAt", "checks"])) {
+    return false;
+  }
+  if (value.ok !== true || value.service !== "aimee") return false;
+  if (typeof value.revision !== "string" || !DEPLOYMENT_REVISION.test(value.revision)) return false;
+  if (
+    typeof value.checkedAt !== "string" ||
+    !ISO_UTC_DATETIME.test(value.checkedAt) ||
+    !Number.isFinite(Date.parse(value.checkedAt))
+  ) {
+    return false;
+  }
+  const checks = value.checks;
+  if (!isRecordWithExactKeys(checks, READINESS_CHECK_NAMES)) return false;
+
+  return READINESS_CHECK_NAMES.every((name) => {
+    const check = checks[name];
+    return (
+      isRecordWithExactKeys(check, ["status", "code"]) &&
+      check.status === "pass" &&
+      typeof check.code === "string" &&
+      READINESS_CODE.test(check.code)
+    );
+  });
 }
 
 export function isManagedReadinessOrigin(value: string): boolean {
   const normalized = normalizeServerUrl(value);
   return normalized === MANAGED_WEB_URL || normalized === MANAGED_STAGING_WEB_URL;
+}
+
+function isRecordWithExactKeys<const Key extends string>(
+  value: unknown,
+  keys: readonly Key[],
+): value is Record<Key, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const actual = Object.keys(value);
+  return actual.length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 }
 
 function isLoopbackHost(hostname: string) {
