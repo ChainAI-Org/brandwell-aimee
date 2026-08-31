@@ -316,9 +316,7 @@ export function PluginsOverlay({
                     <div className="mt-3 text-[14px] font-medium text-[#ECECEE]">
                       {capability.name}
                     </div>
-                    <p className="mt-1 text-[12px] leading-5 text-[#707077]">
-                      {capability.detail}
-                    </p>
+                    <p className="mt-1 text-[12px] leading-5 text-[#707077]">{capability.detail}</p>
                   </article>
                 ))}
               </div>

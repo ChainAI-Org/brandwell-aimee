@@ -372,18 +372,20 @@ export class BrandwellNativeConnector implements ConnectorProvider {
         : `${context.workspaceId}:${call.executionId}`;
       const requestHash = createHash("sha256").update(serialized).digest("hex");
       const signature = createHmac("sha256", this.serviceToken)
-        .update([
-          `brandwell-aimee-signature:${SIGNATURE_VERSION}`,
-          "POST",
-          endpoint,
-          scope.brandwellCustomerId,
-          context.workspaceId,
-          context.serviceIdentityId!,
-          call.executionId,
-          idempotencyKey,
-          timestamp,
-          requestHash,
-        ].join("\n"))
+        .update(
+          [
+            `brandwell-aimee-signature:${SIGNATURE_VERSION}`,
+            "POST",
+            endpoint,
+            scope.brandwellCustomerId,
+            context.workspaceId,
+            context.serviceIdentityId!,
+            call.executionId,
+            idempotencyKey,
+            timestamp,
+            requestHash,
+          ].join("\n"),
+        )
         .digest("hex");
       const response = await this.fetchImpl(`${this.baseUrl}${endpoint}`, {
         method: "POST",

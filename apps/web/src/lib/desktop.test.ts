@@ -3,11 +3,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  type AimeeDesktop,
+  type AimeeDesktopOAuthCallback,
   desktopOAuthCode,
   oauthStateOf,
   onDesktopOAuthCallback,
-  type AimeeDesktop,
-  type AimeeDesktopOAuthCallback,
   windowChromeKind,
 } from "./desktop.js";
 

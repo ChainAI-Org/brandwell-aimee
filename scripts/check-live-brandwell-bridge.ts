@@ -1,6 +1,6 @@
+import { createHmac } from "node:crypto";
 import { BrandwellNativeConnector } from "../packages/adapters/src/brandwell-native-connector.js";
 import { createDb } from "../packages/db/src/client.js";
-import { createHmac } from "node:crypto";
 
 const databaseUrl = required("DATABASE_URL");
 const apiBaseUrl = required("BRANDWELL_PLATFORM_API_URL");
@@ -97,9 +97,7 @@ async function diagnosticRequest(input: {
   const timestamp = new Date().toISOString();
   const serialized = JSON.stringify({ limit: 1 });
   const signature = createHmac("sha256", input.serviceToken)
-    .update(
-      `${timestamp}.${input.customerId}.${input.workspaceId}.${executionId}.${serialized}`,
-    )
+    .update(`${timestamp}.${input.customerId}.${input.workspaceId}.${executionId}.${serialized}`)
     .digest("hex");
   const response = await fetch(
     `${input.apiBaseUrl.replace(/\/$/, "")}/internal/aimee/intent/daily-buyers`,

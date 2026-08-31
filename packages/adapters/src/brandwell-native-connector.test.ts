@@ -14,18 +14,20 @@ function expectedSignature(
 ) {
   const requestHash = createHash("sha256").update(serialized).digest("hex");
   return createHmac("sha256", SERVICE_TOKEN)
-    .update([
-      "brandwell-aimee-signature:v1",
-      "POST",
-      endpoint,
-      "customer-acme",
-      "workspace-acme",
-      "service-acme",
-      "effect-1",
-      idempotencyKey,
-      timestamp,
-      requestHash,
-    ].join("\n"))
+    .update(
+      [
+        "brandwell-aimee-signature:v1",
+        "POST",
+        endpoint,
+        "customer-acme",
+        "workspace-acme",
+        "service-acme",
+        "effect-1",
+        idempotencyKey,
+        timestamp,
+        requestHash,
+      ].join("\n"),
+    )
     .digest("hex");
 }
 
@@ -129,11 +131,7 @@ describe("BrandWell native connector", () => {
     const headers = requestInit?.headers as Record<string, string>;
     expect(headers["x-brandwell-signature-version"]).toBe("v1");
     expect(headers["x-brandwell-signature"]).toBe(
-      expectedSignature(
-        "/internal/aimee/visibility/read",
-        serialized,
-        "2026-08-30T17:00:00.000Z",
-      ),
+      expectedSignature("/internal/aimee/visibility/read", serialized, "2026-08-30T17:00:00.000Z"),
     );
     expect(JSON.parse(serialized)).toEqual({
       tool: "get_search_console_performance",

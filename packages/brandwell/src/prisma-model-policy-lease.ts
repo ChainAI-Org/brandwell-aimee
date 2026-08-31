@@ -25,10 +25,7 @@ export async function acquireBrandwellModelPolicyLease(
   const acquired = await prisma.brandwellAiWorkspace.updateMany({
     where: {
       id: mappingId,
-      OR: [
-        { modelPolicyLeaseExpiresAt: null },
-        { modelPolicyLeaseExpiresAt: { lte: acquiredAt } },
-      ],
+      OR: [{ modelPolicyLeaseExpiresAt: null }, { modelPolicyLeaseExpiresAt: { lte: acquiredAt } }],
     },
     data: {
       modelPolicyLeaseOwner: owner,
