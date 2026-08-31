@@ -14,6 +14,8 @@ describe("BrandWell deployment readiness gates", () => {
     expect(script).toContain("wait_for_readiness");
     expect(script).toContain("'\"ok\":true'");
     expect(script).toMatch(/grep -Fq .*revision.*expected_sha/);
+    expect(script).toMatch(/git fetch --no-tags origin "\$\{DEPLOY_SHA\}"/);
+    expect(script).toContain("up -d --force-recreate --no-deps caddy");
     expect(script).not.toContain("DEFAULT_HEALTH_URL");
   });
 
