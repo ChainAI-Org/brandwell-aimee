@@ -48,30 +48,31 @@ describe("AIMEE managed workspace baseline", () => {
       "BrandWell Site Health Audit",
       "BrandWell Keyword Research",
       "BrandWell Keyword Clustering",
+      "BrandWell Content Opportunities",
+      "BrandWell Content Consolidation",
       "BrandWell Competitive Landscape",
       "BrandWell Competitor Analysis",
       "BrandWell Local Visibility",
       "BrandWell Link Prospecting",
       "BrandWell AI Citation Analysis",
     ]);
-    expect(BRANDWELL_AIMEE_SKILLS).toHaveLength(15);
-    expect(BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION).toBe(2);
-    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.key)).size).toBe(15);
-    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.name.toLowerCase())).size).toBe(15);
+    expect(BRANDWELL_AIMEE_SKILLS).toHaveLength(17);
+    expect(BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION).toBe(3);
+    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.key)).size).toBe(17);
+    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.name.toLowerCase())).size).toBe(17);
     expect(JSON.stringify(BRANDWELL_AIMEE_VISIBILITY_SKILLS)).not.toMatch(/open[\s-]*seo/i);
   });
 
-  it("keeps every visibility skill project-bound, read-only, cached, and explicit about evidence", () => {
+  it("keeps every visibility skill project-bound, cache-aware, and explicit about evidence", () => {
     for (const item of BRANDWELL_AIMEE_VISIBILITY_SKILLS) {
       expect(item.key).toMatch(/^brandwell-/);
       expect(item.content).toContain("Begin with brandwell_visibility_get_project");
-      expect(item.content).toContain("read stored snapshots");
-      expect(item.content).toContain("do not refresh providers");
+      expect(item.content).toContain("Start with stored first-party evidence");
+      expect(item.content).toContain("cached by project and input for 24 hours");
+      expect(item.content).toContain("never fan out redundant provider calls");
       expect(item.content).toContain("Never request, combine, infer, or reveal another workspace");
       expect(item.content).toContain("Separate measured evidence from your interpretation");
-      expect(item.content).not.toMatch(
-        /research_keywords|run_site_audit|refresh_visibility|refresh_domain/i,
-      );
+      expect(item.content).not.toMatch(/run_site_audit|refresh_visibility|refresh_domain/i);
     }
   });
 });

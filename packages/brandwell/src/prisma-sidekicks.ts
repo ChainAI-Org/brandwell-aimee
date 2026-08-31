@@ -147,7 +147,10 @@ export async function syncBrandwellWorkspaceDesiredStateWithPrisma(
       400,
     );
   }
-  if (input.skillBundleVersion !== BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION) {
+  if (
+    input.skillBundleVersion < BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION - 1 ||
+    input.skillBundleVersion > BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION
+  ) {
     throw new BrandwellSidekickError(
       `AIMEE skill bundle ${input.skillBundleVersion} is not available in this release`,
       "skill_bundle_unavailable",
@@ -238,7 +241,7 @@ export async function syncBrandwellWorkspaceDesiredStateWithPrisma(
           plan: input.plan,
           masterSeats: 1,
           sidekickSeats: input.sidekickSeats,
-          skillBundleVersion: input.skillBundleVersion,
+          skillBundleVersion: BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION,
         },
       });
       if (!changed.count) {
