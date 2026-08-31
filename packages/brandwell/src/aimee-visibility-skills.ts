@@ -79,7 +79,7 @@ Workflow:
 Workflow:
 1. Call brandwell_visibility_get_project, brandwell_visibility_get_content_opportunities, brandwell_visibility_get_search_console with up to 100 rows, brandwell_visibility_list_saved_keywords, and brandwell_visibility_get_rank_tracking.
 2. Start with first-party demand. Identify high-impression low-CTR terms, positions 4 through 20, queries growing without a strong landing page, and pages already close to meaningful visibility.
-3. If the known set does not answer the request, make one focused brandwell_visibility_research_keywords call from the best-fit seed. Use brandwell_visibility_get_serp_results only for the finalists whose intent or page type is unclear.
+3. If the known set does not answer the request, make one focused brandwell_visibility_research_keywords call from the best-fit seed. Its results may already contain exact-query Search Console position, page, clicks, impressions, CTR, and competing-page context. Use brandwell_visibility_get_serp_results only for the finalists whose intent or page type is unclear.
 4. Merge measured volume, difficulty, CPC, competition, intent, trends, and tags when present. Never substitute a dash or zero for a missing metric.
 5. Remove duplicates, off-topic terms, unwanted branded terms, and keywords that require a product or audience the company does not serve.
 6. Prioritize business fit and intent first, then achievable position, existing authority, demand, and competition. Volume alone never decides priority.
