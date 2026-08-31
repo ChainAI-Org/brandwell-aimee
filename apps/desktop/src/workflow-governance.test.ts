@@ -86,4 +86,16 @@ describe("repository workflow governance", () => {
     expect(publish).toContain('.ok == true and .service == "aimee" and .revision == $sha');
     expect(publish).not.toContain("--location");
   });
+
+  it("publishes Playwright reports only after explicit repository opt-in", () => {
+    const report = workflow("publish-playwright-report.yml");
+    const publish = jobBlock(report, "publish");
+
+    expect(publish).toContain("vars.PLAYWRIGHT_REPORT_PUBLICATION_ENABLED == 'true'");
+    expect(publish).toContain("secrets.S3_ACCESS_KEY_ID");
+    expect(publish).toContain("secrets.S3_SECRET_ACCESS_KEY");
+    expect(publish).toContain("vars.S3_BUCKET");
+    expect(publish).toContain("vars.S3_ENDPOINT");
+    expect(publish).toContain("vars.PLAYWRIGHT_PUBLIC_BASE_URL");
+  });
 });
