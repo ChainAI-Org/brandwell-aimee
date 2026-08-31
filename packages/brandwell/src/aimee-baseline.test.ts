@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   BRANDWELL_AIMEE_DEFAULT_ROUTINES,
   BRANDWELL_AIMEE_INSTRUCTIONS,
+  BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION,
   BRANDWELL_AIMEE_SKILLS,
   BRANDWELL_AIMEE_WELCOME,
 } from "./aimee-baseline.js";
+import { BRANDWELL_AIMEE_VISIBILITY_SKILLS } from "./aimee-visibility-skills.js";
 
 describe("AIMEE managed workspace baseline", () => {
   it("introduces AIMEE and leaves the client's first priority open", () => {
@@ -25,7 +27,7 @@ describe("AIMEE managed workspace baseline", () => {
   });
 
   it("provisions a GTM operating skill plus the native BrandWell skills and routines", () => {
-    expect(BRANDWELL_AIMEE_SKILLS.map((skill) => skill.name)).toEqual([
+    expect(BRANDWELL_AIMEE_SKILLS.map((skill) => skill.name).slice(0, 5)).toEqual([
       "BrandWell GTM Operating System",
       "BrandWell Intent",
       "BrandWell TrafficID",
@@ -37,5 +39,39 @@ describe("AIMEE managed workspace baseline", () => {
         ?.content,
     ).toContain("exactly three hook concepts with GLM 5.3 through OpenRouter");
     expect(BRANDWELL_AIMEE_DEFAULT_ROUTINES).toHaveLength(4);
+  });
+
+  it("installs the BrandWell visibility workflow pack without external product branding", () => {
+    expect(BRANDWELL_AIMEE_VISIBILITY_SKILLS.map((item) => item.name)).toEqual([
+      "BrandWell Visibility Project Setup",
+      "BrandWell Visibility Coach",
+      "BrandWell Site Health Audit",
+      "BrandWell Keyword Research",
+      "BrandWell Keyword Clustering",
+      "BrandWell Competitive Landscape",
+      "BrandWell Competitor Analysis",
+      "BrandWell Local Visibility",
+      "BrandWell Link Prospecting",
+      "BrandWell AI Citation Analysis",
+    ]);
+    expect(BRANDWELL_AIMEE_SKILLS).toHaveLength(15);
+    expect(BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION).toBe(2);
+    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.key)).size).toBe(15);
+    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.name.toLowerCase())).size).toBe(15);
+    expect(JSON.stringify(BRANDWELL_AIMEE_VISIBILITY_SKILLS)).not.toMatch(/open[\s-]*seo/i);
+  });
+
+  it("keeps every visibility skill project-bound, read-only, cached, and explicit about evidence", () => {
+    for (const item of BRANDWELL_AIMEE_VISIBILITY_SKILLS) {
+      expect(item.key).toMatch(/^brandwell-/);
+      expect(item.content).toContain("Begin with brandwell_visibility_get_project");
+      expect(item.content).toContain("read stored snapshots");
+      expect(item.content).toContain("do not refresh providers");
+      expect(item.content).toContain("Never request, combine, infer, or reveal another workspace");
+      expect(item.content).toContain("Separate measured evidence from your interpretation");
+      expect(item.content).not.toMatch(
+        /research_keywords|run_site_audit|refresh_visibility|refresh_domain/i,
+      );
+    }
   });
 });
