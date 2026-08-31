@@ -347,6 +347,36 @@ describe("BrandWell client notifications", () => {
   });
 });
 
+describe("bot chat authentication", () => {
+  it("rejects chat listing before any workspace data is read", async () => {
+    const findMany = vi.fn();
+    const deps = {
+      prisma: { thread: { findMany } } as unknown as PrismaClient,
+      env: {
+        defaultProvider: "fake",
+        defaultModel: "fake-model",
+        webOrigin: "http://127.0.0.1:5173",
+        screenProxySecret: "fake-test-secret",
+        sandboxProvider: "fake",
+      },
+      dataDir: "/tmp/aimee-router-chat-auth-test",
+    } as unknown as RouterDeps;
+    const handler = new RPCHandler(createRouter(deps));
+
+    const { response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/threads/list", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: { botId: "bot-1" } }),
+      }),
+      { prefix: "/rpc", context: {} },
+    );
+
+    expect(response.status).toBe(401);
+    expect(findMany).not.toHaveBeenCalled();
+  });
+});
+
 describe("thread answer delivery", () => {
   it("accepts a durable answer when the immediate worker wake fails", async () => {
     const answerRunInput = vi.fn().mockResolvedValue(true);
@@ -356,7 +386,7 @@ describe("thread answer delivery", () => {
       bot: {
         findFirst: vi.fn().mockResolvedValue({
           id: "bot-1",
-          thread: { id: "thread-1" },
+          thread: { id: "thread-1", botId: "bot-1", archivedAt: null },
           computer: null,
         }),
       },

@@ -4,6 +4,7 @@ import { ChatMarkdown } from "@rakazo/chat-ui/web";
 import type {
   AgentSkillCatalogEntry,
   Bot,
+  BotChat,
   BotSection,
   ComputerMode,
   ComputerReleaseReason,
@@ -66,6 +67,7 @@ import {
   type GroupAvatarMember,
 } from "@rakazo/ui-web";
 import {
+  Archive,
   ArrowDown,
   ArrowUp,
   Bell,
@@ -81,6 +83,7 @@ import {
   Mic,
   Monitor,
   Paperclip,
+  Pencil,
   Phone,
   Plus,
   Puzzle,
@@ -145,8 +148,8 @@ import {
 import { transcriptIsNearEnd } from "../lib/transcript-scroll";
 import { speaker } from "../lib/tts";
 import { ActivityList } from "./ActivityList";
-import { BrandwellHome } from "./BrandwellHome";
 import type { ContextMenuPosition } from "./BotContextMenu";
+import { BrandwellHome } from "./BrandwellHome";
 import { CreateGroupForm, GroupSettings, memberName } from "./GroupPanel";
 import { HostComputerPrompt } from "./HostComputerPrompt";
 import { WindowChrome } from "./WindowChrome";
@@ -224,6 +227,8 @@ export function ShellPage() {
   const [botSections, setBotSections] = useState<BotSection[]>([]);
   const [archivedBots, setArchivedBots] = useState<Bot[]>([]);
   const [archivedOpen, setArchivedOpen] = useState(false);
+  const [managedChats, setManagedChats] = useState<BotChat[]>([]);
+  const [chatMutationBusy, setChatMutationBusy] = useState(false);
   const [query, setQuery] = useState("");
   const [searchHits, setSearchHits] = useState<SearchHit[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -378,13 +383,19 @@ export function ShellPage() {
   const autoSpokenBotId = useRef<string | null>(null);
 
   const inGroup = Boolean(groupId);
+  const selectedThreadId = inGroup ? undefined : (searchParams.get("thread") ?? undefined);
   const managedWorkspace = Boolean(bootstrapMe?.brandwell);
   const managedDashboard = dashboardMode && managedWorkspace;
   const active = inGroup ? undefined : (bots.find((b) => b.id === botId) ?? bots[0]);
   const activeGroup = groups.find((group) => group.id === groupId);
+  const activeConversationKey = inGroup
+    ? groupId
+    : (selectedThreadId ??
+      (snapshot && snapshot.botId === active?.id ? snapshot.threadId : undefined) ??
+      active?.id);
   const activePendingAttachments = useMemo(
-    () => attachmentsForThread(pendingAttachments, inGroup ? groupId : active?.id),
-    [active?.id, groupId, inGroup, pendingAttachments],
+    () => attachmentsForThread(pendingAttachments, activeConversationKey),
+    [activeConversationKey, pendingAttachments],
   );
   const activeRoutines = !inGroup && routinesBotId === active?.id ? routines : [];
   const activeTaughtSkills = taughtSkillsBotId === active?.id ? taughtSkills : [];
@@ -395,11 +406,20 @@ export function ShellPage() {
   routeGroupId.current = groupId;
   const activeBotId = useRef<string | undefined>(inGroup ? undefined : active?.id);
   activeBotId.current = inGroup ? undefined : active?.id;
+  const activeThreadId = useRef<string | undefined>(selectedThreadId);
+  activeThreadId.current =
+    selectedThreadId ??
+    (!inGroup && snapshot && snapshot.botId === active?.id ? snapshot.threadId : undefined);
   const activeGroupId = useRef<string | undefined>(groupId);
   activeGroupId.current = groupId;
   const screenRequest = useRef(0);
   const contextBot = botMenu ? bots.find((bot) => bot.id === botMenu.botId) : undefined;
   const closeBotMenu = useCallback(() => setBotMenu(null), []);
+
+  function botThreadTarget(id: string): { botId: string } | { threadId: string } {
+    const threadId = activeBotId.current === id ? activeThreadId.current : undefined;
+    return threadId ? { threadId } : { botId: id };
+  }
   const updateBotUnread = useCallback((id: string, unread: boolean) => {
     setBots((current) => {
       const bot = current.find((candidate) => candidate.id === id);
@@ -411,7 +431,7 @@ export function ShellPage() {
   }, []);
   const markBotRead = useCallback(
     async (id: string) => {
-      await rpc.threads.markRead({ botId: id });
+      await rpc.threads.markRead(botThreadTarget(id));
       manuallyUnread.current.delete(id);
       updateBotUnread(id, false);
     },
@@ -421,7 +441,7 @@ export function ShellPage() {
     async (id: string) => {
       manuallyUnread.current.add(id);
       try {
-        await rpc.threads.markUnread({ botId: id });
+        await rpc.threads.markUnread(botThreadTarget(id));
       } catch (err) {
         manuallyUnread.current.delete(id);
         throw err;
@@ -481,6 +501,88 @@ export function ShellPage() {
     [managedDashboard, navigate],
   );
 
+  const refreshManagedChats = useCallback(async (id: string) => {
+    const chats = await rpc.threads.list({ botId: id, includeArchived: true });
+    setManagedChats(chats);
+    return chats;
+  }, []);
+
+  async function startNewManagedChat() {
+    if (!active || chatMutationBusy) return;
+    setChatMutationBusy(true);
+    setSendError(null);
+    try {
+      const chat = await rpc.threads.create({ botId: active.id });
+      setManagedChats((current) => [chat, ...current.map((row) => ({ ...row, selected: false }))]);
+      setMobileSidebarOpen(false);
+      navigate(`/app/${active.id}?thread=${encodeURIComponent(chat.id)}`);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : t`Failed to create chat`);
+    } finally {
+      setChatMutationBusy(false);
+    }
+  }
+
+  async function openManagedChat(chat: BotChat) {
+    if (chatMutationBusy) return;
+    setChatMutationBusy(true);
+    setSendError(null);
+    try {
+      const selected = await rpc.threads.select({ threadId: chat.id });
+      setManagedChats((current) =>
+        current.map((row) => ({ ...row, selected: row.id === selected.id })),
+      );
+      setMobileSidebarOpen(false);
+      navigate(`/app/${chat.botId}?thread=${encodeURIComponent(chat.id)}`);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : t`Failed to open chat`);
+    } finally {
+      setChatMutationBusy(false);
+    }
+  }
+
+  async function renameManagedChat(chat: BotChat, title: string) {
+    setSendError(null);
+    try {
+      const updated = await rpc.threads.rename({ threadId: chat.id, title });
+      setManagedChats((current) => current.map((row) => (row.id === updated.id ? updated : row)));
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : t`Failed to rename chat`);
+    }
+  }
+
+  async function archiveManagedChat(chat: BotChat) {
+    if (chatMutationBusy) return;
+    setChatMutationBusy(true);
+    setSendError(null);
+    try {
+      const result = await rpc.threads.archive({ threadId: chat.id });
+      await refreshManagedChats(chat.botId);
+      setMobileSidebarOpen(false);
+      navigate(`/app/${chat.botId}?thread=${encodeURIComponent(result.selected.id)}`);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : t`Failed to archive chat`);
+    } finally {
+      setChatMutationBusy(false);
+    }
+  }
+
+  async function restoreManagedChat(chat: BotChat) {
+    if (chatMutationBusy) return;
+    setChatMutationBusy(true);
+    setSendError(null);
+    try {
+      const restored = await rpc.threads.restore({ threadId: chat.id });
+      await refreshManagedChats(chat.botId);
+      setMobileSidebarOpen(false);
+      navigate(`/app/${chat.botId}?thread=${encodeURIComponent(restored.id)}`);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : t`Failed to restore chat`);
+    } finally {
+      setChatMutationBusy(false);
+    }
+  }
+
   async function refreshGroupThread(id: string) {
     const scrollElement = messageScroll.current;
     const stickToEnd = !scrollElement || transcriptIsNearEnd(scrollElement);
@@ -521,7 +623,7 @@ export function ShellPage() {
     const request = ++threadRefreshEpoch.current;
     // Apply threads.get as soon as it returns so stop/takeover status is not held behind
     // routines/skills/screen fetches (progress can advance the cursor meanwhile).
-    const snap = await rpc.threads.get({ botId: id });
+    const snap = await rpc.threads.get(botThreadTarget(id));
     markOnce("rk:renderer:thread-response");
     if (
       activeBotId.current !== id ||
@@ -605,7 +707,7 @@ export function ShellPage() {
     setLoadingOlder(true);
     try {
       const page = await rpc.threads.messages({
-        ...(targetGroupId ? { groupId: targetGroupId } : { botId: targetBotId! }),
+        ...(targetGroupId ? { groupId: targetGroupId } : { threadId: snapshot.threadId }),
         before,
       });
       if (
@@ -699,6 +801,47 @@ export function ShellPage() {
       document.removeEventListener("visibilitychange", refreshVisibleBots);
     };
   }, []);
+
+  useEffect(() => {
+    if (!managedWorkspace || !active) {
+      setManagedChats([]);
+      return;
+    }
+    let cancelled = false;
+    const id = active.id;
+    void refreshManagedChats(id)
+      .then(async (chats) => {
+        const activeChats = chats.filter((chat) => chat.archivedAt == null);
+        if (cancelled || activeChats.length === 0) return;
+        const requested = selectedThreadId
+          ? activeChats.find((chat) => chat.id === selectedThreadId)
+          : undefined;
+        const target = requested ?? activeChats.find((chat) => chat.selected) ?? activeChats[0]!;
+        if (!target.selected) {
+          const selected = await rpc.threads.select({ threadId: target.id });
+          if (cancelled) return;
+          setManagedChats((current) =>
+            current.map((chat) => ({ ...chat, selected: chat.id === selected.id })),
+          );
+        }
+        if (!dashboardMode && target.id !== selectedThreadId) {
+          navigate(`/app/${id}?thread=${encodeURIComponent(target.id)}`, { replace: true });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setManagedChats([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    active?.id,
+    dashboardMode,
+    managedWorkspace,
+    navigate,
+    refreshManagedChats,
+    selectedThreadId,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -808,18 +951,21 @@ export function ShellPage() {
       bootstrappedThread.current = null;
       // Pending search jumps load the around-page separately; avoid replacing it with latest.
       const snap =
-        primed?.botId === active.id
+        primed?.botId === active.id && (!selectedThreadId || primed.threadId === selectedThreadId)
           ? primed
           : pendingJump
-            ? await rpc.threads.get({ botId: active.id }).catch(() => null)
+            ? await rpc.threads.get(botThreadTarget(active.id)).catch(() => null)
             : await refreshThread(active.id).catch(() => null);
       if (abort.signal.aborted) return;
       let cursor = snap?.cursor ?? -1;
+      const streamTarget = snap?.threadId
+        ? ({ threadId: snap.threadId } as const)
+        : botThreadTarget(active.id);
       let retryMs = 250;
       while (!abort.signal.aborted) {
         try {
           const events = await rpc.threads.subscribe(
-            { botId: active.id, cursor },
+            { ...streamTarget, cursor },
             { signal: abort.signal },
           );
           for await (const event of events) {
@@ -848,6 +994,7 @@ export function ShellPage() {
                 void refreshBots().catch(() => undefined);
               }
               if (event.payload.role === "bot") markBotReadIfVisible(active.id);
+              if (managedWorkspace) void refreshManagedChats(active.id).catch(() => undefined);
             }
             if (
               isRunTerminalEvent(event) ||
@@ -872,7 +1019,7 @@ export function ShellPage() {
     return () => {
       abort.abort();
     };
-  }, [active?.id, markBotReadIfVisible]);
+  }, [active?.id, managedWorkspace, markBotReadIfVisible, refreshManagedChats, selectedThreadId]);
 
   useEffect(() => {
     if (!groupId || !activeGroup) return;
@@ -1017,13 +1164,19 @@ export function ShellPage() {
     const params = new URLSearchParams();
     if (hit.messageId) params.set("m", hit.messageId);
     if (hit.routineId) params.set("routine", hit.routineId);
+    if (hit.threadId) params.set("thread", hit.threadId);
     navigate({
       pathname: hit.groupId ? `/app/g/${hit.groupId}` : `/app/${hit.botId}`,
       search: params.toString() ? `?${params.toString()}` : undefined,
     });
   }
 
-  async function jumpToMessage(target: { botId?: string; groupId?: string; messageId: string }) {
+  async function jumpToMessage(target: {
+    botId?: string;
+    groupId?: string;
+    threadId?: string;
+    messageId: string;
+  }) {
     const threadTarget = searchHitThreadTarget(target);
     const epoch = historyEpoch.current;
     jumpGeneration.current += 1;
@@ -1108,7 +1261,7 @@ export function ShellPage() {
       setSearchParams(next, { replace: true });
     }
     if (messageId) {
-      void jumpToMessage({ botId: active.id, messageId }).finally(() => {
+      void jumpToMessage({ ...botThreadTarget(active.id), messageId }).finally(() => {
         const next = new URLSearchParams(searchParams);
         next.delete("m");
         setSearchParams(next, { replace: true });
@@ -1119,7 +1272,9 @@ export function ShellPage() {
     ? snapshot?.groupId === groupId
       ? snapshot
       : null
-    : snapshot?.botId === active?.id
+    : snapshot &&
+        snapshot.botId === active?.id &&
+        (!selectedThreadId || snapshot.threadId === selectedThreadId)
       ? snapshot
       : null;
   const activeReplyTarget =
@@ -1319,14 +1474,14 @@ export function ShellPage() {
       return;
     }
     const botId = activeBotId.current;
-    if (botId) void jumpToMessageRef.current({ botId, messageId });
+    if (botId) void jumpToMessageRef.current({ ...botThreadTarget(botId), messageId });
   }, []);
   const answerMessage = useCallback(async (message: ThreadMessage, text: string) => {
     const botId = activeBotId.current;
     const groupId = activeGroupId.current;
     if (!botId && !groupId) return;
     await rpc.threads.answer({
-      ...(groupId ? { groupId } : { botId: botId! }),
+      ...(groupId ? { groupId } : botThreadTarget(botId!)),
       runId: message.runId ?? "",
       messageId: message.id,
       answer: text,
@@ -1339,7 +1494,7 @@ export function ShellPage() {
   }, []);
   const onAttachmentPick = useCallback(
     async (files: FileList | null) => {
-      const threadKey = activeGroupId.current ?? activeBotId.current;
+      const threadKey = activeGroupId.current ?? activeThreadId.current ?? activeBotId.current;
       if (!threadKey || !files?.length) return;
       const existing = attachmentsForThread(pendingAttachments, threadKey);
       const next: PendingAttachment[] = [];
@@ -1380,7 +1535,7 @@ export function ShellPage() {
       const initialBotTarget = activeBotId.current;
       const initialGroupTarget = activeGroupId.current;
       if ((!initialBotTarget && !initialGroupTarget) || sending) return;
-      const originThreadKey = initialGroupTarget ?? initialBotTarget;
+      const originThreadKey = initialGroupTarget ?? activeThreadId.current ?? initialBotTarget;
       const attachments = attachmentsForThread(pendingAttachments, originThreadKey);
       const plan = resolveComposerSendPlan({
         text,
@@ -1436,7 +1591,12 @@ export function ShellPage() {
           const artifact = await rpc.artifacts.create(
             groupTarget
               ? { groupId: groupTarget, name: pending.file.name, mimeType, contentBase64 }
-              : { botId: botTarget!, name: pending.file.name, mimeType, contentBase64 },
+              : {
+                  ...botThreadTarget(botTarget!),
+                  name: pending.file.name,
+                  mimeType,
+                  contentBase64,
+                },
           );
           artifactIds.push(artifact.id);
         }
@@ -1450,7 +1610,7 @@ export function ShellPage() {
           });
         } else if (botTarget) {
           await rpc.threads.send({
-            botId: botTarget,
+            ...botThreadTarget(botTarget),
             text: trimmed || undefined,
             mentions: plan.mentionPayload.length ? plan.mentionPayload : undefined,
             artifactIds: artifactIds.length ? artifactIds : undefined,
@@ -1469,7 +1629,10 @@ export function ShellPage() {
         if (groupTarget && activeGroupId.current === groupTarget) setAttachmentNotice(null);
         if (botTarget && activeBotId.current === botTarget) setAttachmentNotice(null);
         if (groupTarget) await refreshGroupThreadRef.current(groupTarget);
-        else if (botTarget) await refreshThreadRef.current(botTarget);
+        else if (botTarget) {
+          await refreshThreadRef.current(botTarget);
+          if (managedWorkspace) await refreshManagedChats(botTarget).catch(() => undefined);
+        }
       } catch (error) {
         if (reroutedToGroup && groupTarget) {
           setSendError(error instanceof Error ? error.message : t`Failed to send message`);
@@ -1482,12 +1645,20 @@ export function ShellPage() {
         setSending(false);
       }
     },
-    [activeReplyTarget?.id, navigate, pendingAttachments, sending, t],
+    [
+      activeReplyTarget?.id,
+      managedWorkspace,
+      navigate,
+      pendingAttachments,
+      refreshManagedChats,
+      sending,
+      t,
+    ],
   );
   const followUpMessage = useCallback(async (text: string) => {
     const id = activeBotId.current;
     if (!id) return;
-    await rpc.threads.followUp({ botId: id, text });
+    await rpc.threads.followUp({ ...botThreadTarget(id), text });
     await refreshThreadRef.current(id);
   }, []);
   const stopRun = useCallback(async () => {
@@ -1515,7 +1686,7 @@ export function ShellPage() {
     if (!botTarget) return;
     setSendError(null);
     try {
-      await rpc.threads.stop({ botId: botTarget });
+      await rpc.threads.stop(botThreadTarget(botTarget));
     } catch (error) {
       if (activeBotId.current === botTarget) {
         setSendError(error instanceof Error ? error.message : t`Failed to stop`);
@@ -1802,7 +1973,8 @@ export function ShellPage() {
             {managedWorkspace && active ? (
               <button
                 type="button"
-                onClick={() => setClearTarget(active)}
+                onClick={() => void startNewManagedChat()}
+                disabled={chatMutationBusy}
                 className="app-no-drag grid h-7 w-7 place-items-center rounded-full text-[21px] text-[#9A9AA0] hover:bg-[#1A1A1D] hover:text-white"
                 aria-label={t`Start a new chat`}
                 title={t`Start a new chat`}
@@ -1898,8 +2070,8 @@ export function ShellPage() {
               <span>Chats</span>
               <button
                 type="button"
-                onClick={() => active && setClearTarget(active)}
-                disabled={!active}
+                onClick={() => void startNewManagedChat()}
+                disabled={!active || chatMutationBusy}
                 className="grid h-6 w-6 place-items-center rounded-full text-[17px] text-[#85858A] hover:bg-[#171719] hover:text-white disabled:opacity-40"
                 aria-label={t`Start a new chat`}
                 title={t`Start a new chat`}
@@ -1925,77 +2097,126 @@ export function ShellPage() {
                   }}
                 />
               ) : null}
-              {sidebarGroups.map((group) => (
-                <div key={group.key} data-sidebar-group={group.key}>
-                  {group.title ? (
-                    <div className="px-2.5 pb-1 pt-3 text-[12.5px] font-medium text-[#6C6C70]">
-                      {group.title}
-                    </div>
-                  ) : null}
-                  {group.bots.map((bot) => (
-                    <button
-                      key={bot.id}
-                      type="button"
-                      onClick={() => {
-                        setMobileSidebarOpen(false);
-                        navigate(`/app/${bot.id}`);
-                      }}
-                      onContextMenu={(event) => {
-                        event.preventDefault();
-                        setBotMenu({
-                          botId: bot.id,
-                          position: { x: event.clientX, y: event.clientY },
-                        });
-                      }}
-                      className="flex w-full gap-3 rounded-xl px-2.5 py-[11px] text-start"
-                      style={{
-                        background: !inGroup && active?.id === bot.id ? "#161618" : "transparent",
-                      }}
-                    >
-                      <BotAvatar
-                        color={bot.color}
-                        identity={bot.id}
-                        size={38}
-                        status={bot.status}
+              {managedWorkspace && active
+                ? managedChats
+                    .filter((chat) => chat.archivedAt == null)
+                    .map((chat) => (
+                      <ManagedChatRow
+                        key={chat.id}
+                        bot={active}
+                        chat={chat}
+                        active={selectedThreadId === chat.id && !managedDashboard}
+                        disabled={chatMutationBusy}
+                        onSelect={() => void openManagedChat(chat)}
+                        onRename={(title) => void renameManagedChat(chat, title)}
+                        onArchive={() => void archiveManagedChat(chat)}
                       />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span
-                            dir="auto"
-                            className={`truncate text-[15px] text-[#ECECEE] ${
-                              bot.unread ? "font-semibold" : "font-medium"
-                            }`}
+                    ))
+                : null}
+              {managedWorkspace && managedChats.some((chat) => chat.archivedAt != null) ? (
+                <div className="mt-2 border-t border-[#202023] pt-2">
+                  <button
+                    type="button"
+                    aria-expanded={archivedOpen}
+                    onClick={() => setArchivedOpen((open) => !open)}
+                    className="flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-[13.5px] text-[#85858A] hover:bg-[#131315]"
+                  >
+                    <span>Archived chats</span>
+                    <span>{managedChats.filter((chat) => chat.archivedAt != null).length}</span>
+                  </button>
+                  {archivedOpen
+                    ? managedChats
+                        .filter((chat) => chat.archivedAt != null)
+                        .map((chat) => (
+                          <button
+                            key={chat.id}
+                            type="button"
+                            onClick={() => void restoreManagedChat(chat)}
+                            disabled={chatMutationBusy}
+                            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-start text-[13.5px] text-[#A8A8AD] hover:bg-[#131315] hover:text-white disabled:opacity-40"
                           >
-                            {bot.name}
-                            {bot.unread ? (
-                              <span className="sr-only">
-                                <Trans> (unread)</Trans>
-                              </span>
-                            ) : null}
-                          </span>
-                          <span className="flex shrink-0 items-center gap-1.5 text-[12.5px] text-[#6C6C70]">
-                            {bot.status === "idle" ? "" : bot.status}
-                            {bot.unread ? (
-                              <span
-                                aria-hidden="true"
-                                className="inline-block h-2 w-2 rounded-full bg-[#8B5CF6]"
-                              />
-                            ) : null}
-                          </span>
-                        </div>
-                        <div
-                          dir="auto"
-                          className={`mt-0.5 truncate text-[13.5px] ${
-                            bot.unread ? "font-medium text-[#C9C9CE]" : "text-[#85858A]"
-                          }`}
-                        >
-                          {bot.preview || bot.title}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
+                            <Archive size={14} strokeWidth={1.8} />
+                            <span className="min-w-0 flex-1 truncate">{chat.title}</span>
+                            <span className="text-[12px] text-[#6C6C70]">Restore</span>
+                          </button>
+                        ))
+                    : null}
                 </div>
-              ))}
+              ) : null}
+              {!managedWorkspace
+                ? sidebarGroups.map((group) => (
+                    <div key={group.key} data-sidebar-group={group.key}>
+                      {group.title ? (
+                        <div className="px-2.5 pb-1 pt-3 text-[12.5px] font-medium text-[#6C6C70]">
+                          {group.title}
+                        </div>
+                      ) : null}
+                      {group.bots.map((bot) => (
+                        <button
+                          key={bot.id}
+                          type="button"
+                          onClick={() => {
+                            setMobileSidebarOpen(false);
+                            navigate(`/app/${bot.id}`);
+                          }}
+                          onContextMenu={(event) => {
+                            event.preventDefault();
+                            setBotMenu({
+                              botId: bot.id,
+                              position: { x: event.clientX, y: event.clientY },
+                            });
+                          }}
+                          className="flex w-full gap-3 rounded-xl px-2.5 py-[11px] text-start"
+                          style={{
+                            background:
+                              !inGroup && active?.id === bot.id ? "#161618" : "transparent",
+                          }}
+                        >
+                          <BotAvatar
+                            color={bot.color}
+                            identity={bot.id}
+                            size={38}
+                            status={bot.status}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-baseline justify-between gap-2">
+                              <span
+                                dir="auto"
+                                className={`truncate text-[15px] text-[#ECECEE] ${
+                                  bot.unread ? "font-semibold" : "font-medium"
+                                }`}
+                              >
+                                {bot.name}
+                                {bot.unread ? (
+                                  <span className="sr-only">
+                                    <Trans> (unread)</Trans>
+                                  </span>
+                                ) : null}
+                              </span>
+                              <span className="flex shrink-0 items-center gap-1.5 text-[12.5px] text-[#6C6C70]">
+                                {bot.status === "idle" ? "" : bot.status}
+                                {bot.unread ? (
+                                  <span
+                                    aria-hidden="true"
+                                    className="inline-block h-2 w-2 rounded-full bg-[#8B5CF6]"
+                                  />
+                                ) : null}
+                              </span>
+                            </div>
+                            <div
+                              dir="auto"
+                              className={`mt-0.5 truncate text-[13.5px] ${
+                                bot.unread ? "font-medium text-[#C9C9CE]" : "text-[#85858A]"
+                              }`}
+                            >
+                              {bot.preview || bot.title}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  ))
+                : null}
             </>
           )}
           {!managedWorkspace && !showWorkspaceSearch
@@ -2912,7 +3133,7 @@ export function ShellPage() {
             bot={clearTarget}
             onCancel={() => setClearTarget(null)}
             onConfirm={async () => {
-              await rpc.threads.clear({ botId: clearTarget.id });
+              await rpc.threads.clear(botThreadTarget(clearTarget.id));
               if (active?.id === clearTarget.id) {
                 expandedHistoryThread.current = null;
                 pinnedAroundRef.current = null;
@@ -2922,7 +3143,12 @@ export function ShellPage() {
                 );
               }
               setClearTarget(null);
-              await refreshBots();
+              await Promise.all([
+                refreshBots(),
+                managedWorkspace
+                  ? refreshManagedChats(clearTarget.id)
+                  : Promise.resolve(managedChats),
+              ]);
             }}
           />
         ) : null}
@@ -3971,6 +4197,126 @@ function MessageHoverActions({
       >
         <Copy size={14} strokeWidth={1.8} />
       </button>
+    </div>
+  );
+}
+
+function ManagedChatRow({
+  bot,
+  chat,
+  active,
+  disabled,
+  onSelect,
+  onRename,
+  onArchive,
+}: {
+  bot: Bot;
+  chat: BotChat;
+  active: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+  onRename: (title: string) => void;
+  onArchive: () => void;
+}) {
+  const { t } = useLingui();
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(chat.title);
+  const titleInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => setTitle(chat.title), [chat.title]);
+  useEffect(() => {
+    if (editing) titleInput.current?.focus();
+  }, [editing]);
+
+  return (
+    <div
+      className="group/chat relative flex w-full items-center rounded-xl"
+      style={{ background: active ? "#161618" : "transparent" }}
+    >
+      {editing ? (
+        <div className="flex min-w-0 flex-1 gap-3 rounded-xl px-2.5 py-[11px] text-start">
+          <BotAvatar color={bot.color} identity={bot.id} size={38} status="idle" />
+          <form
+            className="min-w-0 flex-1"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const next = title.trim();
+              if (next && next !== chat.title) onRename(next);
+              else setTitle(chat.title);
+              setEditing(false);
+            }}
+          >
+            <input
+              ref={titleInput}
+              value={title}
+              maxLength={80}
+              onChange={(event) => setTitle(event.target.value)}
+              onBlur={() => {
+                setTitle(chat.title);
+                setEditing(false);
+              }}
+              className="w-full rounded-md border border-[#5B2AA8] bg-[#111113] px-1.5 py-0.5 text-[14px] text-[#ECECEE] outline-none"
+              aria-label={t`Chat title`}
+            />
+            <div dir="auto" className="mt-0.5 truncate text-[13.5px] text-[#85858A]">
+              {chat.preview || bot.name}
+            </div>
+          </form>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={onSelect}
+          disabled={disabled}
+          className="flex min-w-0 flex-1 gap-3 rounded-xl px-2.5 py-[11px] pe-16 text-start disabled:opacity-60"
+          aria-current={active ? "page" : undefined}
+        >
+          <BotAvatar
+            color={bot.color}
+            identity={bot.id}
+            size={38}
+            status={active ? bot.status : "idle"}
+          />
+          <div className="min-w-0 flex-1">
+            <div
+              dir="auto"
+              className={`truncate text-[15px] text-[#ECECEE] ${chat.unread ? "font-semibold" : "font-medium"}`}
+            >
+              {chat.title}
+            </div>
+            <div
+              dir="auto"
+              className={`mt-0.5 truncate text-[13.5px] ${chat.unread ? "font-medium text-[#C9C9CE]" : "text-[#85858A]"}`}
+            >
+              {chat.preview || bot.name}
+            </div>
+          </div>
+        </button>
+      )}
+      {!editing ? (
+        <div className="absolute end-2 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/chat:opacity-100 focus-within:opacity-100">
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            disabled={disabled}
+            className="grid h-7 w-7 place-items-center rounded-full bg-[#161618] text-[#85858A] hover:text-white disabled:opacity-40"
+            aria-label={t`Rename chat`}
+            title={t`Rename chat`}
+          >
+            <Pencil size={13} strokeWidth={1.8} />
+          </button>
+          <button
+            type="button"
+            onClick={onArchive}
+            disabled={disabled}
+            className="grid h-7 w-7 place-items-center rounded-full bg-[#161618] text-[#85858A] hover:text-white disabled:opacity-40"
+            aria-label={t`Archive chat`}
+            title={t`Archive chat`}
+          >
+            <Archive size={13} strokeWidth={1.8} />
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

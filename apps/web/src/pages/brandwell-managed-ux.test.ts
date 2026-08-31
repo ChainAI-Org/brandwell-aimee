@@ -17,9 +17,17 @@ describe("managed AIMEE workspace navigation", () => {
     expect(shell).toContain(">Chats</span>");
   });
 
-  it("provides an explicit new-chat control for a managed AI employee", () => {
+  it("creates retained chats and keeps destructive clearing separate", () => {
     expect(shell).toContain("aria-label={t`Start a new chat`}");
-    expect(shell).toContain("setClearTarget(active)");
+    expect(shell).toContain("rpc.threads.create({ botId: active.id })");
+    expect(shell).toContain("rpc.threads.select({ threadId: chat.id })");
+    expect(shell).toContain("rpc.threads.rename({ threadId: chat.id, title })");
+    expect(shell).toContain("rpc.threads.archive({ threadId: chat.id })");
+    expect(shell).toContain("rpc.threads.restore({ threadId: chat.id })");
+    expect(shell).toContain("Archived chats");
+    expect(shell).toContain("<ManagedChatRow");
+    expect(shell).toContain("...botThreadTarget(botTarget)");
+    expect(shell).toContain("rpc.threads.clear(botThreadTarget(clearTarget.id))");
     expect(shell).toContain("This permanently removes every message and stops current work");
   });
 });

@@ -222,17 +222,67 @@ async function lockAndLoadGroupMembers(
 export async function resolveThreadTarget(
   prisma: PrismaClient,
   actor: Actor,
-  input: { botId?: string; groupId?: string },
+  input: { botId?: string; groupId?: string; threadId?: string },
 ): Promise<ThreadTarget> {
   const repos = createRepos(prisma);
   const groupRepos = createGroupRepos(prisma);
+  if (input.threadId) {
+    const thread = await prisma.thread.findFirst({
+      where: { id: input.threadId, workspaceId: actor.workspaceId, archivedAt: null },
+      select: { id: true, botId: true, groupId: true },
+    });
+    if (!thread) throw new IsolationError();
+    if (thread.botId) {
+      const bot = await repos.getBot(actor, thread.botId);
+      return { kind: "bot", botId: bot.id, threadId: thread.id, bot };
+    }
+    if (thread.groupId) {
+      const group = await groupRepos.getGroupTarget(actor, thread.groupId);
+      if (group.thread?.id !== thread.id) throw new IsolationError();
+      const members = group.members.map((member) => ({
+        botId: member.bot.id,
+        name: member.bot.name,
+        color: member.bot.color,
+        status: member.bot.runs[0]?.status ?? "idle",
+      }));
+      return {
+        kind: "group",
+        groupId: group.id,
+        threadId: thread.id,
+        groupName: group.name,
+        members,
+        memberBotIds: members.map((member) => member.botId),
+      };
+    }
+    throw new IsolationError();
+  }
   if (input.botId) {
     const bot = await repos.getBot(actor, input.botId);
-    if (!bot.thread) throw new IsolationError();
+    const primary =
+      bot.thread?.botId === bot.id && bot.thread.archivedAt == null ? bot.thread : null;
+    const thread =
+      primary ??
+      (await prisma.thread.findFirst({
+        where: {
+          workspaceId: actor.workspaceId,
+          botId: bot.id,
+          groupId: null,
+          archivedAt: null,
+        },
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+        select: { id: true },
+      }));
+    if (!thread) throw new IsolationError();
+    if (!primary) {
+      await prisma.bot.update({
+        where: { id: bot.id },
+        data: { primaryThreadId: thread.id },
+      });
+    }
     return {
       kind: "bot",
       botId: bot.id,
-      threadId: bot.thread.id,
+      threadId: thread.id,
       bot,
     };
   }
@@ -264,7 +314,7 @@ export async function threadSnapshot(
   // Lock the thread row so messages, the event cursor, active runs, and live
   // progress are read from one consistent commit. A torn Promise.all can
   // otherwise advance the client cursor past thread.message.created while the
-  // ask message page still omits it — leaving waiting_input with no AskCard.
+  // ask message page still omits it, leaving waiting_input with no AskCard.
   if (target.kind === "bot") {
     const [busyBotName, core] = await Promise.all([
       resolveBusyBotName(deps.prisma, {

@@ -114,6 +114,16 @@ import { addScreenProxyCapability } from "./screen-proxy.js";
 import { queryWorkspaceSearch } from "./search.js";
 import { withSerializableRetry } from "./serializable-retry.js";
 import { assertTeachingSendAllowed, createTaughtSkillsService } from "./taught-skills.js";
+import {
+  ActiveThreadArchiveError,
+  archiveBotChat,
+  autoTitleBotChat,
+  createBotChat,
+  listBotChats,
+  renameBotChat,
+  restoreBotChat,
+  selectBotChat,
+} from "./thread-chats.js";
 import { loadAllMessages, loadMessagePage } from "./thread-message-pages.js";
 import {
   resolveThreadTarget,
@@ -836,6 +846,31 @@ export function createRouter(deps: RouterDeps) {
       ),
     },
     threads: {
+      list: authed.threads.list.handler(async ({ context, input }) =>
+        listBotChats(deps.prisma, context.actor, input),
+      ),
+      create: authed.threads.create.handler(async ({ context, input }) =>
+        createBotChat(deps.prisma, context.actor, input),
+      ),
+      select: authed.threads.select.handler(async ({ context, input }) =>
+        selectBotChat(deps.prisma, context.actor, input.threadId),
+      ),
+      rename: authed.threads.rename.handler(async ({ context, input }) =>
+        renameBotChat(deps.prisma, context.actor, input),
+      ),
+      archive: authed.threads.archive.handler(async ({ context, input }) => {
+        try {
+          return await archiveBotChat(deps.prisma, context.actor, input.threadId);
+        } catch (error) {
+          if (error instanceof ActiveThreadArchiveError) {
+            throw new ORPCError("CONFLICT", { message: error.message });
+          }
+          throw error;
+        }
+      }),
+      restore: authed.threads.restore.handler(async ({ context, input }) =>
+        restoreBotChat(deps.prisma, context.actor, input.threadId),
+      ),
       get: authed.threads.get.handler(async ({ context, input }) => {
         const target = await resolveThreadTarget(deps.prisma, context.actor, input);
         return threadSnapshot(deps, target);
@@ -865,7 +900,13 @@ export function createRouter(deps: RouterDeps) {
         if (target.kind === "bot") {
           await assertTeachingSendAllowed(deps.prisma, context.actor.workspaceId, target.botId);
         }
-        return sendThreadMessage(deps, context.actor, target, input);
+        const result = await sendThreadMessage(deps, context.actor, target, input);
+        if (target.kind === "bot") {
+          await autoTitleBotChat(deps.prisma, target.threadId, input.text).catch((error) => {
+            console.error("thread auto-title", error);
+          });
+        }
+        return result;
       }),
       stop: authed.threads.stop.handler(async ({ context, input }) => {
         const target = await resolveThreadTarget(deps.prisma, context.actor, input);
@@ -873,11 +914,14 @@ export function createRouter(deps: RouterDeps) {
         return { ok: true as const };
       }),
       clear: authed.threads.clear.handler(async ({ context, input }) => {
-        const bot = await repos.getBot(context.actor, input.botId);
-        if (!bot.thread) throw new IsolationError();
+        const target = await resolveThreadTarget(deps.prisma, context.actor, input);
+        if (target.kind !== "bot") {
+          throw new ORPCError("BAD_REQUEST", { message: "Only AI employee chats can be cleared." });
+        }
+        const bot = target.bot;
         const { cancelledRunIds, historyCompactionGeneration } = await deps.events.clearThread({
           workspaceId: context.actor.workspaceId,
-          threadId: bot.thread.id,
+          threadId: target.threadId,
           botId: bot.id,
         });
         const [configuredMemory] = await Promise.all([
@@ -906,7 +950,7 @@ export function createRouter(deps: RouterDeps) {
                   historyCompactionGeneration,
                 ],
               },
-              computerContext(context.actor, bot.id, `thread-clear:${bot.thread.id}`),
+              computerContext(context.actor, bot.id, `thread-clear:${target.threadId}`),
             );
             if (!purged.ok) {
               console.error("semantic memory purge after thread clear failed", purged.error);

@@ -556,6 +556,19 @@ export const ThreadMessagePageSchema = z.object({
 });
 export type ThreadMessagePage = z.infer<typeof ThreadMessagePageSchema>;
 
+export const BotChatSchema = z.object({
+  id: Id,
+  botId: Id,
+  title: z.string(),
+  preview: z.string(),
+  unread: z.boolean(),
+  selected: z.boolean(),
+  archivedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type BotChat = z.infer<typeof BotChatSchema>;
+
 export const ThreadSnapshotSchema = z.object({
   threadId: Id,
   cursor: z.number().int().min(-1),

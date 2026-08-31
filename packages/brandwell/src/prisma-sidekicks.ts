@@ -477,6 +477,10 @@ export async function provisionBrandwellSidekickWithPrisma(
       const thread = await tx.thread.create({
         data: { workspaceId: mapping.rakazoWorkspaceId, botId: bot.id, userId: ownerUserId },
       });
+      await tx.bot.update({
+        where: { id: bot.id },
+        data: { primaryThreadId: thread.id },
+      });
       await createThreadMessageInTransaction(tx, {
         threadId: thread.id,
         role: "bot",

@@ -244,6 +244,10 @@ export function createPrismaBrandwellProvisioningRunner(
               const thread = await tx.thread.create({
                 data: { workspaceId, botId: created.id, userId: systemUserId! },
               });
+              await tx.bot.update({
+                where: { id: created.id },
+                data: { primaryThreadId: thread.id },
+              });
               await createThreadMessageInTransaction(tx, {
                 threadId: thread.id,
                 role: "bot",

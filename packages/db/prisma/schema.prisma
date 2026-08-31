@@ -259,7 +259,9 @@ model Bot {
   children           Bot[]                     @relation("BotChildren")
   createdAt          DateTime                  @default(now())
   updatedAt          DateTime                  @updatedAt
-  thread             Thread?
+  primaryThreadId    String?                   @unique
+  thread             Thread?                   @relation("BotPrimaryThread", fields: [primaryThreadId], references: [id], onDelete: SetNull)
+  threads            Thread[]                  @relation("BotThreads")
   computerId         String?
   computer           Computer?                 @relation(fields: [computerId], references: [id], onDelete: SetNull)
   computerSwitching  Boolean                   @default(false)
@@ -355,12 +357,16 @@ model Thread {
   id                          String       @id @default(cuid())
   workspaceId                 String
   workspace                   Organization @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  botId                       String?      @unique
-  bot                         Bot?         @relation(fields: [botId], references: [id], onDelete: Cascade)
+  botId                       String?
+  bot                         Bot?         @relation("BotThreads", fields: [botId], references: [id], onDelete: Cascade)
+  primaryForBot               Bot?         @relation("BotPrimaryThread")
   groupId                     String?      @unique
   group                       ChatGroup?   @relation(fields: [groupId], references: [id], onDelete: Cascade)
   userId                      String
+  title                       String       @default("New chat")
+  archivedAt                  DateTime?
   createdAt                   DateTime     @default(now())
+  updatedAt                   DateTime     @updatedAt
   nextEventSeq                Int          @default(0)
   nextMessageSeq              Int          @default(0)
   historyCompactedUpToSeq     Int?
@@ -373,6 +379,7 @@ model Thread {
   runs                        Run[]
 
   @@index([workspaceId])
+  @@index([botId, archivedAt, updatedAt])
   @@map("threads")
 }
 
@@ -598,7 +605,7 @@ model AgentSkill {
   name           String
   description    String
   content        String
-  /// user | builtin | plugin — only user skills are writable via API/tools.
+  /// user | builtin | plugin. Only user skills are writable via API/tools.
   source         String       @default("user")
   managedKey     String?
   managedVersion Int?
