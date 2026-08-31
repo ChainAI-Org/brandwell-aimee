@@ -134,6 +134,24 @@ const ToolDefinitions = [
       .strict(),
   },
   {
+    name: "brandwell_visibility_get_content_opportunities",
+    description:
+      "Rank existing pages with Search Console striking-distance or click-through opportunities.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "get_content_opportunities",
+    schema: z.object({ limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  },
+  {
+    name: "brandwell_visibility_get_cannibalization_candidates",
+    description:
+      "Find Search Console queries that received impressions for multiple project URLs. Results require intent review before any merge or redirect.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "get_cannibalization_candidates",
+    schema: z.object({ limit: z.number().int().min(1).max(100).default(25) }).strict(),
+  },
+  {
     name: "brandwell_visibility_get_analytics",
     description:
       "Read the stored Google Analytics summary, daily metrics, and acquisition rows for this Company Project.",
@@ -185,6 +203,153 @@ const ToolDefinitions = [
     endpoint: "/internal/aimee/visibility/read",
     remoteTool: "get_site_audit",
     schema: z.object({ audit_id: z.string().min(1).max(80) }).strict(),
+  },
+  {
+    name: "brandwell_visibility_get_domain_overview",
+    description:
+      "Research the organic footprint and link authority of the project domain or another domain. Results are cached for 24 hours and may use the project's research allowance on a cache miss.",
+    readOnly: false,
+    endpoint: "/internal/aimee/visibility/research",
+    remoteTool: "get_domain_overview",
+    timeoutMs: 60_000,
+    schema: z
+      .object({
+        domain: z.string().min(1).max(500).optional(),
+        location_code: z.number().int().positive().optional(),
+        language_code: z.string().min(2).max(16).optional(),
+      })
+      .strict(),
+  },
+  {
+    name: "brandwell_visibility_get_domain_keywords",
+    description:
+      "Research the ranked keywords and landing pages for the project domain or another domain. Results are cached for 24 hours and may use the project's research allowance on a cache miss.",
+    readOnly: false,
+    endpoint: "/internal/aimee/visibility/research",
+    remoteTool: "get_domain_keywords",
+    timeoutMs: 60_000,
+    schema: z
+      .object({
+        domain: z.string().min(1).max(500).optional(),
+        limit: z.union([z.literal(25), z.literal(50), z.literal(100)]).default(50),
+        include_subdomains: z.boolean().default(true),
+        search: z.string().max(120).optional(),
+        sort: z.enum(["rank", "traffic", "volume", "score", "cpc"]).default("traffic"),
+        order: z.enum(["asc", "desc"]).default("desc"),
+        location_code: z.number().int().positive().optional(),
+        language_code: z.string().min(2).max(16).optional(),
+      })
+      .strict(),
+  },
+  {
+    name: "brandwell_visibility_get_domain_pages",
+    description:
+      "Research the highest-value organic pages for the project domain or another domain. Results are cached for 24 hours and may use the project's research allowance on a cache miss.",
+    readOnly: false,
+    endpoint: "/internal/aimee/visibility/research",
+    remoteTool: "get_domain_pages",
+    timeoutMs: 60_000,
+    schema: z
+      .object({
+        domain: z.string().min(1).max(500).optional(),
+        limit: z.union([z.literal(25), z.literal(50), z.literal(100)]).default(50),
+        include_subdomains: z.boolean().default(true),
+        search: z.string().max(120).optional(),
+        sort: z.enum(["traffic", "keywords"]).default("traffic"),
+        order: z.enum(["asc", "desc"]).default("desc"),
+        location_code: z.number().int().positive().optional(),
+        language_code: z.string().min(2).max(16).optional(),
+      })
+      .strict(),
+  },
+  {
+    name: "brandwell_visibility_research_keywords",
+    description:
+      "Discover keyword ideas with demand, difficulty, CPC, competition, intent, and monthly trend evidence. Results are cached for 24 hours and may use the project's research allowance on a cache miss.",
+    readOnly: false,
+    endpoint: "/internal/aimee/visibility/research",
+    remoteTool: "research_keywords",
+    timeoutMs: 60_000,
+    schema: z
+      .object({
+        keyword: z.string().min(1).max(500),
+        limit: z.number().int().min(10).max(500).default(50),
+        mode: z.enum(["auto", "related", "suggestions", "ideas"]).default("auto"),
+        clickstream: z.boolean().default(false),
+        location_code: z.number().int().positive().optional(),
+        language_code: z.string().min(2).max(16).optional(),
+      })
+      .strict(),
+  },
+  {
+    name: "brandwell_visibility_get_serp_results",
+    description:
+      "Inspect the current organic results for one keyword to verify search intent, ranking pages, and competing domains. Results are cached for 24 hours and may use the project's research allowance on a cache miss.",
+    readOnly: false,
+    endpoint: "/internal/aimee/visibility/research",
+    remoteTool: "get_serp_results",
+    timeoutMs: 60_000,
+    schema: z
+      .object({
+        keyword: z.string().min(1).max(500),
+        location_code: z.number().int().positive().optional(),
+        language_code: z.string().min(2).max(16).optional(),
+      })
+      .strict(),
+  },
+  {
+    name: "brandwell_visibility_get_backlinks_overview",
+    description:
+      "Research backlink authority and growth for a domain or exact page. Results are cached for 24 hours and may use the project's research allowance on a cache miss.",
+    readOnly: false,
+    endpoint: "/internal/aimee/visibility/research",
+    remoteTool: "get_backlinks_overview",
+    timeoutMs: 60_000,
+    schema: z
+      .object({
+        target: z.string().min(1).max(2_048).optional(),
+        scope: z.enum(["domain", "page"]).default("domain"),
+      })
+      .strict(),
+  },
+  {
+    name: "brandwell_visibility_get_ai_citations",
+    description:
+      "Research historical AI questions, brand mentions, cited sources, and optional competitor share of voice. Results are cached for 24 hours and may use the project's research allowance on a cache miss.",
+    readOnly: false,
+    endpoint: "/internal/aimee/visibility/research",
+    remoteTool: "get_ai_citations",
+    timeoutMs: 120_000,
+    schema: z
+      .object({
+        query: z.string().min(1).max(500).optional(),
+        competitors: z.array(z.string().min(1).max(253)).max(5).optional(),
+        location_code: z.number().int().positive().optional(),
+        language_code: z.string().min(2).max(16).optional(),
+      })
+      .strict(),
+  },
+  {
+    name: "brandwell_visibility_explore_ai_prompt",
+    description:
+      "Run an explicitly approved prompt through selected AI answer models and return the answer, citations, fan-out queries, and brand-match evidence.",
+    readOnly: false,
+    endpoint: "/internal/aimee/visibility/research",
+    remoteTool: "explore_ai_prompt",
+    timeoutMs: 120_000,
+    schema: z
+      .object({
+        prompt: z.string().min(1).max(10_000),
+        models: z
+          .array(z.enum(["chat_gpt", "claude", "gemini", "perplexity"]))
+          .min(1)
+          .max(4)
+          .default(["chat_gpt"]),
+        highlight_brand: z.string().min(1).max(200).optional(),
+        web_search: z.boolean().default(true),
+        country_code: z.string().length(2).default("US"),
+      })
+      .strict(),
   },
   {
     name: "brandwell_postcards_create_campaign_draft",
@@ -403,7 +568,12 @@ export class BrandwellNativeConnector implements ConnectorProvider {
           ...(idempotencyKey ? { "x-brandwell-idempotency-key": idempotencyKey } : {}),
         },
         body: serialized,
-        signal: combineSignals(context.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)),
+        signal: combineSignals(
+          context.signal,
+          AbortSignal.timeout(
+            "timeoutMs" in definition ? definition.timeoutMs : REQUEST_TIMEOUT_MS,
+          ),
+        ),
       });
       if (!response.ok) {
         yield {
