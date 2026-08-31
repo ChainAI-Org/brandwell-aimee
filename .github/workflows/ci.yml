@@ -24,6 +24,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      - name: Reject high-severity production dependency advisories
+        run: pnpm audit --prod --audit-level high
 
   check:
     name: Typecheck
