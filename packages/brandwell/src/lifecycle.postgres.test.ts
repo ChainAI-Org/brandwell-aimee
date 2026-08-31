@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createDb, type PrismaClient } from "@rakazo/db";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
+  BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION,
   BrandwellManagedRunBlockedError,
   cancelBrandwellWorkspaceWithPrisma,
   createBrandwellManagedModelResolver,
@@ -159,7 +160,7 @@ describePostgres("BrandWell AIMEE managed lifecycle (PostgreSQL acceptance)", ()
           plan: "aimee",
           masterSeats: 1,
           sidekickSeats: 0,
-          skillBundleVersion: 1,
+          skillBundleVersion: BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION,
         },
         prisma,
       );
