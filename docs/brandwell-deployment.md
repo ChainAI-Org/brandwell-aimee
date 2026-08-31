@@ -178,11 +178,12 @@ Require approval for the `brandwell-production` environment. Set the repository 
 `BRANDWELL_PRODUCTION_DEPLOY_ENABLED=true` only after staging acceptance passes. Staging is a
 manual workflow so provider costs cannot start from an ordinary push.
 
-GitHub Actions is enabled on the fork, and the `brandwell-staging` and `brandwell-production`
-environments exist. The deployment workflow must reach the default branch before it can be run
-from the Actions UI, and each environment still needs its deployment secrets. Production keeps a
-required reviewer and remains disabled through `BRANDWELL_PRODUCTION_DEPLOY_ENABLED=false` until
-staging acceptance is complete.
+GitHub Actions is enabled on the BrandWell source repository, and the `brandwell-staging` and
+`brandwell-production` environments exist. The deployment workflow is on the default branch, but
+each environment still needs its deployment secrets. Production keeps a required reviewer and
+remains disabled through `BRANDWELL_PRODUCTION_DEPLOY_ENABLED=false` until staging acceptance is
+complete. The separate `brandwell-desktop-release` environment must be created and protected before
+the first stable desktop tag is pushed.
 
 ## Staging release
 
@@ -313,7 +314,12 @@ Never use `git reset --hard` against a shared working checkout as a deployment r
 
 ## Current external launch blockers
 
-Code readiness is not the same as a live environment. The 2026-08-29 live audit found that
+Code readiness is not the same as a live environment. The 2026-08-31 release audit confirmed that
+the AIMEE control-plane, desktop, provider lifecycle, release-governance, and production-readiness
+changes are on `main` at revision `430959e31eb48af625f003fbffa7f57b5c439a80`. The pull request
+gate passed lint, typecheck, unit tests, PostgreSQL journeys, production builds, Electron smoke,
+Web E2E, and both container image validations.
+
 Daytona account capacity is available: a full-access AIMEE API key exists, the active
 `brandwell-aimee-browser-v1` snapshot exists, a staging sandbox exists in a stopped state, and the
 account has Tier 3 capacity. Daytona secrets are empty, which is acceptable because deployment
@@ -322,23 +328,36 @@ credentials belong in the AIMEE host's secret manager, not inside sandbox images
 Excluding mobile packaging and store submission, provider-backed staging acceptance still requires
 all of the following external state:
 
-- attach or deploy a staging host for `staging-ai.brandwell.ai`; both AIMEE hostnames currently
-  resolve to the same DigitalOcean app target but fail the TLS handshake and do not expose health;
-- merge the deployment workflow to the default branch and configure the GitHub staging environment
-  secrets;
+- rename the public source repository from its legacy name to `ChainAI-Org/brandwell-aimee`;
+  official image publication, desktop release publication, and update verification deliberately
+  refuse to run under any other repository identity;
+- protect `main` and stable `v*` tags, enable secret scanning and push protection, and create the
+  protected `brandwell-desktop-release` environment;
+- add deployment secrets to the existing `brandwell-staging` and `brandwell-production`
+  environments; production currently has a required reviewer and
+  `BRANDWELL_PRODUCTION_DEPLOY_ENABLED=false`;
+- point `ai.brandwell.ai` and `staging-ai.brandwell.ai` at their AIMEE hosts and issue valid TLS
+  certificates; both names currently resolve to the portal DigitalOcean app and fail the TLS
+  handshake;
+- deploy the accepted revision instead of the older live AIMEE revision
+  `6946309d64c762b1e08c34b07efafd682cce1965`, then require `/ready` to report the exact deployed
+  revision before promotion;
 - place the existing Daytona credential and snapshot name in the staging secret manager, then prove
   provision, execute, suspend, resume, and destroy against a disposable workspace;
 - create an OpenRouter management key and store it directly in the staging secret manager; a normal
   inference key cannot create or reconcile tenant child keys;
 - configure separate staging database, auth, encryption, signing, and fallback-provider secrets;
 - configure the same dedicated BrandWell platform service token on both control planes;
-- apply BrandWell migrations `0090_aimee_entitlements_and_sidekicks` and
-  `0091_aimee_stripe_billing`, plus all pending AIMEE Prisma migrations;
-- create or select dedicated Stripe AIMEE master and Sidekick prices, bind them to the intended
-  subscription, and explicitly reconcile the line-item quantities from Super Admin;
+- save the synthetic client entitlement and a centralized default model in BrandWell Super Admin;
+  the bridge correctly fails closed until the entitlement exists;
+- bind the intended Stripe subscription, reconcile AIMEE and Sidekick quantities, archive duplicate
+  prices, and remove duplicate default routines only after their exact live targets are confirmed;
 - schedule the BrandWell billing sweep for durable commercial-state retries;
 - complete one provider-backed primary AIMEE and Sidekick journey, including isolated credentials,
-  managed skill rollout, spend reconciliation, pause, cancellation, retention, and deletion.
+  managed skill rollout, centralized model replacement, spend reconciliation, pause, cancellation,
+  retention, and deletion;
+- configure macOS signing and notarization credentials plus Windows Authenticode credentials before
+  creating the first stable desktop tag.
 
 Mobile signing, store ownership, physical-device push, deep-link, preview, and takeover evidence
 remain a separate release track.
