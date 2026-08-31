@@ -32,6 +32,7 @@ import {
   destroyBot,
   EncryptedSecretStore,
   ExpoPushProvider,
+  fenceManagedComputerForLifecycleInTransaction,
   GraphileJobPublisher,
   InMemoryJobQueue,
   InMemoryRealtimeFanout,
@@ -50,6 +51,7 @@ import {
   pushTokenPath,
   type RemoteConnectorDependencies,
   ScriptedAgentRuntime,
+  stopManagedComputerForLifecycle,
   toComputerRef,
   WorkspaceMemoryProviderResolver,
 } from "@rakazo/adapters";
@@ -435,24 +437,33 @@ export async function createApp(
                   ? { dailyLimitMicros: usdToMicros(env.brandwellOpenRouterDailyLimitUsd) }
                   : {}),
               }),
-            setSidekickLifecycle: async (sidekickId, action) => {
-              if (action !== "resume") {
-                const sidekick = await prisma.brandwellSidekick.findFirst({
-                  where: { OR: [{ id: sidekickId }, { brandwellSidekickId: sidekickId }] },
-                  include: { computer: true },
-                });
-                if (sidekick?.computer?.providerRef) {
-                  await sandbox.stop(
-                    toComputerRef(sidekick.computer),
-                    brandwellComputerContext(sidekick.computer),
-                  );
-                }
-              }
-              return setBrandwellSidekickLifecycleWithPrisma(sidekickId, action, {
+            setSidekickLifecycle: (sidekickId, action, input) =>
+              setBrandwellSidekickLifecycleWithPrisma(sidekickId, action, {
                 prisma,
                 openRouter: openRouterManagement,
-              });
-            },
+                idempotencyKey: input.idempotencyKey,
+                auditMetadata: input.auditMetadata,
+                computerLifecycle: {
+                  fence: (tx, request) =>
+                    fenceManagedComputerForLifecycleInTransaction(tx, {
+                      computerId: request.computerId,
+                      botId: request.botId,
+                      reason: `BrandWell Sidekick ${request.action} requested`,
+                    }).then(() => undefined),
+                  stop: (request) =>
+                    stopManagedComputerForLifecycle(
+                      { prisma, sandbox, home, jobs },
+                      {
+                        computerId: request.computerId,
+                        botId: request.botId,
+                        reason: `BrandWell Sidekick ${request.action} requested`,
+                        checkpointRequired: request.checkpointRequired,
+                        markCheckpointed: request.markCheckpointed,
+                      },
+                      brandwellSidekickLifecycleContext(request),
+                    ),
+                },
+              }),
             rolloutSkillBundle: (workspaceId) =>
               rolloutBrandwellSkillBundleWithPrisma(workspaceId, prisma),
             reconcileModelUsage: (workspaceId) =>
@@ -529,6 +540,24 @@ function brandwellComputerContext(computer: { id: string; workspaceId: string; u
     traceId: `brandwell-cancellation:${computer.id}`,
     workspaceId: computer.workspaceId,
     userId: computer.userId,
+    signal: new AbortController().signal,
+  };
+}
+
+function brandwellSidekickLifecycleContext(input: {
+  operationId: string;
+  action: "pause" | "cancel";
+  botId: string;
+  workspaceId: string;
+  userId: string;
+}) {
+  const operationId = `brandwell-sidekick-lifecycle:${input.operationId}:${input.action}`;
+  return {
+    operationId,
+    traceId: operationId,
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    botId: input.botId,
     signal: new AbortController().signal,
   };
 }

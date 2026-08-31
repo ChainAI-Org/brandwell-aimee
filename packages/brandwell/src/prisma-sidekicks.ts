@@ -4,6 +4,7 @@ import {
   ensureComputerRecord,
   type Prisma,
   type PrismaClient,
+  withTransactionRetry,
 } from "@rakazo/db";
 import {
   BRANDWELL_AIMEE_DEFAULT_ROUTINES,
@@ -13,6 +14,7 @@ import {
 import { BRANDWELL_BRAND } from "./brand-config.js";
 import { brandwellSidekickOpenRouterKeyLabel } from "./openrouter-key-labels.js";
 import { microsToUsd, type OpenRouterManagementClient } from "./openrouter-management.js";
+import { acquireBrandwellModelPolicyLease } from "./prisma-model-policy-lease.js";
 import type { BrandwellSecretCipher } from "./prisma-provisioning.js";
 import { installBrandwellSkillBundle } from "./prisma-skills.js";
 
@@ -67,7 +69,33 @@ export type PrismaBrandwellSidekickOptions = {
 export type PrismaBrandwellSidekickLifecycleOptions = {
   prisma: PrismaClient;
   openRouter: Pick<OpenRouterManagementClient, "updateKey" | "deleteKey">;
+  idempotencyKey: string;
+  computerLifecycle: {
+    fence(
+      tx: Prisma.TransactionClient,
+      input: {
+        operationId: string;
+        action: "pause" | "cancel";
+        computerId: string;
+        botId: string;
+        workspaceId: string;
+        userId: string;
+      },
+    ): Promise<void>;
+    stop(input: {
+      operationId: string;
+      action: "pause" | "cancel";
+      computerId: string;
+      botId: string;
+      workspaceId: string;
+      userId: string;
+      checkpointRequired: boolean;
+      markCheckpointed(): Promise<void>;
+    }): Promise<void>;
+  };
+  auditMetadata?: Prisma.InputJsonObject;
   now?: () => Date;
+  createId?: () => string;
 };
 
 export async function syncBrandwellWorkspaceDesiredStateWithPrisma(
@@ -76,8 +104,8 @@ export async function syncBrandwellWorkspaceDesiredStateWithPrisma(
   prisma: PrismaClient,
   openRouter?: Pick<OpenRouterManagementClient, "updateKey">,
 ) {
-  const mapping = await findMapping(prisma, workspaceReference);
-  if (!mapping) {
+  const initialMapping = await findMapping(prisma, workspaceReference);
+  if (!initialMapping) {
     throw new BrandwellSidekickError("BrandWell workspace not found", "workspace_not_found", 404);
   }
   if (
@@ -98,108 +126,155 @@ export async function syncBrandwellWorkspaceDesiredStateWithPrisma(
       409,
     );
   }
-  if (input.revision < mapping.commercialRevision) {
+  const policyLease = await acquireBrandwellModelPolicyLease(
+    prisma,
+    initialMapping.id,
+    "workspace-desired-state",
+  );
+  if (!policyLease) {
     throw new BrandwellSidekickError(
-      "The commercial desired state is older than the applied revision",
-      "stale_commercial_revision",
+      "Another model policy or Sidekick change is already in progress",
+      "model_policy_busy",
       409,
     );
   }
-  if (input.revision === mapping.commercialRevision) {
-    return { mapping, replayed: true };
-  }
-  const counted = await prisma.brandwellSidekick.count({
-    where: { aiWorkspaceId: mapping.id, status: { in: COUNTED_SIDEKICK_STATES } },
-  });
-  if (input.sidekickSeats < counted) {
-    throw new BrandwellSidekickError(
-      "Cancel excess Sidekicks before reducing the licensed seat count",
-      "sidekick_seats_in_use",
-      409,
-    );
-  }
-
-  const inferenceEnabled = ACTIVE_COMMERCIAL_STATES.has(input.status);
-  const shouldEnableProviderKeys =
-    inferenceEnabled && ["paused", "past_due"].includes(mapping.commercialStatus);
-  if (openRouter && (!inferenceEnabled || shouldEnableProviderKeys)) {
-    const [masterCredential, sidekickCredentials] = await Promise.all([
-      prisma.brandwellWorkspaceModelCredential.findUnique({
-        where: { workspaceId: mapping.rakazoWorkspaceId },
-        select: { externalKeyHash: true },
-      }),
-      prisma.brandwellSidekickModelCredential.findMany({
-        where: { workspaceId: mapping.rakazoWorkspaceId },
-        select: { externalKeyHash: true },
-      }),
-    ]);
-    for (const credential of [masterCredential, ...sidekickCredentials]) {
-      if (credential?.externalKeyHash) {
-        await openRouter.updateKey(credential.externalKeyHash, { disabled: !inferenceEnabled });
-      }
-    }
-  }
-  const updated = await prisma.$transaction(async (tx) => {
-    const changed = await tx.brandwellAiWorkspace.updateMany({
-      where: { id: mapping.id, commercialRevision: { lt: input.revision } },
-      data: {
-        brandwellAgencyId: input.agencyId,
-        brandwellClientId: input.clientId,
-        brandwellContractId: input.contractId ?? null,
-        commercialRevision: input.revision,
-        commercialStatus: input.status,
-        subscriptionStatus: inferenceEnabled ? "active" : input.status,
-        plan: input.plan,
-        masterSeats: 1,
-        sidekickSeats: input.sidekickSeats,
-        skillBundleVersion: input.skillBundleVersion,
-      },
-    });
-    if (!changed.count) {
+  try {
+    const mapping = await findMapping(prisma, workspaceReference);
+    if (!mapping) {
       throw new BrandwellSidekickError(
-        "A newer commercial revision was applied concurrently",
+        "BrandWell workspace not found",
+        "workspace_not_found",
+        404,
+      );
+    }
+    if (input.revision < mapping.commercialRevision) {
+      throw new BrandwellSidekickError(
+        "The commercial desired state is older than the applied revision",
         "stale_commercial_revision",
         409,
       );
     }
-    if (!inferenceEnabled) {
-      await tx.bot.updateMany({
-        where: { workspaceId: mapping.rakazoWorkspaceId, managedByBrandWell: true },
-        data: { managedStatus: "paused" },
-      });
-      await tx.routine.updateMany({
-        where: { workspaceId: mapping.rakazoWorkspaceId },
-        data: { active: false },
-      });
-      await tx.brandwellWorkspaceModelCredential.updateMany({
-        where: { workspaceId: mapping.rakazoWorkspaceId },
-        data: { status: "disabled", disabledAt: new Date() },
-      });
-      await tx.brandwellSidekickModelCredential.updateMany({
-        where: { workspaceId: mapping.rakazoWorkspaceId },
-        data: { status: "disabled", disabledAt: new Date() },
-      });
-    } else if (mapping.commercialStatus === "paused" || mapping.commercialStatus === "past_due") {
-      await tx.bot.updateMany({
-        where: {
-          workspaceId: mapping.rakazoWorkspaceId,
-          managedByBrandWell: true,
-          archivedAt: null,
-        },
-        data: { managedStatus: "active" },
-      });
-      await tx.brandwellWorkspaceModelCredential.updateMany({
-        where: { workspaceId: mapping.rakazoWorkspaceId },
-        data: { status: "active", disabledAt: null },
-      });
-      await tx.brandwellSidekickModelCredential.updateMany({
-        where: { workspaceId: mapping.rakazoWorkspaceId },
-        data: { status: "active", disabledAt: null },
-      });
+    if (input.revision === mapping.commercialRevision) {
+      return { mapping, replayed: true };
     }
-    return tx.brandwellAiWorkspace.findUniqueOrThrow({ where: { id: mapping.id } });
-  });
-  return { mapping: updated, replayed: false };
+    const counted = await prisma.brandwellSidekick.count({
+      where: { aiWorkspaceId: mapping.id, status: { in: COUNTED_SIDEKICK_STATES } },
+    });
+    if (input.sidekickSeats < counted) {
+      throw new BrandwellSidekickError(
+        "Cancel excess Sidekicks before reducing the licensed seat count",
+        "sidekick_seats_in_use",
+        409,
+      );
+    }
+
+    const inferenceEnabled = ACTIVE_COMMERCIAL_STATES.has(input.status);
+    const shouldEnableProviderKeys =
+      inferenceEnabled && ["paused", "past_due"].includes(mapping.commercialStatus);
+    if (openRouter && (!inferenceEnabled || shouldEnableProviderKeys)) {
+      const activeSidekickIds = inferenceEnabled
+        ? (
+            await prisma.brandwellSidekick.findMany({
+              where: { workspaceId: mapping.rakazoWorkspaceId, status: "active" },
+              select: { id: true },
+            })
+          ).map((sidekick) => sidekick.id)
+        : [];
+      const [masterCredential, sidekickCredentials] = await Promise.all([
+        prisma.brandwellWorkspaceModelCredential.findUnique({
+          where: { workspaceId: mapping.rakazoWorkspaceId },
+          select: { externalKeyHash: true },
+        }),
+        prisma.brandwellSidekickModelCredential.findMany({
+          where: {
+            workspaceId: mapping.rakazoWorkspaceId,
+            ...(inferenceEnabled ? { sidekickId: { in: activeSidekickIds } } : {}),
+          },
+          select: { externalKeyHash: true },
+        }),
+      ]);
+      for (const credential of [masterCredential, ...sidekickCredentials]) {
+        if (credential?.externalKeyHash) {
+          await policyLease.renew();
+          await openRouter.updateKey(credential.externalKeyHash, { disabled: !inferenceEnabled });
+        }
+      }
+    }
+    await policyLease.renew();
+    const updated = await prisma.$transaction(async (tx) => {
+      const changed = await tx.brandwellAiWorkspace.updateMany({
+        where: { id: mapping.id, commercialRevision: { lt: input.revision } },
+        data: {
+          brandwellAgencyId: input.agencyId,
+          brandwellClientId: input.clientId,
+          brandwellContractId: input.contractId ?? null,
+          commercialRevision: input.revision,
+          commercialStatus: input.status,
+          subscriptionStatus: inferenceEnabled ? "active" : input.status,
+          plan: input.plan,
+          masterSeats: 1,
+          sidekickSeats: input.sidekickSeats,
+          skillBundleVersion: input.skillBundleVersion,
+        },
+      });
+      if (!changed.count) {
+        throw new BrandwellSidekickError(
+          "A newer commercial revision was applied concurrently",
+          "stale_commercial_revision",
+          409,
+        );
+      }
+      if (!inferenceEnabled) {
+        await tx.bot.updateMany({
+          where: { workspaceId: mapping.rakazoWorkspaceId, managedByBrandWell: true },
+          data: { managedStatus: "paused" },
+        });
+        await tx.routine.updateMany({
+          where: { workspaceId: mapping.rakazoWorkspaceId },
+          data: { active: false },
+        });
+        await tx.brandwellWorkspaceModelCredential.updateMany({
+          where: { workspaceId: mapping.rakazoWorkspaceId },
+          data: { status: "disabled", disabledAt: new Date() },
+        });
+        await tx.brandwellSidekickModelCredential.updateMany({
+          where: { workspaceId: mapping.rakazoWorkspaceId },
+          data: { status: "disabled", disabledAt: new Date() },
+        });
+      } else if (
+        mapping.commercialStatus === "paused" ||
+        mapping.commercialStatus === "past_due"
+      ) {
+        const activeSidekicks = await tx.brandwellSidekick.findMany({
+          where: { workspaceId: mapping.rakazoWorkspaceId, status: "active" },
+          select: { id: true, botId: true },
+        });
+        const activeBotIds = [mapping.primaryBotId, ...activeSidekicks.map(({ botId }) => botId)]
+          .filter((botId): botId is string => Boolean(botId));
+        await tx.bot.updateMany({
+          where: {
+            id: { in: activeBotIds },
+            workspaceId: mapping.rakazoWorkspaceId,
+            managedByBrandWell: true,
+            archivedAt: null,
+          },
+          data: { managedStatus: "active" },
+        });
+        await tx.brandwellWorkspaceModelCredential.updateMany({
+          where: { workspaceId: mapping.rakazoWorkspaceId },
+          data: { status: "active", disabledAt: null },
+        });
+        await tx.brandwellSidekickModelCredential.updateMany({
+          where: { sidekickId: { in: activeSidekicks.map(({ id }) => id) } },
+          data: { status: "active", disabledAt: null },
+        });
+      }
+      return tx.brandwellAiWorkspace.findUniqueOrThrow({ where: { id: mapping.id } });
+    });
+    return { mapping: updated, replayed: false };
+  } finally {
+    await policyLease.release().catch(() => undefined);
+  }
 }
 
 export async function provisionBrandwellSidekickWithPrisma(
@@ -627,34 +702,501 @@ export async function setBrandwellSidekickLifecycleWithPrisma(
   action: "pause" | "resume" | "cancel",
   options: PrismaBrandwellSidekickLifecycleOptions,
 ) {
-  const sidekick = await options.prisma.brandwellSidekick.findFirst({
-    where: { OR: [{ id: sidekickReference }, { brandwellSidekickId: sidekickReference }] },
+  const idempotencyKey = normalizedLifecycleIdempotencyKey(options.idempotencyKey);
+  const now = options.now ?? (() => new Date());
+  const createId = options.createId ?? randomUUID;
+  const initial = await findLifecycleSidekick(options.prisma, sidekickReference);
+  if (!initial?.botId) {
+    throw new BrandwellSidekickError("Sidekick not found", "sidekick_not_found", 404);
+  }
+  const replay = await options.prisma.brandwellSidekickLifecycleOperation.findUnique({
+    where: { idempotencyKey },
+  });
+  if (replay && (replay.sidekickId !== initial.id || replay.action !== action)) {
+    throw new BrandwellSidekickError(
+      "The lifecycle idempotency key is already assigned to another request",
+      "sidekick_lifecycle_identity_conflict",
+      409,
+    );
+  }
+  if (replay?.status === "completed") return storedLifecycleResult(replay.result, initial);
+
+  const policyLease = await acquireBrandwellModelPolicyLease(
+    options.prisma,
+    initial.aiWorkspaceId,
+    `sidekick-lifecycle:${action}`,
+    now,
+  );
+  if (!policyLease) {
+    throw new BrandwellSidekickError(
+      "Another model policy or Sidekick change is already in progress",
+      "model_policy_busy",
+      409,
+    );
+  }
+
+  let resumeProviderMayBeEnabled = false;
+  let operationId: string | null = null;
+  try {
+    let operation = replay;
+
+    if (!operation) {
+      const unfinished = await options.prisma.brandwellSidekickLifecycleOperation.findFirst({
+        where: { sidekickId: initial.id, status: { in: ["running", "failed"] } },
+      });
+      if (unfinished) {
+        throw new BrandwellSidekickError(
+          "Retry the unfinished Sidekick lifecycle request with its original idempotency key",
+          "sidekick_lifecycle_busy",
+          409,
+        );
+      }
+      const idempotent = idempotentLifecycleStatus(initial.status, action);
+      if (idempotent) return lifecycleResult(initial, true);
+      operation = await beginSidekickLifecycleOperation(
+        sidekickReference,
+        action,
+        idempotencyKey,
+        options,
+        now(),
+        createId(),
+      );
+    } else {
+      await options.prisma.brandwellSidekickLifecycleOperation.update({
+        where: { id: operation.id },
+        data: { status: "running", attempts: { increment: 1 }, lastError: null },
+      });
+      operation = await options.prisma.brandwellSidekickLifecycleOperation.findUniqueOrThrow({
+        where: { id: operation.id },
+      });
+    }
+    operationId = operation.id;
+
+    if (operation.providerStatus === "pending") {
+      if (!operation.externalKeyHash) {
+        throw new BrandwellSidekickError(
+          "The Sidekick OpenRouter key link must be reconciled before this lifecycle action can finish",
+          "sidekick_credential_unlinked",
+          503,
+        );
+      }
+      await policyLease.renew();
+      if (action === "cancel") {
+        await options.openRouter.deleteKey(operation.externalKeyHash);
+      } else {
+        if (action === "resume") resumeProviderMayBeEnabled = true;
+        await options.openRouter.updateKey(operation.externalKeyHash, {
+          disabled: action === "pause",
+        });
+      }
+      await options.prisma.brandwellSidekickLifecycleOperation.update({
+        where: { id: operation.id },
+        data: { providerStatus: "completed", lastError: null },
+      });
+      operation = { ...operation, providerStatus: "completed" };
+    } else if (action === "resume" && operation.providerStatus === "completed") {
+      resumeProviderMayBeEnabled = true;
+    }
+
+    if (["pending", "fenced", "checkpointed"].includes(operation.computerStatus)) {
+      await policyLease.renew();
+      await stopLifecycleComputer(sidekickReference, operation, options);
+    }
+
+    await policyLease.renew();
+    return await completeSidekickLifecycleOperation(operation.id, options, now());
+  } catch (error) {
+    let resetResumeProvider = false;
+    if (action === "resume" && resumeProviderMayBeEnabled) {
+      const operation = operationId
+        ? await options.prisma.brandwellSidekickLifecycleOperation.findUnique({
+            where: { id: operationId },
+            select: { externalKeyHash: true },
+          })
+        : null;
+      if (operation?.externalKeyHash) {
+        resetResumeProvider = await options.openRouter
+          .updateKey(operation.externalKeyHash, { disabled: true })
+          .then(() => true)
+          .catch(() => false);
+      }
+    }
+    if (action !== "resume" && operationId) {
+      const unfinished = await options.prisma.brandwellSidekickLifecycleOperation
+        .findUnique({ where: { id: operationId } })
+        .catch(() => null);
+      if (
+        unfinished?.providerStatus === "pending" &&
+        ["pending", "fenced", "checkpointed"].includes(unfinished.computerStatus)
+      ) {
+        await stopLifecycleComputer(sidekickReference, unfinished, options).catch(() => undefined);
+      }
+    }
+    if (operationId) {
+      await options.prisma.brandwellSidekickLifecycleOperation
+        .update({
+          where: { id: operationId },
+          data: {
+            status: "failed",
+            lastError: safeLifecycleError(error),
+            ...(resetResumeProvider ? { providerStatus: "pending" } : {}),
+          },
+        })
+        .catch(() => undefined);
+    }
+    if (error instanceof BrandwellSidekickError) throw error;
+    throw new BrandwellSidekickError(
+      "The Sidekick lifecycle change is safely blocked and will resume on retry",
+      "sidekick_lifecycle_pending",
+      503,
+    );
+  } finally {
+    await policyLease.release().catch(() => undefined);
+  }
+}
+
+async function beginSidekickLifecycleOperation(
+  sidekickReference: string,
+  action: "pause" | "resume" | "cancel",
+  idempotencyKey: string,
+  options: PrismaBrandwellSidekickLifecycleOptions,
+  at: Date,
+  operationId: string,
+) {
+  return withTransactionRetry(() =>
+    options.prisma.$transaction(
+      async (tx) => {
+        const sidekick = await findLifecycleSidekick(tx, sidekickReference);
+        if (!sidekick?.botId) {
+          throw new BrandwellSidekickError("Sidekick not found", "sidekick_not_found", 404);
+        }
+        assertLifecycleTransition(sidekick, action);
+        if (action === "resume") await assertResumeReady(tx, sidekick);
+        const unfinished = await tx.brandwellSidekickLifecycleOperation.findFirst({
+          where: { sidekickId: sidekick.id, status: { in: ["running", "failed"] } },
+        });
+        if (unfinished) {
+          throw new BrandwellSidekickError(
+            "Another Sidekick lifecycle change is already in progress",
+            "sidekick_lifecycle_busy",
+            409,
+          );
+        }
+
+        const nextStatus = action === "cancel" ? "canceling" : action === "pause" ? "paused" : null;
+        if (nextStatus) {
+          const changed = await tx.brandwellSidekick.updateMany({
+            where: { id: sidekick.id, status: sidekick.status },
+            data: {
+              status: nextStatus,
+              ...(action === "pause" ? { pausedAt: at } : { canceledAt: at }),
+            },
+          });
+          if (changed.count !== 1) {
+            throw new BrandwellSidekickError(
+              "The Sidekick lifecycle state changed concurrently",
+              "sidekick_lifecycle_conflict",
+              409,
+            );
+          }
+          await tx.bot.update({
+            where: { id: sidekick.botId },
+            data: {
+              managedStatus: action === "cancel" ? "canceled" : "paused",
+              ...(action === "cancel" ? { archivedAt: at } : {}),
+            },
+          });
+          await tx.routine.updateMany({
+            where: { botId: sidekick.botId },
+            data: { active: false, nextRunAt: null },
+          });
+          if (sidekick.modelCredential) {
+            await tx.brandwellSidekickModelCredential.update({
+              where: { id: sidekick.modelCredential.id },
+              data: { status: "disabled", disabledAt: at },
+            });
+          }
+          if (sidekick.computerId) {
+            const computerUserId = sidekick.userId ?? sidekick.bot?.userId;
+            if (!computerUserId) {
+              throw new BrandwellSidekickError(
+                "The Sidekick computer owner must be reconciled before this lifecycle action can finish",
+                "sidekick_computer_unavailable",
+                503,
+              );
+            }
+            const stoppedAction = action === "cancel" ? "cancel" : "pause";
+            await options.computerLifecycle.fence(tx, {
+              operationId,
+              action: stoppedAction,
+              computerId: sidekick.computerId,
+              botId: sidekick.botId,
+              workspaceId: sidekick.workspaceId,
+              userId: computerUserId,
+            });
+          }
+        }
+
+        if (action === "cancel") {
+          if (sidekick.workspaceAccessManaged && sidekick.invitationId) {
+            await tx.invitation.deleteMany({
+              where: { id: sidekick.invitationId, status: "pending" },
+            });
+          }
+          if (sidekick.userId) {
+            const [remaining, managedAccess] = await Promise.all([
+              tx.brandwellSidekick.count({
+                where: {
+                  workspaceId: sidekick.workspaceId,
+                  userId: sidekick.userId,
+                  id: { not: sidekick.id },
+                  status: { in: COUNTED_SIDEKICK_STATES },
+                },
+              }),
+              tx.brandwellSidekick.count({
+                where: {
+                  workspaceId: sidekick.workspaceId,
+                  userId: sidekick.userId,
+                  workspaceAccessManaged: true,
+                },
+              }),
+            ]);
+            if (remaining === 0 && managedAccess > 0) {
+              await tx.member.deleteMany({
+                where: {
+                  organizationId: sidekick.workspaceId,
+                  userId: sidekick.userId,
+                  role: "member",
+                },
+              });
+            }
+          }
+        }
+
+        return tx.brandwellSidekickLifecycleOperation.create({
+          data: {
+            id: operationId,
+            sidekickId: sidekick.id,
+            workspaceId: sidekick.workspaceId,
+            idempotencyKey,
+            action,
+            fromStatus: sidekick.status,
+            providerStatus: sidekick.modelCredential ? "pending" : "not_required",
+            computerStatus: action === "resume" || !sidekick.computerId ? "not_required" : "fenced",
+            externalKeyHash: sidekick.modelCredential?.externalKeyHash,
+            computerProviderRef: sidekick.computer?.providerRef,
+            auditMetadata: options.auditMetadata ?? {},
+          },
+        });
+      },
+      { isolationLevel: "Serializable" },
+    ),
+  );
+}
+
+async function stopLifecycleComputer(
+  sidekickReference: string,
+  operation: { id: string; action: string; computerStatus: string },
+  options: PrismaBrandwellSidekickLifecycleOptions,
+) {
+  if (operation.action !== "pause" && operation.action !== "cancel") return;
+  const sidekick = await findLifecycleSidekick(options.prisma, sidekickReference);
+  if (!sidekick?.botId || !sidekick.computerId) {
+    throw new BrandwellSidekickError(
+      "The Sidekick computer must be reconciled before this lifecycle action can finish",
+      "sidekick_computer_unavailable",
+      503,
+    );
+  }
+  const computerUserId = sidekick.userId ?? sidekick.bot?.userId;
+  if (!computerUserId) {
+    throw new BrandwellSidekickError(
+      "The Sidekick computer owner must be reconciled before this lifecycle action can finish",
+      "sidekick_computer_unavailable",
+      503,
+    );
+  }
+  await options.computerLifecycle.stop({
+    operationId: operation.id,
+    action: operation.action,
+    computerId: sidekick.computerId,
+    botId: sidekick.botId,
+    workspaceId: sidekick.workspaceId,
+    userId: computerUserId,
+    checkpointRequired: operation.computerStatus === "pending" || operation.computerStatus === "fenced",
+    markCheckpointed: async () => {
+      await options.prisma.brandwellSidekickLifecycleOperation.updateMany({
+        where: {
+          id: operation.id,
+          computerStatus: { in: ["pending", "fenced"] },
+        },
+        data: { computerStatus: "checkpointed", lastError: null },
+      });
+    },
+  });
+  await options.prisma.brandwellSidekickLifecycleOperation.update({
+    where: { id: operation.id },
+    data: { computerStatus: "completed", lastError: null },
+  });
+}
+
+async function completeSidekickLifecycleOperation(
+  operationId: string,
+  options: PrismaBrandwellSidekickLifecycleOptions,
+  at: Date,
+) {
+  return withTransactionRetry(() =>
+    options.prisma.$transaction(
+      async (tx) => {
+        const operation = await tx.brandwellSidekickLifecycleOperation.findUniqueOrThrow({
+          where: { id: operationId },
+        });
+        const sidekick = await findLifecycleSidekick(tx, operation.sidekickId);
+        if (!sidekick?.botId) {
+          throw new BrandwellSidekickError("Sidekick not found", "sidekick_not_found", 404);
+        }
+        if (operation.status === "completed") {
+          return storedLifecycleResult(operation.result, sidekick);
+        }
+        if (
+          !["completed", "not_required"].includes(operation.providerStatus) ||
+          !["completed", "not_required"].includes(operation.computerStatus)
+        ) {
+          throw new Error("Sidekick lifecycle provider work is incomplete");
+        }
+
+        let status: "paused" | "active" | "canceled";
+        if (operation.action === "resume") {
+          await assertResumeReady(tx, sidekick);
+          const changed = await tx.brandwellSidekick.updateMany({
+            where: { id: sidekick.id, status: "paused" },
+            data: { status: "active", pausedAt: null, canceledAt: null },
+          });
+          if (changed.count !== 1) throw new Error("Sidekick resume state changed concurrently");
+          await tx.bot.update({
+            where: { id: sidekick.botId },
+            data: { managedStatus: "active", archivedAt: null },
+          });
+          await tx.brandwellSidekickModelCredential.update({
+            where: { id: sidekick.modelCredential!.id },
+            data: { status: "active", disabledAt: null },
+          });
+          status = "active";
+        } else if (operation.action === "cancel") {
+          const changed = await tx.brandwellSidekick.updateMany({
+            where: { id: sidekick.id, status: "canceling" },
+            data: { status: "canceled", canceledAt: sidekick.canceledAt ?? at },
+          });
+          if (changed.count !== 1) throw new Error("Sidekick cancellation state changed concurrently");
+          await tx.bot.update({
+            where: { id: sidekick.botId },
+            data: { managedStatus: "canceled", archivedAt: sidekick.bot?.archivedAt ?? at },
+          });
+          if (sidekick.modelCredential) {
+            await tx.brandwellSidekickModelCredential.delete({
+              where: { id: sidekick.modelCredential.id },
+            });
+            await tx.secret.delete({ where: { id: sidekick.modelCredential.secretId } });
+          }
+          status = "canceled";
+        } else {
+          if (sidekick.status !== "paused") throw new Error("Sidekick pause state changed concurrently");
+          status = "paused";
+        }
+
+        const result = lifecycleResult({ ...sidekick, status }, false);
+        await tx.brandwellAuditLog.create({
+          data: {
+            workspaceId: sidekick.workspaceId,
+            actorType: "brandwell_operator",
+            action: `sidekick.${operation.action}`,
+            resourceType: "brandwell_sidekick",
+            resourceId: sidekick.id,
+            metadata: {
+              ...jsonObject(operation.auditMetadata),
+              operationId: operation.id,
+              idempotencyKey: operation.idempotencyKey,
+              fromStatus: operation.fromStatus,
+              status,
+            },
+          },
+        });
+        await tx.brandwellSidekickLifecycleOperation.update({
+          where: { id: operation.id },
+          data: {
+            status: "completed",
+            completedAt: at,
+            lastError: null,
+            result,
+          },
+        });
+        return result;
+      },
+      { isolationLevel: "Serializable" },
+    ),
+  );
+}
+
+function findLifecycleSidekick(prisma: PrismaClient | Prisma.TransactionClient, reference: string) {
+  return prisma.brandwellSidekick.findFirst({
+    where: { OR: [{ id: reference }, { brandwellSidekickId: reference }] },
     include: {
+      bot: true,
+      computer: true,
       modelCredential: true,
       aiWorkspace: { select: { commercialStatus: true, subscriptionStatus: true } },
     },
   });
-  if (!sidekick?.botId) {
-    throw new BrandwellSidekickError("Sidekick not found", "sidekick_not_found", 404);
+}
+
+function assertLifecycleTransition(
+  sidekick: NonNullable<Awaited<ReturnType<typeof findLifecycleSidekick>>>,
+  action: "pause" | "resume" | "cancel",
+) {
+  if (sidekick.status === "canceled") {
+    throw new BrandwellSidekickError(
+      "A canceled Sidekick cannot change lifecycle state",
+      "sidekick_canceled",
+      409,
+    );
   }
-  if (action === "resume" && !sidekick.userId) {
+  if (action === "pause" && sidekick.status !== "active") {
+    throw new BrandwellSidekickError(
+      "Only an active Sidekick can be paused",
+      "sidekick_transition_invalid",
+      409,
+    );
+  }
+  if (action === "resume" && sidekick.status !== "paused") {
+    throw new BrandwellSidekickError(
+      "Only a paused Sidekick can be resumed",
+      "sidekick_transition_invalid",
+      409,
+    );
+  }
+  if (action === "cancel" && !["invited", "active", "paused", "canceling"].includes(sidekick.status)) {
+    throw new BrandwellSidekickError(
+      "This Sidekick cannot be canceled from its current state",
+      "sidekick_transition_invalid",
+      409,
+    );
+  }
+}
+
+async function assertResumeReady(
+  prisma: Prisma.TransactionClient,
+  sidekick: NonNullable<Awaited<ReturnType<typeof findLifecycleSidekick>>>,
+) {
+  if (!sidekick.userId) {
     throw new BrandwellSidekickError(
       "The teammate must accept access before this Sidekick can resume",
       "sidekick_access_pending",
       409,
     );
   }
-  if (action === "resume" && sidekick.status === "canceled") {
-    throw new BrandwellSidekickError(
-      "A canceled Sidekick cannot be resumed",
-      "sidekick_canceled",
-      409,
-    );
-  }
   if (
-    action === "resume" &&
-    (!ACTIVE_COMMERCIAL_STATES.has(sidekick.aiWorkspace.commercialStatus) ||
-      !ACTIVE_COMMERCIAL_STATES.has(sidekick.aiWorkspace.subscriptionStatus))
+    !ACTIVE_COMMERCIAL_STATES.has(sidekick.aiWorkspace.commercialStatus) ||
+    !ACTIVE_COMMERCIAL_STATES.has(sidekick.aiWorkspace.subscriptionStatus)
   ) {
     throw new BrandwellSidekickError(
       "The client AIMEE entitlement must be active before this Sidekick can resume",
@@ -662,114 +1204,104 @@ export async function setBrandwellSidekickLifecycleWithPrisma(
       409,
     );
   }
-  if (action === "cancel" && sidekick.status === "canceled") {
-    return {
-      sidekickId: sidekick.id,
-      status: sidekick.status,
-      botId: sidekick.botId,
-      computerId: sidekick.computerId,
-    };
-  }
-  const at = options.now?.() ?? new Date();
-  const status = action === "cancel" ? "canceled" : action === "pause" ? "paused" : "active";
-  const shouldRevokeMemberAccess =
-    action === "cancel" && sidekick.workspaceAccessManaged && sidekick.userId
-      ? (await options.prisma.brandwellSidekick.count({
-          where: {
-            workspaceId: sidekick.workspaceId,
-            userId: sidekick.userId,
-            id: { not: sidekick.id },
-            status: { not: "canceled" },
-          },
-        })) === 0
-      : false;
-  const managedMember = shouldRevokeMemberAccess
-    ? await options.prisma.member.findUnique({
-        where: {
-          organizationId_userId: {
-            organizationId: sidekick.workspaceId,
-            userId: sidekick.userId!,
-          },
+  const [member, secret] = await Promise.all([
+    prisma.member.findUnique({
+      where: {
+        organizationId_userId: {
+          organizationId: sidekick.workspaceId,
+          userId: sidekick.userId,
         },
-        select: { role: true },
-      })
-    : null;
-  const keyHash = sidekick.modelCredential?.externalKeyHash;
-  if (keyHash) {
-    if (action === "cancel") await options.openRouter.deleteKey(keyHash);
-    else await options.openRouter.updateKey(keyHash, { disabled: action === "pause" });
-  }
-  await options.prisma.$transaction([
-    options.prisma.brandwellSidekick.update({
-      where: { id: sidekick.id },
-      data: {
-        status,
-        pausedAt: action === "pause" ? at : action === "resume" ? null : sidekick.pausedAt,
-        canceledAt: action === "cancel" ? at : null,
       },
+      select: { id: true },
     }),
-    options.prisma.bot.update({
-      where: { id: sidekick.botId },
-      data: {
-        managedStatus: action === "resume" ? "active" : action === "cancel" ? "canceled" : "paused",
-        archivedAt: action === "cancel" ? at : null,
-      },
-    }),
-    options.prisma.routine.updateMany({
-      where: { botId: sidekick.botId },
-      data: { active: false },
-    }),
-    ...(sidekick.modelCredential
-      ? action === "cancel"
-        ? [
-            options.prisma.brandwellSidekickModelCredential.delete({
-              where: { id: sidekick.modelCredential.id },
-            }),
-            options.prisma.secret.delete({ where: { id: sidekick.modelCredential.secretId } }),
-          ]
-        : [
-            options.prisma.brandwellSidekickModelCredential.update({
-              where: { id: sidekick.modelCredential.id },
-              data: {
-                status: action === "pause" ? "disabled" : "active",
-                disabledAt: action === "pause" ? at : null,
-              },
-            }),
-          ]
-      : []),
-    ...(sidekick.computerId
-      ? [
-          options.prisma.computer.update({
-            where: { id: sidekick.computerId },
-            data: action === "resume" ? {} : { state: "stopped" },
-          }),
-        ]
-      : []),
-    ...(action === "cancel" && sidekick.workspaceAccessManaged && sidekick.invitationId
-      ? [
-          options.prisma.invitation.deleteMany({
-            where: { id: sidekick.invitationId, status: "pending" },
-          }),
-        ]
-      : []),
-    ...(shouldRevokeMemberAccess && managedMember?.role === "member"
-      ? [
-          options.prisma.member.deleteMany({
-            where: {
-              organizationId: sidekick.workspaceId,
-              userId: sidekick.userId!,
-              role: "member",
-            },
-          }),
-        ]
-      : []),
+    sidekick.modelCredential
+      ? prisma.secret.findUnique({
+          where: { id: sidekick.modelCredential.secretId },
+          select: { id: true },
+        })
+      : Promise.resolve(null),
   ]);
+  if (!member) {
+    throw new BrandwellSidekickError(
+      "Restore the teammate workspace membership before this Sidekick can resume",
+      "sidekick_access_missing",
+      409,
+    );
+  }
+  if (!sidekick.modelCredential?.externalKeyHash || !secret) {
+    throw new BrandwellSidekickError(
+      "Reconcile the Sidekick model credential before this Sidekick can resume",
+      "sidekick_credential_unavailable",
+      409,
+    );
+  }
+}
+
+function idempotentLifecycleStatus(status: string, action: "pause" | "resume" | "cancel") {
+  if (status === "canceled") {
+    if (action === "cancel") return true;
+    throw new BrandwellSidekickError(
+      "A canceled Sidekick cannot change lifecycle state",
+      "sidekick_canceled",
+      409,
+    );
+  }
+  return (action === "pause" && status === "paused") || (action === "resume" && status === "active");
+}
+
+function lifecycleResult(
+  sidekick: { id: string; status: string; botId: string | null; computerId: string | null },
+  replayed: boolean,
+) {
   return {
     sidekickId: sidekick.id,
-    status,
+    status: sidekick.status,
     botId: sidekick.botId,
     computerId: sidekick.computerId,
+    replayed,
   };
+}
+
+function storedLifecycleResult(
+  value: Prisma.JsonValue,
+  sidekick: { id: string; status: string; botId: string | null; computerId: string | null },
+) {
+  const stored = jsonObject(value);
+  return {
+    sidekickId: typeof stored.sidekickId === "string" ? stored.sidekickId : sidekick.id,
+    status: typeof stored.status === "string" ? stored.status : sidekick.status,
+    botId:
+      typeof stored.botId === "string" || stored.botId === null ? stored.botId : sidekick.botId,
+    computerId:
+      typeof stored.computerId === "string" || stored.computerId === null
+        ? stored.computerId
+        : sidekick.computerId,
+    replayed: true,
+  };
+}
+
+function normalizedLifecycleIdempotencyKey(value: string) {
+  const key = value.trim();
+  if (!/^[A-Za-z0-9._:-]{8,240}$/.test(key)) {
+    throw new BrandwellSidekickError(
+      "A valid lifecycle idempotency key is required",
+      "sidekick_idempotency_key_invalid",
+      400,
+    );
+  }
+  return key;
+}
+
+function safeLifecycleError(error: unknown) {
+  return error instanceof Error && error.message.trim()
+    ? error.message.trim().slice(0, 500)
+    : "Sidekick lifecycle operation failed";
+}
+
+function jsonObject(value: Prisma.JsonValue): Prisma.InputJsonObject {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Prisma.InputJsonObject)
+    : {};
 }
 
 export async function rolloutBrandwellSkillBundleWithPrisma(

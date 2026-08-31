@@ -421,6 +421,63 @@ describe("BrandWell management API authentication", () => {
     expect(auditCreate).toHaveBeenCalled();
   });
 
+  it("requires lifecycle idempotency before invoking the Sidekick orchestrator", async () => {
+    const setSidekickLifecycle = vi.fn();
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {} as PrismaClient,
+      setSidekickLifecycle,
+    });
+
+    const response = await app.request("/internal/sidekicks/sidekick-1/pause", {
+      method: "POST",
+      headers: { authorization: "Bearer management-secret", ...OPERATOR_HEADERS },
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "A valid x-idempotency-key header is required",
+    });
+    expect(setSidekickLifecycle).not.toHaveBeenCalled();
+  });
+
+  it("forwards lifecycle identity and leaves exact-once audit ownership to the orchestrator", async () => {
+    const setSidekickLifecycle = vi.fn(async () => ({
+      sidekickId: "sidekick-1",
+      status: "paused",
+      replayed: false,
+    }));
+    const auditCreate = vi.fn();
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: { brandwellAuditLog: { create: auditCreate } } as unknown as PrismaClient,
+      setSidekickLifecycle,
+    });
+
+    const response = await app.request("/internal/sidekicks/sidekick-1/pause", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer management-secret",
+        "x-idempotency-key": "pause-sidekick-0001",
+        ...OPERATOR_HEADERS,
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ status: "paused", replayed: false });
+    expect(setSidekickLifecycle).toHaveBeenCalledWith("sidekick-1", "pause", {
+      idempotencyKey: "pause-sidekick-0001",
+      auditMetadata: {
+        operatorReference: "user:42",
+        operatorName: "Test Operator",
+        operatorEmail: "operator@example.test",
+      },
+    });
+    expect(auditCreate).not.toHaveBeenCalled();
+  });
+
   it("starts cancellation without exposing provider details", async () => {
     const auditCreate = vi.fn(async () => ({ id: "audit-cancel" }));
     const cancelWorkspace = vi.fn(async () => ({

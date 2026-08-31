@@ -45,6 +45,10 @@ export interface BrandwellManagementDeps {
   setSidekickLifecycle?: (
     sidekickId: string,
     action: "pause" | "resume" | "cancel",
+    input: {
+      idempotencyKey: string;
+      auditMetadata: Record<string, string>;
+    },
   ) => Promise<Record<string, unknown>>;
   rolloutSkillBundle?: (workspaceId: string) => Promise<Record<string, unknown>>;
   reconcileModelUsage?: (workspaceId: string) => Promise<unknown>;
@@ -254,23 +258,13 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     }
     const operator = supportActor(c.req.header());
     if (!operator.ok) return c.json({ error: operator.error }, 400);
+    const idempotencyKey = managementIdempotencyKey(c.req.header("x-idempotency-key"));
+    if (!idempotencyKey.ok) return c.json({ error: idempotencyKey.error }, 400);
     try {
-      const result = await deps.setSidekickLifecycle(c.req.param("id"), action);
-      const sidekick = await deps.prisma.brandwellSidekick.findFirst({
-        where: { OR: [{ id: c.req.param("id") }, { brandwellSidekickId: c.req.param("id") }] },
+      const result = await deps.setSidekickLifecycle(c.req.param("id"), action, {
+        idempotencyKey: idempotencyKey.value,
+        auditMetadata: operatorAuditMetadata(operator.value),
       });
-      if (sidekick) {
-        await deps.prisma.brandwellAuditLog.create({
-          data: {
-            workspaceId: sidekick.workspaceId,
-            actorType: "brandwell_operator",
-            action: `sidekick.${action}`,
-            resourceType: "brandwell_sidekick",
-            resourceId: sidekick.id,
-            metadata: operatorAuditMetadata(operator.value),
-          },
-        });
-      }
       return c.json(result);
     } catch (error) {
       return brandwellSidekickError(c, error, "AIMEE Sidekick lifecycle update failed");

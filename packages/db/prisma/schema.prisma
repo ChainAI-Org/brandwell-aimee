@@ -130,6 +130,7 @@ model Organization {
   brandwellAuditLogs                BrandwellAuditLog[]
   brandwellCancellationEvents       BrandwellCancellationEvent[]
   brandwellSidekicks                BrandwellSidekick[]
+  brandwellSidekickLifecycleOps     BrandwellSidekickLifecycleOperation[]
 
   @@unique([slug])
   @@map("organization")
@@ -1007,11 +1008,43 @@ model BrandwellSidekick {
   createdAt              DateTime                          @default(now())
   updatedAt              DateTime                          @updatedAt
   modelCredential        BrandwellSidekickModelCredential?
+  lifecycleOperations    BrandwellSidekickLifecycleOperation[]
 
   @@unique([aiWorkspaceId, email])
   @@index([workspaceId, status])
   @@index([userId, status])
   @@map("brandwell_sidekicks")
+}
+
+/// Durable provider and computer work for one idempotent Sidekick lifecycle
+/// request. A partial unique index in the migration permits only one unfinished
+/// operation per Sidekick while retaining completed audit history.
+model BrandwellSidekickLifecycleOperation {
+  id                  String            @id @default(cuid())
+  sidekickId          String
+  sidekick            BrandwellSidekick @relation(fields: [sidekickId], references: [id], onDelete: Cascade)
+  workspaceId         String
+  workspace           Organization      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  idempotencyKey      String            @unique
+  action              String
+  fromStatus          String
+  status              String            @default("running")
+  providerStatus      String            @default("pending")
+  computerStatus      String            @default("pending")
+  externalKeyHash     String?
+  computerProviderRef String?
+  attempts            Int               @default(1)
+  lastError           String?
+  auditMetadata       Json              @default("{}")
+  result              Json              @default("{}")
+  startedAt           DateTime          @default(now())
+  completedAt         DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  @@index([workspaceId, status])
+  @@index([status, updatedAt])
+  @@map("brandwell_sidekick_lifecycle_operations")
 }
 
 model BrandwellServiceIdentity {
