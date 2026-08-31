@@ -90,6 +90,7 @@ describe("repository workflow governance", () => {
   it("publishes Playwright reports only after explicit repository opt-in", () => {
     const report = workflow("publish-playwright-report.yml");
     const publish = jobBlock(report, "publish");
+    const nightly = jobBlock(workflow("nightly-verification.yml"), "visual-web");
 
     expect(publish).toContain("vars.PLAYWRIGHT_REPORT_PUBLICATION_ENABLED == 'true'");
     expect(publish).toContain("secrets.S3_ACCESS_KEY_ID");
@@ -97,5 +98,9 @@ describe("repository workflow governance", () => {
     expect(publish).toContain("vars.S3_BUCKET");
     expect(publish).toContain("vars.S3_ENDPOINT");
     expect(publish).toContain("vars.PLAYWRIGHT_PUBLIC_BASE_URL");
+    expect(nightly).toContain(
+      ["publish_report: $", "{{ vars.PLAYWRIGHT_REPORT_PUBLICATION_ENABLED == 'true' }}"].join(""),
+    );
+    expect(nightly).not.toContain("publish_report: true");
   });
 });
