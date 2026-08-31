@@ -5,6 +5,10 @@
 		reverse_proxy api:3100
 	}
 
+	handle /ready {
+		reverse_proxy api:3100
+	}
+
 	handle /api/* {
 		reverse_proxy api:3100
 	}
