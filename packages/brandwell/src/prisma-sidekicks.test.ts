@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
+import { BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION } from "./aimee-baseline.js";
 import {
   type PrismaBrandwellSidekickLifecycleOptions,
   provisionBrandwellSidekickWithPrisma,
@@ -601,7 +602,7 @@ describe("BrandWell Sidekick model-key lifecycle", () => {
           plan: "aimee",
           masterSeats: 1,
           sidekickSeats: 1,
-          skillBundleVersion: 2,
+          skillBundleVersion: BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION - 1,
         },
         prisma,
         { updateKey },
