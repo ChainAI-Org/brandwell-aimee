@@ -9,6 +9,7 @@ import {
   ArtifactSchema,
   ArtifactWithContentSchema,
   AvatarStyleSchema,
+  BotChatSchema,
   BotMcpServerSchema,
   BotSchema,
   BotSectionSchema,
@@ -67,14 +68,14 @@ const threadTarget = z
   .object({
     botId: Id.optional(),
     groupId: Id.optional(),
+    threadId: Id.optional(),
   })
   .superRefine((input, ctx) => {
-    const hasBot = Boolean(input.botId);
-    const hasGroup = Boolean(input.groupId);
-    if (hasBot === hasGroup) {
+    const targetCount = [input.botId, input.groupId, input.threadId].filter(Boolean).length;
+    if (targetCount !== 1) {
       ctx.addIssue({
         code: "custom",
-        message: "Provide exactly one of botId or groupId",
+        message: "Provide exactly one of botId, groupId, or threadId",
         path: ["botId"],
       });
     }
@@ -199,6 +200,20 @@ export const appContract = {
       .output(BotSectionSchema),
   },
   threads: {
+    list: oc
+      .input(z.object({ botId: Id, includeArchived: z.boolean().optional() }))
+      .output(z.array(BotChatSchema)),
+    create: oc
+      .input(z.object({ botId: Id, title: z.string().trim().min(1).max(80).optional() }))
+      .output(BotChatSchema),
+    select: oc.input(z.object({ threadId: Id })).output(BotChatSchema),
+    rename: oc
+      .input(z.object({ threadId: Id, title: z.string().trim().min(1).max(80) }))
+      .output(BotChatSchema),
+    archive: oc
+      .input(z.object({ threadId: Id }))
+      .output(z.object({ archivedThreadId: Id, selected: BotChatSchema })),
+    restore: oc.input(z.object({ threadId: Id })).output(BotChatSchema),
     get: oc.input(threadTarget).output(ThreadSnapshotSchema),
     messages: oc
       .input(
@@ -228,7 +243,7 @@ export const appContract = {
     followUp: oc
       .input(threadTarget.safeExtend({ text: z.string().min(1) }))
       .output(z.object({ ok: z.literal(true) })),
-    clear: oc.input(botId).output(z.object({ ok: z.literal(true) })),
+    clear: oc.input(threadTarget).output(z.object({ ok: z.literal(true) })),
     answer: oc
       .input(
         threadTarget.safeExtend({

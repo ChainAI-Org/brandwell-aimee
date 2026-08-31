@@ -18,19 +18,29 @@ import {
 } from "./renderer-assets.js";
 import {
   DEFAULT_LOCAL_WEB_URL,
-  isRakazoHealth,
+  isAimeeHealth,
+  isAimeeReady,
+  isManagedReadinessOrigin,
+  MANAGED_WEB_URL,
   normalizeServerUrl,
-  parseSetupInput,
   probeFailureMessage,
   resolveStartupTarget,
   safeExternalUrl,
   servesBundledRenderer,
   sessionPartitionForServerUrl,
 } from "./setup-config.js";
+import {
+  isServerChooserEnabled,
+  parseSetupIpcPayload,
+  parseSetupProbeUrl,
+} from "./setup-policy.js";
 import { clearSetup, readSetup, writeSetup } from "./setup-store.js";
 import { browserWindowOptions, setupWindowOptions, warmWindowTtlMs } from "./window-options.js";
 
+app.setName("BrandWell's AIMEE");
+
 const PERFORMANCE_USER_DATA = process.env.RAKAZO_PERFORMANCE_USER_DATA;
+const SERVER_CHOOSER_ENABLED = isServerChooserEnabled(app.isPackaged);
 const PROBE_TIMEOUT_MS = 8_000;
 const PROBE_RESPONSE_LIMIT_BYTES = 64 * 1024;
 let mainWindow: BrowserWindow | null = null;
@@ -51,6 +61,7 @@ const updaterEnvironment = {
   packaged: app.isPackaged,
   version: app.getVersion(),
   disabled: process.env.RAKAZO_DISABLE_AUTO_UPDATE === "1",
+  platform: process.platform,
 };
 const desktopUpdater = new DesktopUpdateController(updaterEnvironment, async () => {
   const module = await import("electron-updater");
@@ -395,7 +406,7 @@ function loadAppUrl(win: BrowserWindow, url: string): Promise<void> {
  * not a usable app. After session resolves, wait for a bootstrapped shell
  * (`data-ready` / shell-ready mark) or an auth/welcome/onboarding surface so a
  * bare Suspense fallback or pre-bootstrap ShellPage cannot pass. Plain e2e
- * fixtures omit the Rakazo app-state marker.
+ * fixtures omit the AIMEE app-state marker.
  */
 async function waitForMountedAppDocument(contents: Electron.WebContents) {
   const deadline = Date.now() + 8_000;
@@ -429,7 +440,7 @@ async function waitForMountedAppDocument(contents: Electron.WebContents) {
         performance.getEntriesByName("rk:renderer:session-committed").length > 0;
       if (sessionReady && surfaceReady) return true;
 
-      // Desktop e2e fixtures mount a plain page without Rakazo app-state markers.
+      // Desktop e2e fixtures mount a plain page without AIMEE app-state markers.
       if (appState === null) {
         const bodyText = (document.body?.innerText || "").trim();
         if (bodyText.includes("Opening your workspace")) return false;
@@ -451,7 +462,16 @@ async function installBundledRenderer(
   targetSession: Session,
   partition: string | null,
 ) {
-  if (!app.isPackaged || process.env.RAKAZO_DISABLE_BUNDLED_RENDERER === "1") return;
+  // Managed AIMEE builds load the renderer from the centrally deployed service so
+  // customers always receive the current BrandWell UI. A bundled renderer remains
+  // available as an explicit diagnostic mode only.
+  if (
+    !app.isPackaged ||
+    process.env.AIMEE_USE_BUNDLED_RENDERER !== "1" ||
+    process.env.RAKAZO_DISABLE_BUNDLED_RENDERER === "1"
+  ) {
+    return;
+  }
   if (!servesBundledRenderer(targetUrl)) return;
   const webUrl = new URL(targetUrl);
   const installationKey = `${partition ?? "default"}:${webUrl.protocol}`;
@@ -565,10 +585,13 @@ function restoreAppWindowAfterSetup() {
 function installApplicationMenu() {
   const changeServer: Electron.MenuItemConstructorOptions = {
     id: "change-rakazo-server",
-    label: "Change Rakazo Server…",
+    label: "Change AIMEE Server...",
     accelerator: "CmdOrCtrl+Shift+K",
     click: () => showSetupWindow(),
   };
+  const supportItems: Electron.MenuItemConstructorOptions[] = SERVER_CHOOSER_ENABLED
+    ? [changeServer, { type: "separator" }]
+    : [];
   const template: Electron.MenuItemConstructorOptions[] =
     process.platform === "darwin"
       ? [
@@ -577,8 +600,7 @@ function installApplicationMenu() {
             submenu: [
               { role: "about" },
               { type: "separator" },
-              changeServer,
-              { type: "separator" },
+              ...supportItems,
               { role: "hide" },
               { role: "hideOthers" },
               { role: "unhide" },
@@ -592,7 +614,7 @@ function installApplicationMenu() {
       : [
           {
             label: "File",
-            submenu: [changeServer, { type: "separator" }, { role: "quit" }],
+            submenu: [...supportItems, { role: "quit" }],
           },
           { role: "editMenu" },
           { role: "windowMenu" },
@@ -600,7 +622,7 @@ function installApplicationMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-/** Setup IPC must only answer the setup window, never a connected Rakazo server. */
+/** Setup IPC must only answer the setup window, never a connected AIMEE server. */
 function fromSetupWindow(event: Electron.IpcMainInvokeEvent) {
   return (
     setupWindow !== null && !setupWindow.isDestroyed() && event.sender === setupWindow.webContents
@@ -610,23 +632,31 @@ function fromSetupWindow(event: Electron.IpcMainInvokeEvent) {
 async function probeServer(rawUrl: string): Promise<DesktopReachability> {
   const url = normalizeServerUrl(rawUrl);
   if (url === null) return { ok: false, error: "Enter a valid http:// or https:// address." };
+  const requiresProductionReadiness = isManagedReadinessOrigin(url);
 
   try {
-    const response = await net.fetch(`${url}/rpc/health`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ json: {} }),
-      cache: "no-store",
-      credentials: "omit",
-      redirect: "manual",
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-    });
+    const response = await net.fetch(
+      `${url}${requiresProductionReadiness ? "/ready" : "/rpc/health"}`,
+      {
+        ...(requiresProductionReadiness
+          ? { method: "GET" }
+          : {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ json: {} }),
+            }),
+        cache: "no-store",
+        credentials: "omit",
+        redirect: "manual",
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      },
+    );
     if (response.status >= 300 && response.status < 400) {
       return {
         ok: false,
         status: response.status,
         url,
-        error: "That address redirects elsewhere. Enter the final Rakazo server address.",
+        error: "That address redirects elsewhere. Enter the final AIMEE server address.",
       };
     }
     if (!response.ok) {
@@ -634,16 +664,23 @@ async function probeServer(rawUrl: string): Promise<DesktopReachability> {
         ok: false,
         status: response.status,
         url,
-        error: `The server answered with HTTP ${response.status}.`,
+        error: requiresProductionReadiness
+          ? `The managed AIMEE deployment is not operational (HTTP ${response.status}).`
+          : `The server answered with HTTP ${response.status}.`,
       };
     }
     const health = await limitedJson(response);
-    if (!isRakazoHealth(health)) {
+    if (
+      (requiresProductionReadiness && !isAimeeReady(health)) ||
+      (!requiresProductionReadiness && !isAimeeHealth(health))
+    ) {
       return {
         ok: false,
         status: response.status,
         url,
-        error: "That address did not respond like a Rakazo server.",
+        error: requiresProductionReadiness
+          ? "The managed AIMEE deployment did not pass production readiness."
+          : "That address did not respond like an AIMEE server.",
       };
     }
     return {
@@ -762,7 +799,7 @@ function abandonPendingAppSwitch(
     currentSetup = previousSetup;
     currentTargetUrl = previousUrl;
     // If setup was already closed (e.g. during a slow write), make the restored
-    // session visible — otherwise macOS can be left with no shown window.
+    // session visible. Otherwise macOS can be left with no shown window.
     if (setupWindow === null || setupWindow.isDestroyed()) {
       clearTimeout(warmWindowTimer);
       previous.show();
@@ -839,11 +876,17 @@ function safeOrigin(targetUrl: string) {
 
 app.whenReady().then(async () => {
   const userDataDir = app.getPath("userData");
+  const setupPolicy = {
+    serverChooserEnabled: SERVER_CHOOSER_ENABLED,
+    managedServerUrl: MANAGED_WEB_URL,
+  };
   currentSetup = await readSetup(userDataDir);
   const target = resolveStartupTarget({
-    envUrl: process.env.RAKAZO_WEB_URL,
-    saved: currentSetup,
-    forceSetup: process.env.RAKAZO_FORCE_SETUP === "1",
+    envUrl: SERVER_CHOOSER_ENABLED ? process.env.RAKAZO_WEB_URL : undefined,
+    saved: SERVER_CHOOSER_ENABLED ? currentSetup : null,
+    forceSetup: SERVER_CHOOSER_ENABLED && process.env.RAKAZO_FORCE_SETUP === "1",
+    managedUrl: MANAGED_WEB_URL,
+    serverChooserEnabled: SERVER_CHOOSER_ENABLED,
   });
   if (process.env.RAKAZO_PERFORMANCE_CLEAR_CACHE === "1") {
     const cacheSessions = new Set<Session>([session.defaultSession]);
@@ -907,14 +950,24 @@ app.whenReady().then(async () => {
     return {
       defaultLocalUrl: DEFAULT_LOCAL_WEB_URL,
       saved: currentSetup,
+      serverChooserEnabled: SERVER_CHOOSER_ENABLED,
+      managedServerUrl: SERVER_CHOOSER_ENABLED ? undefined : MANAGED_WEB_URL,
       error: setupError ?? undefined,
     };
   });
 
   ipcMain.handle("desktop.setup.test", async (event, url: unknown) => {
     if (!fromSetupWindow(event)) return { ok: false, error: "Setup is not active." };
-    if (typeof url !== "string") return { ok: false, error: "Enter a server address." };
-    return probeServer(url);
+    const serverUrl = parseSetupProbeUrl(url, setupPolicy);
+    if (serverUrl === null) {
+      return {
+        ok: false,
+        error: SERVER_CHOOSER_ENABLED
+          ? "Enter a valid server address."
+          : "Installed AIMEE builds can connect only to the managed BrandWell service.",
+      };
+    }
+    return probeServer(serverUrl);
   });
 
   ipcMain.handle("desktop.setup.save", async (event, payload: unknown) => {
@@ -925,12 +978,13 @@ app.whenReady().then(async () => {
     const previousSetup = currentSetup;
     const previousUrl = currentTargetUrl;
     try {
-      const setup = parseSetupInput(payload);
+      const setup = parseSetupIpcPayload(payload, setupPolicy);
       if (setup === null) {
         return {
           ok: false,
-          error:
-            "Enter a valid server address. Public servers require HTTPS; a new local instance must use localhost.",
+          error: SERVER_CHOOSER_ENABLED
+            ? "Enter a valid server address. Public servers require HTTPS; a new local instance must use localhost."
+            : "Installed AIMEE builds can connect only to the managed BrandWell service.",
         };
       }
 
@@ -966,7 +1020,7 @@ app.whenReady().then(async () => {
           return { ok: false, error: message };
         }
         destroySetupWindow();
-        // Final check after setup closes — a crash in this gap still rolls back.
+        // Final check after setup closes. A crash in this gap still rolls back.
         if (rendererWatch?.crashed()) {
           const message = await recoverFromCrashedSave(userDataDir, previousSetup, previousUrl);
           return { ok: false, error: message };

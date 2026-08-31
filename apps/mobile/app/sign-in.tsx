@@ -317,8 +317,7 @@ function ServerSheet({
             </Pressable>
           </View>
           <Text style={{ color: "#6E6E68", marginTop: 28, fontSize: 15, lineHeight: 22 }}>
-            Point this app at your self-hosted Rakazo origin, the same HTTPS URL you open in a
-            browser.
+            Point this app at your AIMEE service, the same HTTPS URL you open in a browser.
           </Text>
           <TextInput
             autoCapitalize="none"

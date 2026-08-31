@@ -78,15 +78,17 @@ describe("the updater compose service", () => {
   });
 
   it("pins its own image tag separately from the application image", () => {
+    expect(updater.image).toContain("RAKAZO_UPDATER_IMAGE_REF");
     expect(updater.image).toContain("RAKAZO_UPDATER_IMAGE_TAG");
     for (const service of RECREATED_SERVICES) {
+      expect(compose.services[service]?.image).toContain("RAKAZO_IMAGE_REF");
       expect(compose.services[service]?.image).toContain("RAKAZO_IMAGE_TAG");
     }
   });
 
   it("uses the official registry namespace and digest-pins third-party runtime images", () => {
-    expect(updater.image).toContain("ghcr.io/elie222/rakazo/updater");
-    expect(compose.services.api?.image).toContain("ghcr.io/elie222/rakazo/app");
+    expect(updater.image).toContain("ghcr.io/chainai-org/brandwell-aimee/updater");
+    expect(compose.services.api?.image).toContain("ghcr.io/chainai-org/brandwell-aimee/app");
     expect(compose.services.postgres?.image).toMatch(/^postgres:16@sha256:[0-9a-f]{64}$/);
     expect(compose.services.caddy?.image).toMatch(/^caddy:2@sha256:[0-9a-f]{64}$/);
   });

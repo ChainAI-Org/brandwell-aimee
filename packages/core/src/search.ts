@@ -28,13 +28,16 @@ export function snippetAroundMatch(text: string, query: string, maxLen = 120): s
 }
 
 export type SearchThreadTarget =
-  | { botId: string; groupId?: undefined }
-  | { groupId: string; botId?: undefined };
+  | { threadId: string; botId?: undefined; groupId?: undefined }
+  | { botId: string; threadId?: undefined; groupId?: undefined }
+  | { groupId: string; threadId?: undefined; botId?: undefined };
 
 export function searchHitThreadTarget(hit: {
   botId?: string;
   groupId?: string;
+  threadId?: string;
 }): SearchThreadTarget {
+  if (hit.threadId) return { threadId: hit.threadId };
   if (Boolean(hit.botId) === Boolean(hit.groupId)) {
     throw new Error("Search hit must target exactly one of a bot or group");
   }

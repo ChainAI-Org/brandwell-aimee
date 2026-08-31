@@ -2,21 +2,39 @@ import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import type { DesktopSetup } from "@rakazo/contracts";
 
-/** Where `pnpm dev` serves the Rakazo web app on this machine. */
+/** Where `pnpm dev` serves the AIMEE web app on this machine. */
 export const DEFAULT_LOCAL_WEB_URL = "http://127.0.0.1:5173";
+/** Fixed control-plane origin used by installed BrandWell-managed desktop builds. */
+export const MANAGED_WEB_URL = "https://ai.brandwell.ai";
+/** Operator-only BrandWell staging origin. Packaged builds remain pinned to production. */
+export const MANAGED_STAGING_WEB_URL = "https://staging-ai.brandwell.ai";
 
 export const SETUP_FILE_NAME = "setup.json";
 
 export type StartupTarget =
-  | { kind: "app"; url: string; source: "env" | "saved" }
+  | { kind: "app"; url: string; source: "env" | "saved" | "managed" }
   | { kind: "setup" };
 
 const SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
+const READINESS_CODE = /^[a-z][a-z0-9_]*$/;
+const DEPLOYMENT_REVISION = /^[0-9a-f]{40}$/;
+const ISO_UTC_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
+const READINESS_CHECK_NAMES = [
+  "deploymentRevision",
+  "database",
+  "migrations",
+  "worker",
+  "managedAdmin",
+  "openRouterManagement",
+  "runtimeInference",
+  "daytona",
+  "brandwellBridge",
+] as const;
 
 /**
- * Accepts what a person would actually type ("localhost:5173", "rakazo.example.com")
+ * Accepts what a person would actually type ("localhost:5173", "aimee.example.com")
  * and returns a canonical http(s) origin, or null when the input can never
- * securely address a Rakazo server.
+ * securely address an AIMEE server.
  */
 export function normalizeServerUrl(input: string): string | null {
   const trimmed = input.trim();
@@ -41,7 +59,7 @@ export function normalizeServerUrl(input: string): string | null {
   // Public login cookies and API traffic must never cross a cleartext connection.
   if (url.protocol === "http:" && !isLocalNetworkHost(url.hostname)) return null;
 
-  // Rakazo serves its renderer, RPC, and auth routes from one origin. Keeping a
+  // AIMEE serves its renderer, RPC, and auth routes from one origin. Keeping a
   // user-supplied path would make the setup probe and the loaded app disagree.
   return url.origin;
 }
@@ -73,15 +91,23 @@ export function serializeSetup(setup: DesktopSetup): string {
 }
 
 /**
- * Decides between the first-run setup window and the app window. An explicit
- * `RAKAZO_WEB_URL` still wins over saved configuration so test and performance
- * harnesses can point the shell anywhere without touching a user's real setup.
+ * Decides between the app window and the development-only server chooser. Installed
+ * managed builds stay pinned to the BrandWell origin. Unpackaged development retains
+ * the local/custom server flow and compatibility environment variables.
  */
 export function resolveStartupTarget(input: {
   envUrl?: string;
   saved?: DesktopSetup | null;
   forceSetup?: boolean;
+  managedUrl?: string;
+  serverChooserEnabled?: boolean;
 }): StartupTarget {
+  if (input.serverChooserEnabled === false) {
+    const managedUrl = normalizeServerUrl(input.managedUrl ?? "");
+    return managedUrl === null
+      ? { kind: "setup" }
+      : { kind: "app", url: managedUrl, source: "managed" };
+  }
   if (input.forceSetup === true) return { kind: "setup" };
 
   const envUrl = input.envUrl?.trim();
@@ -124,7 +150,7 @@ export function servesBundledRenderer(targetUrl: string): boolean {
   }
 }
 
-/** Each Rakazo origin gets its own persistent cookie and storage partition. */
+/** Each AIMEE origin gets its own persistent cookie and storage partition. */
 export function sessionPartitionForServerUrl(targetUrl: string): string | null {
   try {
     const url = new URL(targetUrl);
@@ -142,7 +168,7 @@ export function safeExternalUrl(targetUrl: string): string | null {
   return new URL(targetUrl).toString();
 }
 
-export function isRakazoHealth(value: unknown): boolean {
+export function isAimeeHealth(value: unknown): boolean {
   if (typeof value !== "object" || value === null) return false;
   const json = (value as { json?: unknown }).json;
   return (
@@ -151,6 +177,47 @@ export function isRakazoHealth(value: unknown): boolean {
     (json as { ok?: unknown }).ok === true &&
     typeof (json as { version?: unknown }).version === "string"
   );
+}
+
+export function isAimeeReady(value: unknown): boolean {
+  if (!isRecordWithExactKeys(value, ["ok", "service", "revision", "checkedAt", "checks"])) {
+    return false;
+  }
+  if (value.ok !== true || value.service !== "aimee") return false;
+  if (typeof value.revision !== "string" || !DEPLOYMENT_REVISION.test(value.revision)) return false;
+  if (
+    typeof value.checkedAt !== "string" ||
+    !ISO_UTC_DATETIME.test(value.checkedAt) ||
+    !Number.isFinite(Date.parse(value.checkedAt))
+  ) {
+    return false;
+  }
+  const checks = value.checks;
+  if (!isRecordWithExactKeys(checks, READINESS_CHECK_NAMES)) return false;
+
+  return READINESS_CHECK_NAMES.every((name) => {
+    const check = checks[name];
+    return (
+      isRecordWithExactKeys(check, ["status", "code"]) &&
+      check.status === "pass" &&
+      typeof check.code === "string" &&
+      READINESS_CODE.test(check.code)
+    );
+  });
+}
+
+export function isManagedReadinessOrigin(value: string): boolean {
+  const normalized = normalizeServerUrl(value);
+  return normalized === MANAGED_WEB_URL || normalized === MANAGED_STAGING_WEB_URL;
+}
+
+function isRecordWithExactKeys<const Key extends string>(
+  value: unknown,
+  keys: readonly Key[],
+): value is Record<Key, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const actual = Object.keys(value);
+  return actual.length === keys.length && keys.every((key) => Object.hasOwn(value, key));
 }
 
 function isLoopbackHost(hostname: string) {
@@ -162,7 +229,7 @@ function isLoopbackHost(hostname: string) {
 
 /**
  * Link-local addresses (IPv4 169.254/16, IPv6 fe80::/10) often host cloud
- * metadata endpoints. Cleartext HTTP to them is never a legitimate Rakazo
+ * metadata endpoints. Cleartext HTTP to them is never a legitimate AIMEE
  * deploy target, so they stay out of the private-network HTTP allowlist.
  */
 function isLinkLocalHost(hostname: string) {

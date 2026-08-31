@@ -48,18 +48,18 @@ export const BotAvatar = memo(function BotAvatar({
   const idleDelay = (-(((seed * 13) % 45) / 10)).toFixed(2);
   const eyeGlow = `0 0 4px #FFFFFF, 0 0 8px #FFFFFF, 0 0 14px ${lightenColor(color, 20)}`;
   const eyeAnimation = {
-    "--rakazo-eye-animation-name": isWorking
-      ? "rakazo-eyes-working"
-      : `rakazo-eyes-idle-${eyeVariant}`,
-    "--rakazo-eye-animation-duration": isWorking ? "1.4s" : `${idleDuration}s`,
-    "--rakazo-eye-animation-easing": isWorking ? "ease-in-out" : "cubic-bezier(0.4, 0, 0.2, 1)",
-    "--rakazo-eye-animation-delay": isWorking ? "0s" : `${idleDelay}s`,
+    "--aimee-eye-animation-name": isWorking
+      ? "aimee-eyes-working"
+      : `aimee-eyes-idle-${eyeVariant}`,
+    "--aimee-eye-animation-duration": isWorking ? "1.4s" : `${idleDuration}s`,
+    "--aimee-eye-animation-easing": isWorking ? "ease-in-out" : "cubic-bezier(0.4, 0, 0.2, 1)",
+    "--aimee-eye-animation-delay": isWorking ? "0s" : `${idleDelay}s`,
   } as CSSProperties;
 
   return (
     <div
       className={cn(
-        "rakazo-bot-avatar group relative flex items-center justify-center rounded-full select-none",
+        "aimee-bot-avatar group relative flex items-center justify-center rounded-full select-none",
         className,
       )}
       data-working={isWorking}
@@ -75,7 +75,7 @@ export const BotAvatar = memo(function BotAvatar({
     >
       {isWorking ? (
         <svg
-          className="rakazo-bot-avatar-ring absolute pointer-events-none"
+          className="aimee-bot-avatar-ring absolute pointer-events-none"
           style={{
             inset: -4,
             width: size + 8,
@@ -106,7 +106,7 @@ export const BotAvatar = memo(function BotAvatar({
       ) : null}
 
       <div
-        className="rakazo-bot-avatar-visor relative flex items-center justify-center overflow-hidden transition-transform duration-200 group-hover:scale-[1.04]"
+        className="aimee-bot-avatar-visor relative flex items-center justify-center overflow-hidden transition-transform duration-200 group-hover:scale-[1.04]"
         style={{
           width: visorW,
           height: visorH,
@@ -125,7 +125,7 @@ export const BotAvatar = memo(function BotAvatar({
         />
 
         <div
-          className="rakazo-bot-avatar-eyes relative z-10 flex items-center justify-center"
+          className="aimee-bot-avatar-eyes relative z-10 flex items-center justify-center"
           style={{
             gap: eyeGap,
             ...eyeAnimation,
@@ -165,7 +165,7 @@ function OrganicAvatar({
 }) {
   const seed = avatarIdentitySeed(identity || color || "#8B5CF6");
   const shapeStyle = {
-    "--rakazo-organic-duration": `${4.8 + (seed % 24) / 10}s`,
+    "--aimee-organic-duration": `${4.8 + (seed % 24) / 10}s`,
   } as CSSProperties;
   const shapeA = organicAvatarPath(seed);
   const shapeB = organicAvatarPath(seed, 0.42);
@@ -174,7 +174,7 @@ function OrganicAvatar({
     <svg
       viewBox="-60 -60 120 120"
       aria-hidden="true"
-      className={cn("rakazo-organic-avatar overflow-visible select-none", className)}
+      className={cn("aimee-organic-avatar overflow-visible select-none", className)}
       data-working={isWorking}
       style={{
         ...shapeStyle,
@@ -184,7 +184,7 @@ function OrganicAvatar({
       }}
     >
       <path
-        className="rakazo-organic-avatar-body"
+        className="aimee-organic-avatar-body"
         d={shapeA}
         fill={color}
         style={{
@@ -201,7 +201,7 @@ function OrganicAvatar({
         />
       </path>
       <g
-        className="rakazo-organic-avatar-eyes"
+        className="aimee-organic-avatar-eyes"
         transform={`rotate(${(seed % 9) - 4})`}
         fill="#101014"
       >
@@ -259,7 +259,7 @@ export function Wordmark({ className }: { className?: string }) {
         <span className="h-4 w-[7px] rounded-full bg-[#F7F7F4]" />
       </div>
       <span className="font-[Aeonik,ui-sans-serif] text-[28px] tracking-tight text-[#1B1B1E]">
-        Rakazo
+        BrandWell's AIMEE
       </span>
     </div>
   );

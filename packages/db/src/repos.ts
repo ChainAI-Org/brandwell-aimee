@@ -272,6 +272,10 @@ export function createRepos(prisma: PrismaClient) {
             userId: actor.userId,
           },
         });
+        await tx.bot.update({
+          where: { id: created.id },
+          data: { primaryThreadId: thread.id },
+        });
         if (input.initialMessage) {
           await createThreadMessageInTransaction(tx, {
             threadId: thread.id,

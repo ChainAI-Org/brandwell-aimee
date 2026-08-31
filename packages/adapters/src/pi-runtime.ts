@@ -1,7 +1,11 @@
 import { Agent, type AgentMessage, type AgentTool } from "@earendil-works/pi-agent-core";
 import {
   type Api,
+  type AssistantMessageEvent,
+  type AssistantMessageEventStream,
+  type Context,
   clampThinkingLevel,
+  createAssistantMessageEventStream,
   type Model,
   type Models,
   type ModelThinkingLevel,
@@ -15,6 +19,7 @@ import type {
   AgentRuntime,
   AgentRuntimeEvent,
   AgentToolExecutionResult,
+  AgentWorkloadType,
   ConnectorTool,
 } from "@rakazo/adapter-kit";
 import { isToolPauseResult } from "./approval-effect.js";
@@ -38,6 +43,12 @@ function catalogModels(): Models {
   return catalogModelsCache;
 }
 const MAX_PARALLEL_SUBAGENTS = 4;
+const OPENROUTER_MODEL_API = "https://openrouter.ai/api/v1/model";
+const OPENROUTER_MODEL_METADATA_TTL_MS = 15 * 60_000;
+const openRouterModelMetadataCache = new Map<
+  string,
+  { expiresAt: number; model: Model<"openai-completions"> }
+>();
 // Reasoning-capable models must not start at "off": for OpenRouter, pi-ai maps
 // that to reasoning.effort "none", which 400s on endpoints that mandate
 // reasoning (e.g. google/gemini-3.7-flash). Keep a real level when model.reasoning
@@ -48,8 +59,8 @@ function thinkingLevelFor(
   preferred?: ModelThinkingLevel | null,
 ): ModelThinkingLevel {
   if (!model.reasoning) return "off";
-  if (preferred) return clampThinkingLevel(model, preferred);
-  return clampThinkingLevel(model, REASONING_MODEL_THINKING_LEVEL);
+  const requested = preferred && preferred !== "off" ? preferred : REASONING_MODEL_THINKING_LEVEL;
+  return clampThinkingLevel(model, requested);
 }
 // Pi forwards these names to OpenAI Responses, whose function-name contract is
 // ^[a-zA-Z0-9_-]+$ with a maximum length of 64 characters.
@@ -94,30 +105,11 @@ export class PiAgentRuntime implements AgentRuntime {
         const provider =
           request.model.provider === "scripted" ? "openrouter" : request.model.provider;
         const envDefaultModel = process.env.PI_DEFAULT_MODEL?.trim();
-        const envDefaultProvider = process.env.PI_DEFAULT_PROVIDER?.trim() || "openrouter";
         const modelId =
           request.model.id === "scripted"
             ? envDefaultModel || "deepseek/deepseek-v4-flash-0731"
             : request.model.id.trim();
         const models = modelsForRequest(request, provider);
-        let model = models.getModel(provider, modelId);
-        if (!model && provider !== "openrouter" && provider !== OPENAI_COMPATIBLE_PROVIDER_ID) {
-          model = models.getModel("openrouter", modelId);
-        }
-        if (
-          !model &&
-          provider === "openrouter" &&
-          envDefaultProvider === "openrouter" &&
-          modelId === envDefaultModel
-        ) {
-          model = configuredOpenRouterModel(modelId);
-        }
-        if (!model) {
-          queue.push({ type: "text", text: `Unknown model ${provider}/${modelId}` });
-          queue.push({ type: "done" });
-          return;
-        }
-
         const apiKey = request.model.oauth
           ? undefined
           : request.model.provider === OPENAI_COMPATIBLE_PROVIDER_ID
@@ -126,13 +118,48 @@ export class PiAgentRuntime implements AgentRuntime {
               // another provider would ship our key to a vendor it was not issued for.
               (request.model.apiKey ??
               (provider === "openrouter" ? process.env.OPENROUTER_API_KEY : undefined));
+        const model = await resolveRuntimeModel(
+          models,
+          provider,
+          modelId,
+          request.model.maxTokens,
+          apiKey,
+          request.model.metadata,
+        );
+        if (!model) {
+          queue.push({ type: "text", text: `Unknown model ${provider}/${modelId}` });
+          queue.push({ type: "done" });
+          return;
+        }
+        const fallbackModels = await resolveFallbackModels(
+          models,
+          provider,
+          request.model.fallbackModels ?? [],
+          request.model.maxTokens,
+          apiKey,
+          model.id,
+          request.model.fallbackMetadata,
+        );
+        const computerModel = request.model.computerModel
+          ? await resolveRuntimeModel(
+              models,
+              provider,
+              request.model.computerModel,
+              request.model.maxTokens,
+              apiKey,
+              request.model.computerMetadata,
+            )
+          : undefined;
         const toolDefs = request.tools.length ? request.tools : builtinAgentTools;
         const nestedAgents = new Set<Agent>();
+        let selectedWorkloadType: AgentWorkloadType = request.workloadType ?? "general";
         const host: ToolHost = {
           queue,
           request,
           models,
           model,
+          fallbackModels,
+          computerModel,
           apiKey,
           nestedAgents,
           subagentGate: createGate(MAX_PARALLEL_SUBAGENTS),
@@ -146,16 +173,25 @@ export class PiAgentRuntime implements AgentRuntime {
         const history = toHistory(request.history, request.prompt);
 
         const agent = new Agent({
-          streamFn: (m, ctx, options) =>
-            models.streamSimple(m, ctx, reliableStreamOptions(m, options)),
+          streamFn: managedStreamFunction(
+            models,
+            model,
+            fallbackModels,
+            computerModel,
+            request.model.thinkingLevel,
+            request.workloadType ?? "general",
+            (workloadType) => {
+              selectedWorkloadType = workloadType;
+            },
+          ),
           getApiKey: async () => apiKey,
           transformContext: async (messages) => pruneComputerScreenshotContext(messages),
           initialState: {
             systemPrompt:
               request.instructions ||
               (toolDefs.some((tool) => tool.name === "computer_observe")
-                ? "You are a Rakazo bot with a real computer. Use computer_observe and computer_act to operate its visible desktop, including browsers and installed applications. Use shell and the file tools for precise terminal and filesystem work. The user may interact with the same desktop while you run, so re-observe when the screen may have changed. Be concise."
-                : "You are a Rakazo bot with a persistent sandbox filesystem and shell. Be concise."),
+                ? "You are a AIMEE bot with a real computer. Use computer_observe and computer_act to operate its visible desktop, including browsers and installed applications. Use shell and the file tools for precise terminal and filesystem work. The user may interact with the same desktop while you run, so re-observe when the screen may have changed. Be concise."
+                : "You are a AIMEE bot with a persistent sandbox filesystem and shell. Be concise."),
             model,
             thinkingLevel: thinkingLevelFor(model, request.model.thinkingLevel),
             tools,
@@ -216,8 +252,9 @@ export class PiAgentRuntime implements AgentRuntime {
                 inputTokens: event.message.usage.input ?? 0,
                 outputTokens: event.message.usage.output ?? 0,
                 costMicros: Math.max(0, Math.round(event.message.usage.cost.total * 1_000_000)),
-                provider: model.provider,
-                model: model.id,
+                provider: event.message.provider,
+                model: event.message.model,
+                workloadType: selectedWorkloadType,
               });
             }
           }
@@ -285,23 +322,387 @@ export class PiAgentRuntime implements AgentRuntime {
   }
 }
 
-function configuredOpenRouterModel(id: string): Model<"openai-completions"> {
+type OpenRouterModelMetadata = {
+  id?: string;
+  name?: string;
+  context_length?: number;
+  architecture?: { input_modalities?: string[] };
+  supported_parameters?: string[];
+  default_parameters?: { reasoning?: unknown } | null;
+  top_provider?: { max_completion_tokens?: number | null } | null;
+  pricing?: {
+    prompt?: string;
+    completion?: string;
+    input_cache_read?: string;
+    input_cache_write?: string;
+  };
+};
+
+async function resolveRuntimeModel(
+  models: Models,
+  provider: string,
+  modelId: string,
+  maxTokens: number | undefined,
+  apiKey: string | undefined,
+  managedMetadata?: AgentRunRequest["model"]["metadata"],
+): Promise<Model<Api> | undefined> {
+  if (
+    provider === "openrouter" &&
+    managedMetadata?.id === modelId &&
+    validOpenRouterModelId(modelId)
+  ) {
+    return configuredOpenRouterModel(
+      modelId,
+      maxTokens,
+      openRouterMetadataFromManaged(managedMetadata),
+    );
+  }
+
+  let model = models.getModel(provider, modelId);
+  if (!model && provider !== "openrouter" && provider !== OPENAI_COMPATIBLE_PROVIDER_ID) {
+    model = models.getModel("openrouter", modelId);
+  }
+  if (model) return withManagedMaxTokens(model, maxTokens);
+  if (provider !== "openrouter" || !validOpenRouterModelId(modelId)) return undefined;
+
+  const cached = openRouterModelMetadataCache.get(modelId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return withManagedMaxTokens(cached.model, maxTokens);
+  }
+  const metadata = apiKey ? await fetchOpenRouterModelMetadata(modelId, apiKey) : undefined;
+  const configured = configuredOpenRouterModel(modelId, maxTokens, metadata);
+  if (metadata) {
+    openRouterModelMetadataCache.set(modelId, {
+      expiresAt: Date.now() + OPENROUTER_MODEL_METADATA_TTL_MS,
+      model: configured,
+    });
+  }
+  return configured;
+}
+
+async function resolveFallbackModels(
+  models: Models,
+  provider: string,
+  ids: readonly string[],
+  maxTokens: number | undefined,
+  apiKey: string | undefined,
+  primaryId: string,
+  managedMetadata?: AgentRunRequest["model"]["fallbackMetadata"],
+): Promise<Model<Api>[]> {
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))].filter(
+    (id) => id !== primaryId,
+  );
+  const resolved = await Promise.all(
+    unique.map((id) =>
+      resolveRuntimeModel(models, provider, id, maxTokens, apiKey, managedMetadata?.[id]),
+    ),
+  );
+  return resolved.filter((model): model is Model<Api> => Boolean(model));
+}
+
+function openRouterMetadataFromManaged(
+  metadata: NonNullable<AgentRunRequest["model"]["metadata"]>,
+): OpenRouterModelMetadata {
+  return {
+    id: metadata.id,
+    name: metadata.name,
+    context_length: metadata.contextLength,
+    architecture: { input_modalities: metadata.inputModalities },
+    supported_parameters: metadata.supportedParameters,
+    default_parameters: metadata.reasoning ? { reasoning: true } : null,
+    top_provider: { max_completion_tokens: metadata.maxCompletionTokens },
+    pricing: {
+      prompt: metadata.pricing.prompt,
+      completion: metadata.pricing.completion,
+      input_cache_read: metadata.pricing.inputCacheRead,
+      input_cache_write: metadata.pricing.inputCacheWrite,
+    },
+  };
+}
+
+function withManagedMaxTokens(model: Model<Api>, maxTokens: number | undefined): Model<Api> {
+  const requested = positiveInteger(maxTokens);
+  if (!requested || requested >= model.maxTokens) return model;
+  return { ...model, maxTokens: Math.max(256, requested) };
+}
+
+async function fetchOpenRouterModelMetadata(
+  modelId: string,
+  apiKey: string,
+): Promise<OpenRouterModelMetadata | undefined> {
+  try {
+    const [author, slug] = modelId.split("/", 2);
+    if (!author || !slug) return undefined;
+    const response = await fetch(
+      `${OPENROUTER_MODEL_API}/${encodeURIComponent(author)}/${encodeURIComponent(slug)}`,
+      {
+        headers: { authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!response.ok) return undefined;
+    const body = (await response.json()) as { data?: unknown };
+    if (!body.data || typeof body.data !== "object" || Array.isArray(body.data)) return undefined;
+    const metadata = body.data as OpenRouterModelMetadata;
+    return metadata.id === modelId ? metadata : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function validOpenRouterModelId(value: string): boolean {
+  return /^[A-Za-z0-9~][A-Za-z0-9._~-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/.test(value);
+}
+
+function positiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function perTokenUsdToMillion(value: string | undefined): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed * 1_000_000 : 0;
+}
+
+function configuredOpenRouterModel(
+  id: string,
+  maxTokens?: number,
+  metadata?: OpenRouterModelMetadata,
+): Model<"openai-completions"> {
   // A configured model can intentionally be newer than Pi's static catalog. Keep
   // pricing conservative, but enable reasoning: unknown OpenRouter endpoints
   // (e.g. gemini-3.7-flash before the snapshot catches up) often mandate it, and
   // thinkingLevel "off" becomes effort "none" which those endpoints reject.
+  const providerMaxTokens = positiveInteger(metadata?.top_provider?.max_completion_tokens);
+  const requestedMaxTokens = positiveInteger(maxTokens);
+  const effectiveMaxTokens = Math.max(
+    256,
+    Math.min(requestedMaxTokens ?? providerMaxTokens ?? 4_096, providerMaxTokens ?? 1_000_000),
+  );
+  const inputModalities = metadata?.architecture?.input_modalities;
+  const input: Array<"text" | "image"> = ["text"];
+  if (inputModalities?.includes("image")) input.push("image");
+  const supportedParameters = metadata?.supported_parameters ?? [];
+  const reasoning =
+    supportedParameters.includes("reasoning") ||
+    supportedParameters.includes("include_reasoning") ||
+    Boolean(metadata?.default_parameters?.reasoning);
   return {
     id,
-    name: id,
+    name: metadata?.name?.trim() || id,
     api: "openai-completions",
     provider: "openrouter",
     baseUrl: "https://openrouter.ai/api/v1",
-    reasoning: true,
-    input: ["text"],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 16_384,
-    maxTokens: 4_096,
+    reasoning: metadata ? reasoning : true,
+    input,
+    cost: {
+      input: perTokenUsdToMillion(metadata?.pricing?.prompt),
+      output: perTokenUsdToMillion(metadata?.pricing?.completion),
+      cacheRead: perTokenUsdToMillion(metadata?.pricing?.input_cache_read),
+      cacheWrite: perTokenUsdToMillion(metadata?.pricing?.input_cache_write),
+    },
+    contextWindow: positiveInteger(metadata?.context_length) ?? 1_000_000,
+    maxTokens: effectiveMaxTokens,
+    compat: { supportsDeveloperRole: false, thinkingFormat: "openrouter" },
   };
+}
+
+export function managedStreamFunction(
+  models: Models,
+  primary: Model<Api>,
+  fallbacks: readonly Model<Api>[],
+  computerModel?: Model<Api>,
+  preferredThinkingLevel?: ModelThinkingLevel | null,
+  generalWorkloadType: AgentWorkloadType = "general",
+  onWorkloadSelected?: (workloadType: AgentWorkloadType) => void,
+) {
+  let selectedGeneral = primary;
+  let selectedComputer = computerModel;
+  return (model: Model<Api>, context: Context, options?: SimpleStreamOptions) => {
+    const computerWorkload = Boolean(computerModel && contextHasImage(context));
+    onWorkloadSelected?.(computerWorkload ? "computer" : generalWorkloadType);
+    const selected = computerWorkload ? selectedComputer! : selectedGeneral;
+    const effectivePrimary = selected.id === primary.id ? model : selected;
+    const orderedFallbacks = [...fallbacks, ...(computerWorkload ? [primary] : [])].filter(
+      (candidate, index, all) => {
+        if (candidate.id === effectivePrimary.id) return false;
+        if (computerWorkload && !candidate.input.includes("image")) return false;
+        return (
+          all.findIndex(
+            (item) => item.provider === candidate.provider && item.id === candidate.id,
+          ) === index
+        );
+      },
+    );
+    return streamWithFallbackModels(
+      models,
+      effectivePrimary,
+      orderedFallbacks,
+      context,
+      options,
+      (successfulModel) => {
+        if (computerWorkload) selectedComputer = successfulModel;
+        else selectedGeneral = successfulModel;
+      },
+      preferredThinkingLevel,
+    );
+  };
+}
+
+function contextHasImage(context: Context): boolean {
+  return context.messages.some((message) => {
+    if (!("content" in message) || !Array.isArray(message.content)) return false;
+    return message.content.some(
+      (part) =>
+        Boolean(part) && typeof part === "object" && "type" in part && part.type === "image",
+    );
+  });
+}
+
+export function streamWithFallbackModels(
+  models: Pick<Models, "streamSimple">,
+  primary: Model<Api>,
+  fallbacks: readonly Model<Api>[],
+  context: Context,
+  options?: SimpleStreamOptions,
+  onSelected?: (model: Model<Api>) => void,
+  preferredThinkingLevel?: ModelThinkingLevel | null,
+): AssistantMessageEventStream {
+  const output = createAssistantMessageEventStream();
+  void (async () => {
+    const candidates = [primary, ...fallbacks];
+    let lastError: Extract<AssistantMessageEvent, { type: "error" }> | undefined;
+    let lastBuffered: AssistantMessageEvent[] = [];
+    for (const candidate of candidates) {
+      const buffered: AssistantMessageEvent[] = [];
+      let observableOutput = false;
+      try {
+        const source = models.streamSimple(
+          candidate,
+          context,
+          reliableStreamOptions(
+            candidate,
+            streamOptionsForModel(candidate, options, preferredThinkingLevel),
+          ),
+        );
+        for await (const event of source) {
+          if (event.type === "error") {
+            lastError = event;
+            if (event.reason === "aborted" || observableOutput) {
+              flushAssistantEvents(output, buffered);
+              output.push(event);
+              return;
+            }
+            lastBuffered = [...buffered];
+            break;
+          }
+          buffered.push(event);
+          if (observableAssistantEvent(event)) observableOutput = true;
+          if (observableOutput || event.type === "done") {
+            flushAssistantEvents(output, buffered);
+          }
+          if (event.type === "done") {
+            onSelected?.(candidate);
+            return;
+          }
+        }
+        if (observableOutput) {
+          flushAssistantEvents(output, buffered);
+          output.push({
+            type: "error",
+            reason: "error",
+            error: failedAssistantMessage(candidate, "The model stream ended before completion."),
+          });
+          return;
+        }
+      } catch (error) {
+        const aborted = Boolean(options?.signal?.aborted);
+        if (aborted || observableOutput) {
+          flushAssistantEvents(output, buffered);
+          const reason = aborted ? "aborted" : "error";
+          output.push({
+            type: "error",
+            reason,
+            error: failedAssistantMessage(
+              candidate,
+              sanitizeError(error instanceof Error ? error.message : String(error)),
+              reason,
+            ),
+          });
+          return;
+        }
+        // A thrown setup failure is safe to retry only before output is exposed.
+      }
+    }
+    if (lastError) {
+      flushAssistantEvents(output, lastBuffered);
+      output.push(lastError);
+      return;
+    }
+    const message = failedAssistantMessage(primary, "Every configured model failed before output.");
+    output.push({
+      type: "start",
+      partial: { ...message, stopReason: "pending", errorMessage: undefined },
+    });
+    output.push({ type: "error", reason: "error", error: message });
+  })();
+  return output;
+}
+
+function observableAssistantEvent(event: AssistantMessageEvent): boolean {
+  return (
+    event.type === "text_delta" ||
+    event.type === "thinking_delta" ||
+    event.type === "toolcall_start" ||
+    event.type === "toolcall_delta" ||
+    event.type === "toolcall_end"
+  );
+}
+
+function flushAssistantEvents(
+  output: AssistantMessageEventStream,
+  buffered: AssistantMessageEvent[],
+): void {
+  while (buffered.length > 0) output.push(buffered.shift()!);
+}
+
+function failedAssistantMessage(
+  model: Model<Api>,
+  errorMessage: string,
+  stopReason: "error" | "aborted" = "error",
+) {
+  return {
+    role: "assistant" as const,
+    content: [],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason,
+    errorMessage,
+    timestamp: Date.now(),
+  };
+}
+
+function streamOptionsForModel(
+  model: Model<Api>,
+  options: SimpleStreamOptions | undefined,
+  preferredThinkingLevel: ModelThinkingLevel | null | undefined,
+): SimpleStreamOptions | undefined {
+  const preferred = preferredThinkingLevel ?? options?.reasoning;
+  const reasoning = thinkingLevelFor(model, preferred);
+  if (reasoning === "off") {
+    if (!options) return undefined;
+    const { reasoning: _ignored, ...withoutReasoning } = options;
+    return withoutReasoning;
+  }
+  return { ...options, reasoning };
 }
 
 export function modelsForRequest(
@@ -463,7 +864,7 @@ function toAgentTool(tool: ConnectorTool, host: ToolHost, exposedName: string): 
       if (tool.name === "destination.write") {
         return {
           collection: String(raw.collection ?? "notes"),
-          title: String(raw.title ?? "Rakazo result"),
+          title: String(raw.title ?? "AIMEE result"),
           body: String(raw.body ?? ""),
         };
       }
@@ -617,14 +1018,24 @@ async function executeSubagent(host: ToolHost, executionId: string, args: Record
     (tool) => !DELEGATION_TOOL_NAMES.has(tool.name),
   );
   const nestedHost: ToolHost = { ...host, depth: 1 };
+  let selectedWorkloadType: AgentWorkloadType = host.request.workloadType ?? "general";
   const nested = new Agent({
-    streamFn: (m, ctx, options) =>
-      host.models.streamSimple(m, ctx, reliableStreamOptions(m, options)),
+    streamFn: managedStreamFunction(
+      host.models,
+      host.model,
+      host.fallbackModels,
+      host.computerModel,
+      host.request.model.thinkingLevel,
+      host.request.workloadType ?? "general",
+      (workloadType) => {
+        selectedWorkloadType = workloadType;
+      },
+    ),
     getApiKey: async () => host.apiKey,
     transformContext: async (messages) => pruneComputerScreenshotContext(messages),
     initialState: {
       systemPrompt: [
-        `You are a Rakazo subagent named "${name}".`,
+        `You are a AIMEE subagent named "${name}".`,
         "You run inside the parent bot's turn — you are not a separate bot chat.",
         "Complete the task and return a concise result. Do not spawn bots or further subagents.",
         extra,
@@ -681,8 +1092,9 @@ async function executeSubagent(host: ToolHost, executionId: string, args: Record
           inputTokens: event.message.usage.input ?? 0,
           outputTokens: event.message.usage.output ?? 0,
           costMicros: Math.max(0, Math.round(event.message.usage.cost.total * 1_000_000)),
-          provider: host.model.provider,
-          model: host.model.id,
+          provider: event.message.provider,
+          model: event.message.model,
+          workloadType: selectedWorkloadType,
         });
       }
     }
@@ -935,6 +1347,8 @@ interface ToolHost {
   request: AgentRunRequest;
   models: Models;
   model: Model<Api>;
+  fallbackModels: Model<Api>[];
+  computerModel?: Model<Api>;
   apiKey: string | undefined;
   nestedAgents: Set<Agent>;
   subagentGate: { acquire(): Promise<void>; release(): void };

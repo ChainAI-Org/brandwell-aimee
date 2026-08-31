@@ -55,7 +55,7 @@ const ONBOARD = [
       "Polished / formal",
       "Match whatever I draft",
     ],
-    ack: (answer: string) => `Got it — ${answer.toLowerCase()} it is.`,
+    ack: (answer: string) => `Got it. ${answer.toLowerCase()} it is.`,
   },
   {
     q: "Where does most of that work live?",
@@ -271,7 +271,7 @@ function OnboardThread({
       <div className="product-demo__time">Today</div>
       <div className="product-demo__message product-demo__message--bot">
         <div className="product-demo__bubble product-demo__bubble--bot">
-          Hey Avery — good to meet you.
+          Hey Avery, good to meet you.
         </div>
       </div>
       {ONBOARD.map((step, index) => {
@@ -320,7 +320,7 @@ function OnboardThread({
       {answers.length === ONBOARD.length ? (
         <div className="product-demo__message product-demo__message--bot">
           <div className="product-demo__bubble product-demo__bubble--bot">
-            That’s everything I need. Give me a first job whenever you’re ready — I’ll ask before
+            That’s everything I need. Give me a first job whenever you’re ready. I’ll ask before
             anything leaves the building.
           </div>
         </div>
@@ -1211,7 +1211,7 @@ export function ProductDemo() {
         ) : null}
       </div>
       <p className="product-demo__caption">
-        Live demo — pick a bot, open its computer, add a routine, or start a new chat.
+        Live demo: pick a bot, open its computer, add a routine, or start a new chat.
       </p>
     </div>
   );

@@ -516,6 +516,7 @@ export function createTaughtSkillsService(deps: TaughtSkillsDeps) {
           userId: actor.userId,
           status: "queued",
           trigger: "skill",
+          workloadType: "reasoning",
         },
       });
       await deps.jobs.enqueue(runContinueJob(run.id));

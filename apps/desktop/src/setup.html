@@ -6,28 +6,30 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; form-action 'none'; base-uri 'none'"
     />
-    <title>Set up Rakazo</title>
+    <title>Set up BrandWell's AIMEE</title>
     <link rel="stylesheet" href="setup.css" />
   </head>
   <body>
     <header class="titlebar">
-      <span class="titlebar-name">Rakazo</span>
-      <button id="quit" class="titlebar-quit" type="button" title="Quit Rakazo">Quit</button>
+      <span class="titlebar-name">BrandWell's AIMEE</span>
+      <button id="quit" class="titlebar-quit" type="button" title="Quit BrandWell's AIMEE">
+        Quit
+      </button>
     </header>
 
     <main class="shell">
-      <h1 class="heading">Welcome to Rakazo</h1>
-      <p class="subheading">Choose which server this app should use.</p>
+      <h1 id="setup-heading" class="heading">Welcome to BrandWell's AIMEE</h1>
+      <p id="setup-subheading" class="subheading">Choose which server this app should use.</p>
 
       <form id="setup" class="card" novalidate>
-        <fieldset class="choices">
+        <fieldset id="server-choices" class="choices">
           <legend class="sr-only">Instance</legend>
 
           <label class="choice" for="mode-new">
             <input id="mode-new" type="radio" name="mode" value="new" checked />
             <span class="choice-body">
               <span class="choice-title">This computer</span>
-              <span class="choice-note">Local Rakazo stack.</span>
+              <span class="choice-note">Local AIMEE service.</span>
             </span>
           </label>
 
@@ -54,7 +56,7 @@
             type="text"
             spellcheck="false"
             autocomplete="off"
-            placeholder="https://rakazo.example.com"
+            placeholder="https://ai.brandwell.ai"
           />
           <p class="hint">Same address you open in a browser.</p>
         </section>
@@ -67,7 +69,9 @@
         </div>
       </form>
 
-      <p class="footnote">Change later from the Rakazo menu (⌘/Ctrl+Shift+K).</p>
+      <p id="support-footnote" class="footnote">
+        Change later from the AIMEE menu (⌘/Ctrl+Shift+K).
+      </p>
     </main>
 
     <script src="setup.js"></script>

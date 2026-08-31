@@ -91,7 +91,13 @@ describe("computer provisioning", () => {
           where: {
             id: "computer-1",
             state: "booting",
-            bots: { some: { id: "bot-1", archivedAt: null } },
+            bots: {
+              some: {
+                id: "bot-1",
+                archivedAt: null,
+                OR: [{ managedByBrandWell: false }, { managedStatus: "active" }],
+              },
+            },
           },
         }),
       );

@@ -101,12 +101,12 @@ test("create group from + and see two bots in one transcript", async ({ page }, 
     .locator("aside")
     .first()
     .getByRole("button", { name: /^Draft team/ })
-    .locator(".rakazo-group-avatar");
+    .locator(".aimee-group-avatar");
   await expect(groupAvatar).toBeVisible();
-  await expect(groupAvatar.locator(".rakazo-bot-avatar")).toHaveCount(2);
+  await expect(groupAvatar.locator(".aimee-bot-avatar")).toHaveCount(2);
   const workingAvatar = groupAvatar.locator('[data-working="true"]');
   await expect(workingAvatar).toHaveCount(1);
-  await expect(workingAvatar.locator("svg")).toHaveCSS("animation-name", "rakazo-avatar-spin");
+  await expect(workingAvatar.locator("svg")).toHaveCSS("animation-name", "aimee-avatar-spin");
   await captureScreenshot(page, testInfo, "group-avatar-active");
   await page.unroute("**/rpc/groups/list");
   await page.unroute("**/rpc/threads/get");

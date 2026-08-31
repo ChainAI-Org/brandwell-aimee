@@ -1,7 +1,7 @@
 {
-  "name": "Rakazo",
-  "short_name": "Rakazo",
-  "description": "An open source Grok Bot alternative for persistent AI teammates that do real work.",
+  "name": "BrandWell's AIMEE",
+  "short_name": "AIMEE",
+  "description": "Done-for-you AI employees for persistent work across your connected tools.",
   "start_url": "/",
   "display": "browser",
   "background_color": "#FDFDFD",

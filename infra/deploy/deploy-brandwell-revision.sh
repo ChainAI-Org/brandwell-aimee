@@ -10,10 +10,10 @@ TARGET="${1:-}"
 DEPLOY_SHA="${2:-}"
 case "${TARGET}" in
   staging)
-    DEFAULT_HEALTH_URL="https://staging-ai.brandwell.ai/health"
+    DEFAULT_READINESS_URL="https://staging-ai.brandwell.ai/ready"
     ;;
   production)
-    DEFAULT_HEALTH_URL="https://ai.brandwell.ai/health"
+    DEFAULT_READINESS_URL="https://ai.brandwell.ai/ready"
     ;;
   *)
     usage
@@ -29,7 +29,7 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 ENV_FILE="${BRANDWELL_ENV_FILE:-${REPO_DIR}/.env}"
 BACKUP_ROOT="${BRANDWELL_BACKUP_ROOT:-/var/backups/brandwell-aimee-${TARGET}}"
-HEALTH_URL="${BRANDWELL_HEALTH_URL:-${DEFAULT_HEALTH_URL}}"
+READINESS_URL="${BRANDWELL_READINESS_URL:-${BRANDWELL_HEALTH_URL:-${DEFAULT_READINESS_URL}}}"
 LOCK_FILE="${BRANDWELL_DEPLOY_LOCK_FILE:-/tmp/brandwell-aimee-${TARGET}.lock}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-brandwell-aimee-${TARGET}}"
 COMPOSE_FILE="${REPO_DIR}/infra/compose/docker-compose.prod.yml"
@@ -92,12 +92,13 @@ start_revision() {
   GIT_SHA="${revision}" "${compose[@]}" up -d --build --remove-orphans postgres api worker web caddy
 }
 
-wait_for_health() {
+wait_for_readiness() {
   local expected_sha="$1" response
   for _ in $(seq 1 24); do
-    if response="$(curl --fail --silent --show-error --max-time 10 "${HEALTH_URL}" 2>/dev/null)"; then
-      if grep -Fq "\"revision\":\"${expected_sha}\"" <<<"${response}"; then
-        echo "Healthy ${TARGET} revision ${expected_sha}"
+    if response="$(curl --fail --silent --show-error --max-time 10 "${READINESS_URL}" 2>/dev/null)"; then
+      if grep -Fq '"ok":true' <<<"${response}" &&
+        grep -Fq "\"revision\":\"${expected_sha}\"" <<<"${response}"; then
+        echo "Ready ${TARGET} revision ${expected_sha}"
         return 0
       fi
     fi
@@ -111,15 +112,15 @@ git fetch --no-tags origin
 git cat-file -e "${DEPLOY_SHA}^{commit}"
 git checkout --detach "${DEPLOY_SHA}"
 
-if start_revision "${DEPLOY_SHA}" && wait_for_health "${DEPLOY_SHA}"; then
+if start_revision "${DEPLOY_SHA}" && wait_for_readiness "${DEPLOY_SHA}"; then
   exit 0
 fi
 
-echo "Deployment failed health verification. Restoring ${PREVIOUS_SHA}." >&2
+echo "Deployment failed readiness verification. Restoring ${PREVIOUS_SHA}." >&2
 git checkout --detach "${PREVIOUS_SHA}"
 start_revision "${PREVIOUS_SHA}"
-if ! wait_for_health "${PREVIOUS_SHA}"; then
-  echo "Rollback also failed health verification. Operator action is required." >&2
+if ! wait_for_readiness "${PREVIOUS_SHA}"; then
+  echo "Rollback also failed readiness verification. Operator action is required." >&2
   exit 70
 fi
 exit 1

@@ -1,5 +1,6 @@
 import {
   DEFAULT_UPDATE_REMOTE,
+  isGitCommit,
   isOfficialRepoUrl,
   normalizeRepoUrl,
   normalizeUpdateBranch,
@@ -7,18 +8,29 @@ import {
 
 /**
  * The GitHub repository whose CI fills the image namespace. `publish-server-image.yml` pushes to
- * `ghcr.io/${{ github.repository }}`, so the namespace always belongs to whichever repository ran
- * the workflow. Naming a different owner here points the deployment at packages nobody publishes.
+ * this explicit package path and refuses to publish from any other repository. Naming a different
+ * owner here points the deployment at packages nobody publishes.
  *
  * `OFFICIAL_REPO_URL` names the same repository, so the source commit selected from a release is
  * guaranteed to have been eligible for this repository's publishing workflow.
  */
-export const PUBLISHED_IMAGE_REPO = "elie222/rakazo";
+export const PUBLISHED_IMAGE_REPO = "chainai-org/brandwell-aimee";
+export const OFFICIAL_GITHUB_REPOSITORY = "ChainAI-Org/brandwell-aimee";
 
 /** The published server image. One image runs api, worker, and web. */
 export const OFFICIAL_SERVER_IMAGE = `ghcr.io/${PUBLISHED_IMAGE_REPO}/app`;
 /** The updater sidecar's image, published alongside the server image but tagged independently. */
 export const OFFICIAL_UPDATER_IMAGE = `ghcr.io/${PUBLISHED_IMAGE_REPO}/updater`;
+
+export const SERVER_RELEASE_MANIFEST_SCHEMA_VERSION = 1;
+export const SERVER_RELEASE_MANIFEST_ASSET = "server-release-manifest.json";
+export const SERVER_RELEASE_MANIFEST_BUNDLE_ASSET = "server-release-manifest.sigstore.jsonl";
+export const SERVER_APP_OCI_MANIFEST_ASSET = "server-image-app.oci-manifest.json";
+export const SERVER_APP_ATTESTATION_BUNDLE_ASSET = "server-image-app.sigstore.jsonl";
+export const SERVER_RELEASE_WORKFLOW_PATH = ".github/workflows/publish-server-image.yml";
+export const SERVER_RELEASE_WORKFLOW_SIGNER = `github.com/${OFFICIAL_GITHUB_REPOSITORY}/${SERVER_RELEASE_WORKFLOW_PATH}`;
+export const GITHUB_ACTIONS_OIDC_ISSUER = "https://token.actions.githubusercontent.com";
+export const SERVER_IMAGE_PLATFORMS = ["linux/amd64", "linux/arm64"] as const;
 
 /**
  * The tag a deployment that has never run an update is on. It is deliberately *not* `latest`: no
@@ -29,6 +41,12 @@ export const LOCAL_IMAGE_TAG = "local";
 export const DEFAULT_IMAGE_TAG = LOCAL_IMAGE_TAG;
 export const IMAGE_TAG_ENV = "RAKAZO_IMAGE_TAG";
 export const PREVIOUS_IMAGE_TAG_ENV = "RAKAZO_IMAGE_TAG_PREVIOUS";
+/** Full tag or digest references. These take precedence over the legacy split name/tag settings. */
+export const IMAGE_REF_ENV = "RAKAZO_IMAGE_REF";
+export const PREVIOUS_IMAGE_REF_ENV = "RAKAZO_IMAGE_REF_PREVIOUS";
+/** Source commits paired with the refs let post-recreate health checks cover rollback too. */
+export const IMAGE_COMMIT_ENV = "RAKAZO_IMAGE_COMMIT";
+export const PREVIOUS_IMAGE_COMMIT_ENV = "RAKAZO_IMAGE_COMMIT_PREVIOUS";
 
 /**
  * Matches the `name:` pinned in `infra/compose/docker-compose.prod.yml`. Used when Compose has not
@@ -41,7 +59,7 @@ export const COMPOSE_PROJECT_NAME_OVERRIDE_ENV = "RAKAZO_COMPOSE_PROJECT_NAME";
 /**
  * The services a recreate replaces. `updater` is deliberately absent: it is the process running
  * the update, and recreating it would kill the run half way through. `postgres` and `caddy` are
- * absent because neither uses the Rakazo image.
+ * absent because neither uses the AIMEE image.
  */
 export const RECREATED_SERVICES = ["api", "worker", "web"] as const;
 
@@ -49,8 +67,9 @@ const IMAGE_TAG = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
 const IMAGE_NAME_SEGMENT = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
 const IMAGE_HOST = /^[a-z0-9]+(?:[.-][a-z0-9]+)*(?::[0-9]{1,5})?$/;
 const COMMIT = /^[0-9a-f]{40,64}$/;
+const IMAGE_DIGEST = /^sha256:[0-9a-f]{64}$/;
 const ENV_KEY = /^[A-Z][A-Z0-9_]*$/;
-const ENV_VALUE = /^[A-Za-z0-9._:/@+-]{0,256}$/;
+const ENV_VALUE = /^[A-Za-z0-9._:/@+-]{0,320}$/;
 const RELEASE_TAG = /^v(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/;
 /** Compose project names must not start with `-`, or `-p` would treat them as a second flag. */
 const COMPOSE_PROJECT_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/;
@@ -67,6 +86,27 @@ export function isValidImageName(name: string): boolean {
   const hasHost = segments.length > 1 && (first.includes(".") || first.includes(":"));
   if (hasHost && !IMAGE_HOST.test(first)) return false;
   return segments.slice(hasHost ? 1 : 0).every((segment) => IMAGE_NAME_SEGMENT.test(segment));
+}
+
+export function isValidImageDigest(digest: string): boolean {
+  return IMAGE_DIGEST.test(digest);
+}
+
+/** A complete image reference. Digest references are the only form used for official updates. */
+export function isValidImageRef(ref: string): boolean {
+  const digestSeparator = ref.lastIndexOf("@");
+  if (digestSeparator >= 0) {
+    if (digestSeparator !== ref.indexOf("@")) return false;
+    return (
+      isValidImageName(ref.slice(0, digestSeparator)) &&
+      isValidImageDigest(ref.slice(digestSeparator + 1))
+    );
+  }
+  const tagSeparator = ref.lastIndexOf(":");
+  if (tagSeparator <= ref.lastIndexOf("/")) return false;
+  return (
+    isValidImageName(ref.slice(0, tagSeparator)) && isValidImageTag(ref.slice(tagSeparator + 1))
+  );
 }
 
 export function isValidComposeProjectName(name: string): boolean {
@@ -96,6 +136,20 @@ export function imageRef(name: string, tag: string): string {
   if (!isValidImageName(name)) throw new Error(`Refusing an unusable image name: ${name}`);
   if (!isValidImageTag(tag)) throw new Error(`Refusing an unusable image tag: ${tag}`);
   return `${name}:${tag}`;
+}
+
+export function digestImageRef(name: string, digest: string): string {
+  if (!isValidImageName(name)) throw new Error(`Refusing an unusable image name: ${name}`);
+  if (!isValidImageDigest(digest)) throw new Error(`Refusing an unusable image digest: ${digest}`);
+  return `${name}@${digest}`;
+}
+
+export function serverReleaseWorkflowIdentity(tag: string): string {
+  const release = parseReleaseTag(tag);
+  if (release === null || release.prerelease !== null) {
+    throw new Error("A server release workflow identity needs a stable release tag.");
+  }
+  return `https://${SERVER_RELEASE_WORKFLOW_SIGNER}@refs/tags/${tag}`;
 }
 
 /**
@@ -226,6 +280,117 @@ export function selectLatestRelease(releases: readonly RemoteRelease[]): RemoteR
   return best === null ? null : { tag: best.release.tag, commit: best.commit };
 }
 
+export interface ServerReleaseImage {
+  repository: string;
+  digest: string;
+  reference: string;
+}
+
+export interface ServerReleaseManifest {
+  schemaVersion: typeof SERVER_RELEASE_MANIFEST_SCHEMA_VERSION;
+  releaseTag: string;
+  sourceCommit: string;
+  platforms: Array<(typeof SERVER_IMAGE_PLATFORMS)[number]>;
+  images: {
+    app: ServerReleaseImage;
+    updater: ServerReleaseImage;
+  };
+  workflow: {
+    repository: typeof OFFICIAL_GITHUB_REPOSITORY;
+    path: typeof SERVER_RELEASE_WORKFLOW_PATH;
+    ref: string;
+    identity: string;
+    runId: string;
+    runAttempt: number;
+  };
+}
+
+export type ServerReleaseManifestResult = { manifest: ServerReleaseManifest } | { error: string };
+
+/**
+ * Parses the attested release manifest after its signature has been verified. The exact package
+ * repositories, workflow, ref, and two-platform release shape are policy, not caller input.
+ */
+export function parseServerReleaseManifest(input: unknown): ServerReleaseManifestResult {
+  const source = asRecord(input);
+  if (source === null || source.schemaVersion !== SERVER_RELEASE_MANIFEST_SCHEMA_VERSION) {
+    return { error: "The server release manifest has an unsupported schema." };
+  }
+  const releaseTag = typeof source.releaseTag === "string" ? source.releaseTag : "";
+  const release = parseReleaseTag(releaseTag);
+  if (release === null || release.prerelease !== null) {
+    return { error: "The server release manifest does not name a stable release." };
+  }
+  const sourceCommit = typeof source.sourceCommit === "string" ? source.sourceCommit : "";
+  if (!isGitCommit(sourceCommit)) {
+    return { error: "The server release manifest does not name a full source commit." };
+  }
+  const platforms = source.platforms;
+  if (
+    !Array.isArray(platforms) ||
+    platforms.length !== SERVER_IMAGE_PLATFORMS.length ||
+    !SERVER_IMAGE_PLATFORMS.every((platform, index) => platforms[index] === platform)
+  ) {
+    return { error: "The server release manifest does not cover the required platforms." };
+  }
+
+  const images = asRecord(source.images);
+  const app = parseReleaseImage(images?.app, OFFICIAL_SERVER_IMAGE);
+  const updater = parseReleaseImage(images?.updater, OFFICIAL_UPDATER_IMAGE);
+  if (app === null || updater === null) {
+    return { error: "The server release manifest has an invalid image digest." };
+  }
+
+  const workflow = asRecord(source.workflow);
+  const expectedRef = `refs/tags/${releaseTag}`;
+  const expectedIdentity = serverReleaseWorkflowIdentity(releaseTag);
+  if (
+    workflow === null ||
+    workflow.repository !== OFFICIAL_GITHUB_REPOSITORY ||
+    workflow.path !== SERVER_RELEASE_WORKFLOW_PATH ||
+    workflow.ref !== expectedRef ||
+    workflow.identity !== expectedIdentity ||
+    typeof workflow.runId !== "string" ||
+    !/^[1-9][0-9]*$/.test(workflow.runId) ||
+    typeof workflow.runAttempt !== "number" ||
+    !Number.isInteger(workflow.runAttempt) ||
+    workflow.runAttempt < 1
+  ) {
+    return { error: "The server release manifest has an invalid workflow identity." };
+  }
+
+  return {
+    manifest: {
+      schemaVersion: SERVER_RELEASE_MANIFEST_SCHEMA_VERSION,
+      releaseTag,
+      sourceCommit,
+      platforms: [...SERVER_IMAGE_PLATFORMS],
+      images: { app, updater },
+      workflow: {
+        repository: OFFICIAL_GITHUB_REPOSITORY,
+        path: SERVER_RELEASE_WORKFLOW_PATH,
+        ref: expectedRef,
+        identity: expectedIdentity,
+        runId: workflow.runId,
+        runAttempt: workflow.runAttempt,
+      },
+    },
+  };
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function parseReleaseImage(value: unknown, repository: string): ServerReleaseImage | null {
+  const image = asRecord(value);
+  if (image?.repository !== repository || typeof image.digest !== "string") return null;
+  if (!isValidImageDigest(image.digest)) return null;
+  return { repository, digest: image.digest, reference: digestImageRef(repository, image.digest) };
+}
+
 export type UpdateStrategy = "pull" | "build";
 
 export interface StrategyDecision {
@@ -333,6 +498,30 @@ export function composePsArgv(target: ComposeTarget): ComposeInvocation {
   return { command: "docker", args: [...composeBase(target), "ps", "--format", "json"] };
 }
 
+const VERIFY_API_REVISION_SCRIPT =
+  "fetch('http://127.0.0.1:3100/health').then(async(response)=>{if(!response.ok)throw new Error('health status '+response.status);const health=await response.json();if(health.revision!==process.argv[1])throw new Error('expected revision '+process.argv[1]+' but received '+String(health.revision))}).catch(error=>{console.error(error instanceof Error?error.message:String(error));process.exit(1)})";
+
+/** Verify the process Compose made healthy is the source commit named by the signed manifest. */
+export function composeVerifyCommitArgv(
+  target: ComposeTarget,
+  expectedCommit: string,
+): ComposeInvocation {
+  if (!isGitCommit(expectedCommit)) throw new Error("Health verification needs a full commit.");
+  return {
+    command: "docker",
+    args: [
+      ...composeBase(target),
+      "exec",
+      "--no-TTY",
+      "api",
+      "node",
+      "-e",
+      VERIFY_API_REVISION_SCRIPT,
+      expectedCommit,
+    ],
+  };
+}
+
 /**
  * `git status` as seen inside the Linux sidecar against a Windows checkout. `core.autocrlf=true`
  * makes CR-only worktree noise match what the host already considers clean. The `-c` is argv, not a
@@ -397,7 +586,7 @@ export interface TrackedDirtyDecision {
  * Porcelain lists every tracked path git considers dirty, including CRLF-only noise when a Windows
  * `core.autocrlf=true` checkout is bind-mounted into Linux. `contentChanged` is the same comparison
  * after `--ignore-cr-at-eol`. Porcelain-only paths are dropped; a path that still has a content
- * diff stays dirty. If the content diffs could not be read, porcelain is the last word — the guard
+ * diff stays dirty. If the content diffs could not be read, porcelain is the last word. The guard
  * is not weakened for a failed filter.
  */
 export function resolveTrackedDirtyPaths(input: {
@@ -504,7 +693,7 @@ export function composeUpdatePlan(input: ComposeUpdatePlanInput): ComposeUpdateS
   return steps;
 }
 
-export type RollbackDecision = { tag: string } | { error: string };
+export type RollbackDecision = { ref: string } | { error: string };
 
 /**
  * Rollback is "deploy the tag that was running before the last update". The updater reuses the
@@ -512,19 +701,21 @@ export type RollbackDecision = { tag: string } | { error: string };
  * at the same content.
  */
 export function rollbackTarget(input: {
-  currentTag: string | null;
-  previousTag: string | null;
+  currentRef: string | null;
+  previousRef: string | null;
 }): RollbackDecision {
-  if (!input.previousTag) {
-    return { error: "No previous image tag was recorded, so there is nothing to roll back to." };
+  if (!input.previousRef) {
+    return {
+      error: "No previous image reference was recorded, so there is nothing to roll back to.",
+    };
   }
-  if (!isValidImageTag(input.previousTag)) {
-    return { error: "The recorded previous image tag is not a usable tag." };
+  if (!isValidImageRef(input.previousRef)) {
+    return { error: "The recorded previous image reference is not usable." };
   }
-  if (input.previousTag === input.currentTag) {
-    return { error: "The previous image tag is the one already running." };
+  if (input.previousRef === input.currentRef) {
+    return { error: "The previous image reference is the one already running." };
   }
-  return { tag: input.previousTag };
+  return { ref: input.previousRef };
 }
 
 /**

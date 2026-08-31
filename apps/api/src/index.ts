@@ -10,7 +10,7 @@ import { loadEnv } from "./env.js";
 const env = loadEnv();
 const { app, stop } = await createApp(env);
 const server = serve({ fetch: app.fetch, port: env.port }, () => {
-  console.log(`rakazo api on http://127.0.0.1:${env.port}`);
+  console.log(`AIMEE API listening on http://127.0.0.1:${env.port}`);
 });
 
 // Long-lived connections (threads.subscribe SSE streams) never end on their

@@ -44,6 +44,21 @@ describePostgres("BrandWell AIMEE managed lifecycle (PostgreSQL acceptance)", ()
     const now = new Date("2026-08-27T18:00:00.000Z");
     const disableKey = vi.fn(async () => undefined);
     const deleteKey = vi.fn(async () => undefined);
+    const updateKey = vi.fn(
+      async (
+        hash: string,
+        input: { limitUsd?: number | null; limitReset?: "daily" | "weekly" | "monthly" | null },
+      ) => ({
+        hash,
+        disabled: false,
+        usageUsd: 0,
+        usageDailyUsd: 0,
+        usageMonthlyUsd: 0,
+        limitUsd: input.limitUsd ?? undefined,
+        limitReset: input.limitReset ?? undefined,
+        includeByokInLimit: true,
+      }),
+    );
     const createKey = vi.fn(
       async (input: { limitUsd?: number; limitReset?: "daily" | "weekly" | "monthly" }) => ({
         key: `sk-or-${suffix}`,
@@ -52,6 +67,15 @@ describePostgres("BrandWell AIMEE managed lifecycle (PostgreSQL acceptance)", ()
         limitReset: input.limitReset,
       }),
     );
+    const getModel = vi.fn(async (id: string) => ({
+      id,
+      name: id,
+      inputModalities: id === "anthropic/claude-sonnet-4.6" ? ["text", "image"] : ["text"],
+      outputModalities: ["text"],
+      supportedParameters: ["tools"],
+      reasoning: false,
+      pricing: {},
+    }));
     const suspend = vi.fn(async () => undefined);
     const destroy = vi.fn(async () => undefined);
     let workspaceId: string | null = null;
@@ -92,6 +116,8 @@ describePostgres("BrandWell AIMEE managed lifecycle (PostgreSQL acceptance)", ()
           openRouter: {
             createKey,
             deleteKey,
+            getModel,
+            updateKey,
           },
           systemUserId,
           sandboxKind: "fake",
@@ -100,8 +126,8 @@ describePostgres("BrandWell AIMEE managed lifecycle (PostgreSQL acceptance)", ()
           lightweightModel: "openai/gpt-5.4-mini",
           reasoningModel: "openai/gpt-5.4",
           fallbackModels: ["anthropic/claude-sonnet-4.6"],
-          monthlyLimitMicros: 250_000_000n,
-          warningLimitMicros: 175_000_000n,
+          monthlyLimitMicros: 200_000_000n,
+          warningLimitMicros: 150_000_000n,
           dailyLimitMicros: 25_000_000n,
           now: () => now,
         },

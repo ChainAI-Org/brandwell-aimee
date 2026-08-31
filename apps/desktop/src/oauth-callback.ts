@@ -1,16 +1,16 @@
-import type { RakazoDesktopOAuthCallback } from "@rakazo/contracts";
+import type { AimeeDesktopOAuthCallback } from "@rakazo/contracts";
 
 export type OAuthCallbackFromOptions = {
-  /** App renderer origins — their `/callback` routes must not be treated as paste-flow codes. */
+  /** App renderer origins. Their `/callback` routes must not be treated as paste-flow codes. */
   excludeOrigins?: readonly string[];
 };
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /**
- * Providers that sign in through a loopback redirect — Anthropic sends the
- * browser to `http://localhost:53692/callback` — return the authorization code
- * in the redirect URL. Rakazo runs no listener on that port and asks for the
+ * Providers that sign in through a loopback redirect, such as Anthropic, send the
+ * browser to `http://localhost:53692/callback` and return the authorization code
+ * in the redirect URL. AIMEE runs no listener on that port and asks for the
  * code to be pasted instead, which the sign-in popup cannot show because an
  * Electron window has no address bar. The main process still sees the
  * navigation, so it reads the code from there.
@@ -18,7 +18,7 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 export function oauthCallbackFrom(
   url: string,
   options: OAuthCallbackFromOptions = {},
-): RakazoDesktopOAuthCallback | undefined {
+): AimeeDesktopOAuthCallback | undefined {
   let target: URL;
   try {
     target = new URL(url);

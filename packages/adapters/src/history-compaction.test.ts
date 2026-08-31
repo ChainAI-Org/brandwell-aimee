@@ -1,6 +1,7 @@
 import type {
   AgentRunRequest,
   AgentRuntime,
+  AgentWorkloadType,
   JobPublisher,
   SemanticMemoryResponse,
 } from "@rakazo/adapter-kit";
@@ -151,7 +152,7 @@ describe("selectCompactedHistory", () => {
 describe("formatCompactedSummary", () => {
   it("labels the summary as data and records its coverage", () => {
     expect(formatCompactedSummary("facts", 49)).toContain(
-      "Rakazo-owned compacted context through message sequence 49",
+      "AIMEE-owned compacted context through message sequence 49",
     );
     expect(formatCompactedSummary("facts", 49)).toContain("<compacted_thread_summary>");
   });
@@ -219,6 +220,7 @@ function compactionHarness(
       userId: string;
       workspaceId: string;
       botId?: string;
+      workloadType?: AgentWorkloadType;
     }) => Promise<AgentRunRequest["model"]>;
     withMemoryProvider?: boolean;
     memoryConfig?: {
@@ -506,12 +508,14 @@ describe("compactHistory", () => {
       userId: "user-1",
       workspaceId: "workspace-1",
       botId: "bot-1",
+      workloadType: "lightweight",
     });
     expect(harness.runtime.run.mock.calls[0]![0].model).toEqual({
       provider: "anthropic",
       id: "claude-sonnet",
       apiKey: "user-model-key",
     });
+    expect(harness.runtime.run.mock.calls[0]![0].workloadType).toBe("lightweight");
   });
 
   it("rebuilds local coverage without regressing the legacy cursor", async () => {

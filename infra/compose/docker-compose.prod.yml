@@ -23,13 +23,11 @@ services:
       retries: 20
 
   api:
-    # The tag is what the updater moves. `docker compose pull` fetches it, `up -d` recreates onto
-    # it, and the previous tag stays in .env so a rollback is one redeploy rather than a rebuild.
+    # The full reference is what the updater moves. Official releases use an immutable digest and
+    # the previous digest stays in .env so rollback never resolves or pulls a moving registry tag.
     #
-    # The default tag is `local`, which no registry serves, so a fresh install builds from the
-    # checkout via `up -d --build` instead of failing on a `pull` of an image that does not exist
-    # yet. Once a release is published, pin RAKAZO_IMAGE_TAG to it and the pull path takes over.
-    image: ${RAKAZO_IMAGE:-ghcr.io/elie222/rakazo/app}:${RAKAZO_IMAGE_TAG:-local}
+    # The nested fallback preserves existing split image/tag deployments and local fork builds.
+    image: "${RAKAZO_IMAGE_REF:-${RAKAZO_IMAGE:-ghcr.io/chainai-org/brandwell-aimee/app}:${RAKAZO_IMAGE_TAG:-local}}"
     build:
       context: ../..
       dockerfile: infra/compose/Dockerfile
@@ -51,7 +49,6 @@ services:
       - ../../.env
     environment:
       NODE_ENV: production
-      GIT_SHA: ${GIT_SHA:-}
       DATABASE_URL: postgres://${POSTGRES_USER:-rakazo}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-rakazo}
       DATA_DIR: /data
       SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-e2b}
@@ -80,7 +77,7 @@ services:
       retries: 20
 
   worker:
-    image: ${RAKAZO_IMAGE:-ghcr.io/elie222/rakazo/app}:${RAKAZO_IMAGE_TAG:-local}
+    image: "${RAKAZO_IMAGE_REF:-${RAKAZO_IMAGE:-ghcr.io/chainai-org/brandwell-aimee/app}:${RAKAZO_IMAGE_TAG:-local}}"
     build:
       context: ../..
       dockerfile: infra/compose/Dockerfile
@@ -116,7 +113,7 @@ services:
         condition: service_healthy
 
   web:
-    image: ${RAKAZO_IMAGE:-ghcr.io/elie222/rakazo/app}:${RAKAZO_IMAGE_TAG:-local}
+    image: "${RAKAZO_IMAGE_REF:-${RAKAZO_IMAGE:-ghcr.io/chainai-org/brandwell-aimee/app}:${RAKAZO_IMAGE_TAG:-local}}"
     build:
       context: ../..
       dockerfile: infra/compose/Dockerfile
@@ -155,7 +152,7 @@ services:
     profiles: [updater]
     # Pinned separately from the application image: the updater does not recreate itself, so moving
     # its own version is an operator action, not something an update can do underneath itself.
-    image: ${RAKAZO_UPDATER_IMAGE:-ghcr.io/elie222/rakazo/updater}:${RAKAZO_UPDATER_IMAGE_TAG:-local}
+    image: "${RAKAZO_UPDATER_IMAGE_REF:-${RAKAZO_UPDATER_IMAGE:-ghcr.io/chainai-org/brandwell-aimee/updater}:${RAKAZO_UPDATER_IMAGE_TAG:-local}}"
     build:
       context: ../..
       dockerfile: infra/updater/Dockerfile
@@ -175,7 +172,7 @@ services:
       RAKAZO_UPDATER_TOKEN: ${RAKAZO_UPDATER_TOKEN:-}
       RAKAZO_UPDATER_HOST: "0.0.0.0"
       RAKAZO_UPDATER_PORT: "7092"
-      RAKAZO_IMAGE: ${RAKAZO_IMAGE:-ghcr.io/elie222/rakazo/app}
+      RAKAZO_IMAGE: ${RAKAZO_IMAGE:-ghcr.io/chainai-org/brandwell-aimee/app}
       # `-p` is available to Compose interpolation but is not injected into containers unless it is
       # declared here. The sidecar must target the project the operator actually started.
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-rakazo-prod}

@@ -2,7 +2,81 @@ import type { SandboxProvider } from "@rakazo/adapter-kit";
 import type { Actor } from "@rakazo/contracts";
 import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
-import { stopThreadRuns, type ThreadTarget, threadSnapshot } from "./thread-target.js";
+import {
+  resolveThreadTarget,
+  stopThreadRuns,
+  type ThreadTarget,
+  threadSnapshot,
+} from "./thread-target.js";
+
+describe("resolveThreadTarget", () => {
+  const actor = {
+    workspaceId: "workspace-1",
+    userId: "user-1",
+    email: "user@example.test",
+    isDeploymentOwner: false,
+  } satisfies Actor;
+
+  function bot(primaryThread: object | null) {
+    return {
+      id: "bot-1",
+      workspaceId: actor.workspaceId,
+      userId: actor.userId,
+      archivedAt: null,
+      thread: primaryThread,
+      computer: null,
+    };
+  }
+
+  it("keeps an explicitly selected active chat even when another chat was updated later", async () => {
+    const findFirstThread = vi.fn();
+    const updateBot = vi.fn();
+    const prisma = {
+      bot: {
+        findFirst: vi.fn().mockResolvedValue(
+          bot({
+            id: "thread-selected",
+            botId: "bot-1",
+            archivedAt: null,
+          }),
+        ),
+        update: updateBot,
+      },
+      thread: { findFirst: findFirstThread },
+    } as unknown as PrismaClient;
+
+    const target = await resolveThreadTarget(prisma, actor, { botId: "bot-1" });
+
+    expect(target.threadId).toBe("thread-selected");
+    expect(findFirstThread).not.toHaveBeenCalled();
+    expect(updateBot).not.toHaveBeenCalled();
+  });
+
+  it("repairs an archived primary chat with the most recent active chat", async () => {
+    const updateBot = vi.fn().mockResolvedValue({});
+    const prisma = {
+      bot: {
+        findFirst: vi.fn().mockResolvedValue(
+          bot({
+            id: "thread-archived",
+            botId: "bot-1",
+            archivedAt: new Date("2026-08-30T20:00:00.000Z"),
+          }),
+        ),
+        update: updateBot,
+      },
+      thread: { findFirst: vi.fn().mockResolvedValue({ id: "thread-recent" }) },
+    } as unknown as PrismaClient;
+
+    const target = await resolveThreadTarget(prisma, actor, { botId: "bot-1" });
+
+    expect(target.threadId).toBe("thread-recent");
+    expect(updateBot).toHaveBeenCalledWith({
+      where: { id: "bot-1" },
+      data: { primaryThreadId: "thread-recent" },
+    });
+  });
+});
 
 describe("threadSnapshot", () => {
   it("reloads tool-only live messages for an active run", async () => {

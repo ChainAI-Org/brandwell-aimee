@@ -710,8 +710,8 @@ export default function Models() {
 
             {selected.auth === "oauth" && !subscriptionSignIn ? (
               <Text style={styles.secondary}>
-                This subscription sign-in is not available in Rakazo yet. Use a deployment
-                credential or choose another provider.
+                This subscription sign-in is not available in AIMEE yet. Use a deployment credential
+                or choose another provider.
               </Text>
             ) : null}
 

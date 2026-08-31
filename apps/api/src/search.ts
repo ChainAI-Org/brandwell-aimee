@@ -23,6 +23,7 @@ export async function queryWorkspaceSearch(
       hit.kind,
       hit.botId ?? "",
       hit.groupId ?? "",
+      hit.threadId ?? "",
       hit.messageId ?? "",
       hit.artifactId ?? "",
       hit.routineId ?? "",
@@ -98,13 +99,16 @@ export async function queryWorkspaceSearch(
   });
   for (const artifact of artifacts) {
     if (!artifact.botId || !artifact.bot) continue;
-    const messageRows = await prisma.$queryRaw<Array<{ id: string; seq: number }>>`
-      SELECT m.id, m.seq
+    const messageRows = await prisma.$queryRaw<
+      Array<{ id: string; seq: number; threadId: string }>
+    >`
+      SELECT m.id, m.seq, m."threadId"
       FROM messages m
       INNER JOIN threads t ON t.id = m."threadId"
       WHERE t."workspaceId" = ${actor.workspaceId}
         AND t."userId" = ${actor.userId}
         AND t."botId" = ${artifact.botId}
+        AND t."archivedAt" IS NULL
         AND m.blocks::text ILIKE ${`%${artifact.id}%`}
       ORDER BY m."createdAt" DESC
       LIMIT 1
@@ -117,6 +121,7 @@ export async function queryWorkspaceSearch(
         kind: "file",
         botId: artifact.botId,
         botName: artifact.bot.name,
+        threadId: message.threadId,
         title: artifact.name,
         snippet: `${artifact.mimeType} · ${artifact.size} bytes`,
         artifactId: artifact.id,
@@ -213,6 +218,7 @@ export async function queryWorkspaceSearch(
     INNER JOIN bots b ON b.id = t."botId"
     WHERE t."workspaceId" = ${actor.workspaceId}
       AND t."userId" = ${actor.userId}
+      AND t."archivedAt" IS NULL
       AND b."archivedAt" IS NULL
       AND m.blocks::text ILIKE ${pattern}
     ORDER BY m."createdAt" DESC
@@ -223,6 +229,7 @@ export async function queryWorkspaceSearch(
     pushMessageHits(row.blocks as MessageBlock[], {
       botId: row.botId,
       botName: row.botName,
+      threadId: row.threadId,
       messageId: row.id,
       seq: row.seq,
       query,
@@ -271,6 +278,7 @@ function pushMessageHits(
   ctx: {
     botId?: string;
     botName?: string;
+    threadId?: string;
     groupId?: string;
     groupName?: string;
     messageId: string;
@@ -282,7 +290,7 @@ function pushMessageHits(
   // Discriminate on groupId (not name): empty group names must still target the group.
   const destination = ctx.groupId
     ? { groupId: ctx.groupId, groupName: ctx.groupName ?? "" }
-    : { botId: ctx.botId!, botName: ctx.botName! };
+    : { botId: ctx.botId!, botName: ctx.botName!, threadId: ctx.threadId };
   const title = ctx.groupId ? (ctx.groupName ?? "") : (ctx.botName ?? "");
   let messageHit = false;
   for (const block of blocks) {

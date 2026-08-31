@@ -8,8 +8,10 @@ import {
   composePullArgv,
   composeUpArgv,
   composeUpdatePlan,
+  composeVerifyCommitArgv,
   DEFAULT_COMPOSE_PROJECT_NAME,
   DEFAULT_IMAGE_TAG,
+  digestImageRef,
   forkImageTag,
   gitIndexContentDiffArgv,
   gitStatusArgv,
@@ -18,12 +20,14 @@ import {
   imageRef,
   isValidComposeProjectName,
   isValidImageName,
+  isValidImageRef,
   isValidImageTag,
   OFFICIAL_SERVER_IMAGE,
   parseGitNameOnly,
   parseLsRemoteReleases,
   parseLsRemoteTags,
   parseReleaseTag,
+  parseServerReleaseManifest,
   RECREATED_SERVICES,
   resolveComposeProjectName,
   resolveExecutionMode,
@@ -31,6 +35,7 @@ import {
   rollbackTarget,
   selectLatestRelease,
   selectLatestReleaseTag,
+  serverReleaseWorkflowIdentity,
   upsertEnvAssignments,
   validateUpdateRequest,
 } from "./compose-update.js";
@@ -73,6 +78,17 @@ describe("image references", () => {
     expect(imageRef(OFFICIAL_SERVER_IMAGE, "v1.0.0")).toBe(`${OFFICIAL_SERVER_IMAGE}:v1.0.0`);
     expect(() => imageRef(OFFICIAL_SERVER_IMAGE, "-rm")).toThrow(/image tag/);
     expect(() => imageRef("BAD NAME", DEFAULT_IMAGE_TAG)).toThrow(/image name/);
+  });
+
+  it("accepts only complete tag refs or full sha256 digest refs", () => {
+    const digest = `sha256:${"a".repeat(64)}`;
+    expect(digestImageRef(OFFICIAL_SERVER_IMAGE, digest)).toBe(
+      `${OFFICIAL_SERVER_IMAGE}@${digest}`,
+    );
+    expect(isValidImageRef(`${OFFICIAL_SERVER_IMAGE}@${digest}`)).toBe(true);
+    expect(isValidImageRef(`${OFFICIAL_SERVER_IMAGE}:local`)).toBe(true);
+    expect(isValidImageRef(`${OFFICIAL_SERVER_IMAGE}@sha256:abc`)).toBe(false);
+    expect(isValidImageRef(`${OFFICIAL_SERVER_IMAGE}:latest@${digest}`)).toBe(false);
   });
 
   it("derives local and per-commit tags from a resolved commit only", () => {
@@ -138,6 +154,47 @@ describe("release tag resolution", () => {
     expect(selectLatestReleaseTag(["v2.0.0-rc.1"])).toBeNull();
     expect(selectLatestReleaseTag(["main", "latest"])).toBeNull();
     expect(selectLatestReleaseTag([])).toBeNull();
+  });
+
+  it("accepts only the exact signed server manifest policy", () => {
+    const commit = "1".repeat(40);
+    const tag = "v1.2.3";
+    const manifest = {
+      schemaVersion: 1,
+      releaseTag: tag,
+      sourceCommit: commit,
+      platforms: ["linux/amd64", "linux/arm64"],
+      images: {
+        app: { repository: OFFICIAL_SERVER_IMAGE, digest: `sha256:${"a".repeat(64)}` },
+        updater: {
+          repository: "ghcr.io/chainai-org/brandwell-aimee/updater",
+          digest: `sha256:${"b".repeat(64)}`,
+        },
+      },
+      workflow: {
+        repository: "ChainAI-Org/brandwell-aimee",
+        path: ".github/workflows/publish-server-image.yml",
+        ref: `refs/tags/${tag}`,
+        identity: serverReleaseWorkflowIdentity(tag),
+        runId: "12345",
+        runAttempt: 1,
+      },
+    };
+    expect(parseServerReleaseManifest(manifest)).toMatchObject({
+      manifest: {
+        sourceCommit: commit,
+        images: { app: { reference: `${OFFICIAL_SERVER_IMAGE}@sha256:${"a".repeat(64)}` } },
+      },
+    });
+    expect(
+      parseServerReleaseManifest({
+        ...manifest,
+        workflow: { ...manifest.workflow, path: ".github/workflows/untrusted.yml" },
+      }),
+    ).toEqual({ error: expect.stringMatching(/workflow identity/) });
+    expect(parseServerReleaseManifest({ ...manifest, platforms: ["linux/amd64"] })).toEqual({
+      error: expect.stringMatching(/platforms/),
+    });
   });
 });
 
@@ -230,6 +287,16 @@ describe("compose argv construction", () => {
   it("names the services explicitly so a bare up cannot sweep the whole project", () => {
     const args = composeUpArgv(target).args;
     expect(args.slice(-3)).toEqual(["api", "worker", "web"]);
+  });
+
+  it("verifies the healthy API reports the exact expected commit", () => {
+    const commit = "1".repeat(40);
+    const invocation = composeVerifyCommitArgv(target, commit);
+    expect(invocation.args).toEqual(
+      expect.arrayContaining(["exec", "--no-TTY", "api", "node", "-e", commit]),
+    );
+    expect(invocation.args.join(" ")).toContain("health.revision");
+    expect(() => composeVerifyCommitArgv(target, "main")).toThrow(/full commit/);
   });
 });
 
@@ -371,7 +438,7 @@ describe("update plans", () => {
     const steps = composeUpdatePlan({
       strategy: "build",
       target,
-      repoUrl: "https://github.com/someone/rakazo",
+      repoUrl: "https://github.com/someone/brandwell-aimee",
       branch: "trunk",
       repointRemote: true,
     });
@@ -399,7 +466,7 @@ describe("update plans", () => {
   });
 
   it("keeps the repository URL in argv rather than in any compose input", () => {
-    const repoUrl = "https://github.com/someone/rakazo";
+    const repoUrl = "https://github.com/someone/brandwell-aimee";
     const steps = composeUpdatePlan({
       strategy: "build",
       target,
@@ -415,20 +482,23 @@ describe("update plans", () => {
 });
 
 describe("rollback", () => {
-  it("targets the tag that was running before the last update", () => {
-    expect(rollbackTarget({ currentTag: "v1.1.0", previousTag: "v1.0.0" })).toEqual({
-      tag: "v1.0.0",
+  it("targets the digest reference that was running before the last update", () => {
+    const currentRef = `${OFFICIAL_SERVER_IMAGE}@sha256:${"a".repeat(64)}`;
+    const previousRef = `${OFFICIAL_SERVER_IMAGE}@sha256:${"b".repeat(64)}`;
+    expect(rollbackTarget({ currentRef, previousRef })).toEqual({
+      ref: previousRef,
     });
   });
 
   it("refuses when there is nothing recorded, nothing usable, or nothing to change", () => {
-    expect(rollbackTarget({ currentTag: "v1.1.0", previousTag: null })).toEqual({
+    const ref = `${OFFICIAL_SERVER_IMAGE}@sha256:${"a".repeat(64)}`;
+    expect(rollbackTarget({ currentRef: ref, previousRef: null })).toEqual({
       error: expect.stringMatching(/nothing to roll back/),
     });
-    expect(rollbackTarget({ currentTag: "v1.1.0", previousTag: "-rm" })).toEqual({
-      error: expect.stringMatching(/not a usable tag/),
+    expect(rollbackTarget({ currentRef: ref, previousRef: "-rm" })).toEqual({
+      error: expect.stringMatching(/not usable/),
     });
-    expect(rollbackTarget({ currentTag: "v1.0.0", previousTag: "v1.0.0" })).toEqual({
+    expect(rollbackTarget({ currentRef: ref, previousRef: ref })).toEqual({
       error: expect.stringMatching(/already running/),
     });
   });
@@ -492,10 +562,13 @@ describe("managed env assignments", () => {
 describe("sidecar boundary validation", () => {
   it("normalizes a request the API already validated", () => {
     expect(
-      validateUpdateRequest({ repoUrl: "https://github.com/elie222/rakazo.git", branch: " main " }),
+      validateUpdateRequest({
+        repoUrl: "https://github.com/ChainAI-Org/brandwell-aimee.git",
+        branch: " main ",
+      }),
     ).toEqual({
       request: {
-        repoUrl: "https://github.com/elie222/rakazo.git",
+        repoUrl: "https://github.com/ChainAI-Org/brandwell-aimee.git",
         branch: "main",
         official: true,
       },
@@ -504,12 +577,12 @@ describe("sidecar boundary validation", () => {
 
   it("marks a fork as unofficial so the sidecar picks the build path", () => {
     const result = validateUpdateRequest({
-      repoUrl: "https://github.com/someone/rakazo",
+      repoUrl: "https://github.com/someone/brandwell-aimee",
       branch: "main",
     });
     expect(result).toEqual({
       request: {
-        repoUrl: "https://github.com/someone/rakazo",
+        repoUrl: "https://github.com/someone/brandwell-aimee",
         branch: "main",
         official: false,
       },

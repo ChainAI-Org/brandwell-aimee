@@ -1,10 +1,17 @@
 import path from "node:path";
 import {
   DEFAULT_IMAGE_TAG,
+  IMAGE_COMMIT_ENV,
+  IMAGE_REF_ENV,
   IMAGE_TAG_ENV,
+  imageRef,
+  isGitCommit,
   isValidImageName,
+  isValidImageRef,
   isValidImageTag,
   OFFICIAL_SERVER_IMAGE,
+  PREVIOUS_IMAGE_COMMIT_ENV,
+  PREVIOUS_IMAGE_REF_ENV,
   PREVIOUS_IMAGE_TAG_ENV,
   resolveComposeProjectName,
   resolveUpdaterToken,
@@ -83,6 +90,13 @@ export interface TagState {
   previousTag: string | null;
 }
 
+export interface ImageState extends TagState {
+  currentRef: string;
+  previousRef: string | null;
+  currentCommit: string | null;
+  previousCommit: string | null;
+}
+
 /** What the deployment is pinned to now, ignoring anything in the file that is not a usable tag. */
 export function readTagState(envContents: string): TagState {
   const current = readEnvAssignment(envContents, IMAGE_TAG_ENV);
@@ -90,6 +104,50 @@ export function readTagState(envContents: string): TagState {
   return {
     currentTag: current !== null && isValidImageTag(current) ? current : DEFAULT_IMAGE_TAG,
     previousTag: previous !== null && isValidImageTag(previous) ? previous : null,
+  };
+}
+
+/**
+ * Digest-aware state with a compatibility bridge for deployments that still have only the split
+ * RAKAZO_IMAGE + RAKAZO_IMAGE_TAG settings. New updates always persist the full references.
+ */
+export function readImageState(envContents: string, image: string): ImageState {
+  if (!isValidImageName(image)) throw new Error(`Refusing an unusable image name: ${image}`);
+  const tags = readTagState(envContents);
+  const explicitCurrent = readEnvAssignment(envContents, IMAGE_REF_ENV);
+  const explicitPrevious = readEnvAssignment(envContents, PREVIOUS_IMAGE_REF_ENV);
+  const currentCommit = readEnvAssignment(envContents, IMAGE_COMMIT_ENV);
+  const previousCommit = readEnvAssignment(envContents, PREVIOUS_IMAGE_COMMIT_ENV);
+  for (const [key, value] of [
+    [IMAGE_REF_ENV, explicitCurrent],
+    [PREVIOUS_IMAGE_REF_ENV, explicitPrevious],
+  ] as const) {
+    if (value !== null && value !== "" && (!value.includes("@") || !isValidImageRef(value))) {
+      throw new Error(`${key} is not a usable immutable image reference: ${value}`);
+    }
+  }
+  for (const [key, value] of [
+    [IMAGE_COMMIT_ENV, currentCommit],
+    [PREVIOUS_IMAGE_COMMIT_ENV, previousCommit],
+  ] as const) {
+    if (value !== null && value !== "" && !isGitCommit(value)) {
+      throw new Error(`${key} is not a full source commit: ${value}`);
+    }
+  }
+  return {
+    ...tags,
+    currentRef:
+      explicitCurrent !== null && explicitCurrent !== ""
+        ? explicitCurrent
+        : imageRef(image, tags.currentTag),
+    previousRef:
+      explicitPrevious !== null && explicitPrevious !== ""
+        ? explicitPrevious
+        : tags.previousTag === null
+          ? null
+          : imageRef(image, tags.previousTag),
+    currentCommit: currentCommit === null || currentCommit === "" ? null : currentCommit,
+    previousCommit: previousCommit === null || previousCommit === "" ? null : previousCommit,
   };
 }
 

@@ -1,0 +1,143 @@
+name: promote-server-release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+# One global queue prevents an older release event from racing a newer release's channel aliases.
+concurrency:
+  group: promote-server-release-global
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    if: github.repository == 'ChainAI-Org/brandwell-aimee'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      packages: write
+    steps:
+      - name: Require the semantic-max published stable release
+        id: eligible
+        env:
+          EVENT_DRAFT: ${{ github.event.release.draft }}
+          EVENT_PRERELEASE: ${{ github.event.release.prerelease }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          promote=false
+          if [[ "$EVENT_DRAFT" == "false" && "$EVENT_PRERELEASE" == "false" && "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            latest_tag="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq '.[] | select(.draft == false and .prerelease == false) | .tag_name' \
+              | sed -nE '/^v[0-9]+\.[0-9]+\.[0-9]+$/p' | sort -V | tail -n 1)"
+            if [[ "$RELEASE_TAG" == "$latest_tag" ]]; then promote=true; fi
+          fi
+          echo "promote=$promote" >> "$GITHUB_OUTPUT"
+      - if: steps.eligible.outputs.promote == 'true'
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.event.release.tag_name }}
+      - name: Download and verify the signed release manifest
+        if: steps.eligible.outputs.promote == 'true'
+        id: manifest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_commit="$(git rev-parse HEAD)"
+          [[ "$source_commit" =~ ^[0-9a-f]{40}$ ]]
+          gh release download "$RELEASE_TAG" --pattern server-release-manifest.json \
+            --pattern server-release-manifest.sigstore.jsonl \
+            --pattern 'server-image-*.oci-manifest.json' \
+            --pattern 'server-image-*.sigstore.jsonl' --dir server-release
+          manifest="server-release/server-release-manifest.json"
+          bundle="server-release/server-release-manifest.sigstore.jsonl"
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/publish-server-image.yml@refs/tags/${RELEASE_TAG}"
+          signer="github.com/${GITHUB_REPOSITORY}/.github/workflows/publish-server-image.yml"
+          gh attestation verify "$manifest" --bundle "$bundle" \
+            --repo "$GITHUB_REPOSITORY" --signer-workflow "$signer" \
+            --cert-identity "$identity" \
+            --cert-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --source-digest "$source_commit" --source-ref "refs/tags/${RELEASE_TAG}" \
+            --deny-self-hosted-runners
+          jq -e --arg tag "$RELEASE_TAG" --arg sha "$source_commit" --arg identity "$identity" '
+            .schemaVersion == 1 and .releaseTag == $tag and .sourceCommit == $sha and
+            .platforms == ["linux/amd64","linux/arm64"] and
+            .images.app.repository == "ghcr.io/chainai-org/brandwell-aimee/app" and
+            .images.updater.repository == "ghcr.io/chainai-org/brandwell-aimee/updater" and
+            (.images.app.digest | test("^sha256:[0-9a-f]{64}$")) and
+            (.images.updater.digest | test("^sha256:[0-9a-f]{64}$")) and
+            .workflow.repository == "ChainAI-Org/brandwell-aimee" and
+            .workflow.path == ".github/workflows/publish-server-image.yml" and
+            .workflow.ref == ("refs/tags/" + $tag) and .workflow.identity == $identity and
+            (.workflow.runId | test("^[1-9][0-9]*$")) and (.workflow.runAttempt >= 1)
+          ' "$manifest" >/dev/null
+          run_id="$(jq -r .workflow.runId "$manifest")"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" \
+            | jq -e --arg tag "$RELEASE_TAG" --arg sha "$source_commit" '
+                .event == "push" and .head_branch == $tag and .head_sha == $sha and
+                .path == ".github/workflows/publish-server-image.yml" and
+                .status == "completed" and .conclusion == "success"
+              ' >/dev/null
+          echo "source_commit=$source_commit" >> "$GITHUB_OUTPUT"
+          echo "app_digest=$(jq -r .images.app.digest "$manifest")" >> "$GITHUB_OUTPUT"
+          echo "updater_digest=$(jq -r .images.updater.digest "$manifest")" >> "$GITHUB_OUTPUT"
+      - name: Log in to GHCR
+        if: steps.eligible.outputs.promote == 'true'
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - if: steps.eligible.outputs.promote == 'true'
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - name: Verify exact OCI provenance and promote both recorded digests
+        if: steps.eligible.outputs.promote == 'true'
+        env:
+          APP_DIGEST: ${{ steps.manifest.outputs.app_digest }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          SOURCE_COMMIT: ${{ steps.manifest.outputs.source_commit }}
+          UPDATER_DIGEST: ${{ steps.manifest.outputs.updater_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          identity="https://github.com/${GITHUB_REPOSITORY}/.github/workflows/publish-server-image.yml@refs/tags/${RELEASE_TAG}"
+          signer="github.com/${GITHUB_REPOSITORY}/.github/workflows/publish-server-image.yml"
+          version="${RELEASE_TAG#v}"
+          IFS=. read -r major minor _ <<<"$version"
+          for image in app updater; do
+            repository="ghcr.io/chainai-org/brandwell-aimee/${image}"
+            if [[ "$image" == "app" ]]; then digest="$APP_DIGEST"; else digest="$UPDATER_DIGEST"; fi
+            reference="${repository}@${digest}"
+            bundle="server-release/server-image-${image}.sigstore.jsonl"
+            oci_manifest="server-release/server-image-${image}.oci-manifest.json"
+            [[ "sha256:$(sha256sum "$oci_manifest" | cut -d' ' -f1)" == "$digest" ]]
+            gh attestation verify "oci://${reference}" --bundle "$bundle" \
+              --repo "$GITHUB_REPOSITORY" --signer-workflow "$signer" \
+              --cert-identity "$identity" \
+              --cert-oidc-issuer "https://token.actions.githubusercontent.com" \
+              --source-digest "$SOURCE_COMMIT" --source-ref "refs/tags/${RELEASE_TAG}" \
+              --deny-self-hosted-runners
+            docker buildx imagetools inspect --raw "$reference" \
+              | jq -e '[.manifests[].platform | select(.os == "linux" and (.architecture == "amd64" or .architecture == "arm64")) | (.os + "/" + .architecture)] | unique | sort == ["linux/amd64","linux/arm64"]' >/dev/null
+            docker buildx imagetools create \
+              --tag "${repository}:latest" \
+              --tag "${repository}:v${major}" \
+              --tag "${repository}:v${major}.${minor}" \
+              "$reference"
+            for alias in latest "v${major}" "v${major}.${minor}"; do
+              resolved="$(docker buildx imagetools inspect "${repository}:${alias}" | awk '$1 == "Digest:" {print $2; exit}')"
+              [[ "$resolved" == "$digest" ]]
+            done
+          done

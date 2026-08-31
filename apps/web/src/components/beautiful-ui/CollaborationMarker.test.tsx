@@ -15,7 +15,7 @@ describe("collaboration transcript markers", () => {
     );
 
     expect(html).toContain('aria-label="Message from Research"');
-    expect(html).toContain("rakazo-bot-avatar");
+    expect(html).toContain("aimee-bot-avatar");
     expect(html).toContain("Research");
   });
 
@@ -29,6 +29,6 @@ describe("collaboration transcript markers", () => {
 
     expect(html).toContain('role="status"');
     expect(html).toContain('data-working="true"');
-    expect(html).toContain("rakazo-bot-avatar-ring");
+    expect(html).toContain("aimee-bot-avatar-ring");
   });
 });

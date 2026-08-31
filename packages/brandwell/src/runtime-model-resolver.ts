@@ -1,6 +1,7 @@
 import type { PrismaClient } from "@rakazo/db";
 import {
   type BrandwellWorkloadType,
+  type ManagedModelCatalogEntry,
   resolveModelConfig,
   type WorkspaceModelCredential,
 } from "./model-routing.js";
@@ -20,10 +21,15 @@ export type BrandwellManagedModelResolution = {
   thinkingLevel?: string;
   maxTokens?: number;
   fallbackModels: string[];
+  fallbackModelMetadata?: Record<string, ManagedModelCatalogEntry>;
+  modelMetadata?: ManagedModelCatalogEntry;
+  computerModel?: string;
+  computerModelMetadata?: ManagedModelCatalogEntry;
   warningExceeded: boolean;
 };
 
 export type BrandwellManagedRunBlockReason =
+  | "unmanaged_bot"
   | "bot_paused"
   | "workspace_inactive"
   | "service_identity_missing"
@@ -62,14 +68,24 @@ export function createBrandwellManagedModelResolver(prisma: PrismaClient) {
       where: {
         id: scope.botId,
         workspaceId: scope.workspaceId,
-        managedByBrandWell: true,
       },
       select: {
+        managedByBrandWell: true,
         managedStatus: true,
         serviceIdentityId: true,
       },
     });
     if (!bot) return null;
+    if (!bot.managedByBrandWell) {
+      const managedWorkspace = await prisma.brandwellAiWorkspace.findUnique({
+        where: { rakazoWorkspaceId: scope.workspaceId },
+        select: { id: true },
+      });
+      if (managedWorkspace) {
+        throw new BrandwellManagedRunBlockedError("unmanaged_bot");
+      }
+      return null;
+    }
     if (bot.managedStatus !== "active") {
       throw new BrandwellManagedRunBlockedError("bot_paused");
     }
@@ -77,7 +93,7 @@ export function createBrandwellManagedModelResolver(prisma: PrismaClient) {
       throw new BrandwellManagedRunBlockedError("service_identity_missing");
     }
 
-    const [mapping, serviceIdentity, credential] = await Promise.all([
+    const [mapping, serviceIdentity, workspaceCredential, sidekick] = await Promise.all([
       prisma.brandwellAiWorkspace.findUnique({
         where: { rakazoWorkspaceId: scope.workspaceId },
         select: {
@@ -93,7 +109,12 @@ export function createBrandwellManagedModelResolver(prisma: PrismaClient) {
       prisma.brandwellWorkspaceModelCredential.findUnique({
         where: { workspaceId: scope.workspaceId },
       }),
+      prisma.brandwellSidekick.findUnique({
+        where: { botId: scope.botId },
+        include: { modelCredential: true },
+      }),
     ]);
+    const credential = sidekick ? sidekick.modelCredential : workspaceCredential;
 
     if (!mapping || !ACTIVE_SUBSCRIPTIONS.has(mapping.subscriptionStatus)) {
       throw new BrandwellManagedRunBlockedError("workspace_inactive");
@@ -109,10 +130,17 @@ export function createBrandwellManagedModelResolver(prisma: PrismaClient) {
       throw new BrandwellManagedRunBlockedError("credential_missing");
     }
 
-    const ownershipMatches =
+    const sharedOwnershipMatches =
+      credential.workspaceId === scope.workspaceId &&
       credential.serviceIdentityId === bot.serviceIdentityId &&
-      (!mapping.serviceIdentityId || mapping.serviceIdentityId === bot.serviceIdentityId) &&
-      (!mapping.openRouterCredentialId || mapping.openRouterCredentialId === credential.id);
+      (!mapping.serviceIdentityId || mapping.serviceIdentityId === bot.serviceIdentityId);
+    const ownershipMatches = sidekick
+      ? sharedOwnershipMatches &&
+        sidekick.workspaceId === scope.workspaceId &&
+        sidekick.status === "active" &&
+        sidekick.modelCredential?.sidekickId === sidekick.id
+      : sharedOwnershipMatches &&
+        (!mapping.openRouterCredentialId || mapping.openRouterCredentialId === credential.id);
     if (!ownershipMatches) {
       throw new BrandwellManagedRunBlockedError("credential_scope_mismatch");
     }
@@ -137,6 +165,7 @@ export function createBrandwellManagedModelResolver(prisma: PrismaClient) {
               where: {
                 workspaceId: scope.workspaceId,
                 serviceIdentityId: bot.serviceIdentityId,
+                ...(sidekick ? { botId: scope.botId } : {}),
                 createdAt: { gte: currentUtcDayStart() },
               },
               _sum: { costMicros: true },
@@ -161,10 +190,14 @@ export function createBrandwellManagedModelResolver(prisma: PrismaClient) {
       lightweightModel: credential.lightweightModel,
       reasoningModel: credential.reasoningModel,
       fallbackModels: stringArray(credential.fallbackModels),
+      modelCatalog: credential.modelCatalog,
       maxTokens: credential.maxTokens,
       thinkingLevel: credential.thinkingLevel,
     };
     const resolved = resolveModelConfig(modelCredential, scope.workloadType ?? "general");
+    const computerResolved = credential.computerModel
+      ? resolveModelConfig(modelCredential, "computer")
+      : null;
 
     return {
       provider: resolved.provider,
@@ -174,6 +207,16 @@ export function createBrandwellManagedModelResolver(prisma: PrismaClient) {
       ...(resolved.thinkingLevel ? { thinkingLevel: resolved.thinkingLevel } : {}),
       ...(resolved.maxTokens ? { maxTokens: resolved.maxTokens } : {}),
       fallbackModels: resolved.fallbackModels,
+      ...(resolved.fallbackMetadata ? { fallbackModelMetadata: resolved.fallbackMetadata } : {}),
+      ...(resolved.modelMetadata ? { modelMetadata: resolved.modelMetadata } : {}),
+      ...(computerResolved
+        ? {
+            computerModel: computerResolved.model,
+            ...(computerResolved.modelMetadata
+              ? { computerModelMetadata: computerResolved.modelMetadata }
+              : {}),
+          }
+        : {}),
       warningExceeded: resolved.costPolicy.warningExceeded,
     };
   };

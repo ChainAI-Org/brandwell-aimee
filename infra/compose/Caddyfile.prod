@@ -13,6 +13,10 @@
 		reverse_proxy api:3100
 	}
 
+	handle /internal/* {
+		reverse_proxy api:3100
+	}
+
 	handle {
 		reverse_proxy web:5173
 	}

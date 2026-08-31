@@ -1,6 +1,9 @@
 {
-  "name": "@rakazo/desktop",
+  "name": "@brandwell/desktop",
   "version": "0.1.0",
+  "description": "BrandWell's done-for-you AI GTM Employee desktop app.",
+  "author": "BrandWell",
+  "homepage": "https://brandwell.ai",
   "license": "Apache-2.0",
   "type": "module",
   "main": "dist/main.js",
@@ -26,8 +29,10 @@
     "vitest": "^4.1.10"
   },
   "build": {
-    "appId": "dev.rakazo.desktop",
-    "productName": "Rakazo",
+    "appId": "ai.brandwell.aimee.desktop",
+    "productName": "BrandWell's AIMEE",
+    "copyright": "Copyright © BrandWell",
+    "artifactName": "BrandWell-AIMEE-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "out",
       "buildResources": "assets"
@@ -45,6 +50,13 @@
     "extraMetadata": {
       "main": "dist/main.js"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ChainAI-Org",
+        "repo": "brandwell-aimee"
+      }
+    ],
     "mac": {
       "icon": "assets/icon.icns",
       "category": "public.app-category.productivity",
@@ -66,13 +78,6 @@
       "target": [
         "AppImage"
       ]
-    },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "elie222",
-        "repo": "rakazo"
-      }
-    ]
+    }
   }
 }

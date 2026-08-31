@@ -10,8 +10,22 @@ COPY --from=dockercli /usr/local/libexec/docker/cli-plugins/docker-compose \
   /usr/local/libexec/docker/cli-plugins/docker-compose
 COPY --from=dockercli /usr/local/libexec/docker/cli-plugins/docker-buildx \
   /usr/local/libexec/docker/cli-plugins/docker-buildx
+ARG TARGETARCH
+ARG GH_VERSION=2.93.0
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git ca-certificates \
+  && apt-get install -y --no-install-recommends git ca-certificates curl \
+  && case "$TARGETARCH" in \
+    amd64) GH_SHA256=02d1290eba130e0b896f3709ffff22e1c75a51475ddb70476a85abc6b5807af0 ;; \
+    arm64) GH_SHA256=c55feb33684abba57e9909737340d5b39282257c0363e1edde6785ac4a413be7 ;; \
+    *) echo "Unsupported updater architecture: $TARGETARCH" >&2; exit 1 ;; \
+  esac \
+  && curl --fail --show-error --silent --location \
+    "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${TARGETARCH}.tar.gz" \
+    --output /tmp/gh.tar.gz \
+  && echo "${GH_SHA256}  /tmp/gh.tar.gz" | sha256sum --check --strict \
+  && tar --extract --gzip --file /tmp/gh.tar.gz --directory /tmp \
+  && install -m 0755 "/tmp/gh_${GH_VERSION}_linux_${TARGETARCH}/bin/gh" /usr/local/bin/gh \
+  && rm -rf /tmp/gh.tar.gz "/tmp/gh_${GH_VERSION}_linux_${TARGETARCH}" \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./

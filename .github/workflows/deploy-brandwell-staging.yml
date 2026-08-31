@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       git_ref:
-        description: Full commit SHA, branch, or tag to deploy
+        description: main or a full commit SHA already contained in main
         required: true
         default: main
 
@@ -23,15 +23,38 @@ jobs:
     outputs:
       sha: ${{ steps.revision.outputs.sha }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
-          ref: ${{ inputs.git_ref }}
+          fetch-depth: 0
           persist-credentials: false
-      - name: Resolve immutable revision
+          ref: main
+      - name: Resolve reviewed immutable revision
         id: revision
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+        env:
+          REQUESTED_REF: ${{ inputs.git_ref }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/main:refs/remotes/origin/main"
+          if [[ "$REQUESTED_REF" == "main" ]]; then
+            deploy_sha="$(git rev-parse "origin/main^{commit}")"
+          elif [[ "$REQUESTED_REF" =~ ^[0-9a-f]{40}$ ]]; then
+            deploy_sha="$(git rev-parse "${REQUESTED_REF}^{commit}" 2>/dev/null)" || {
+              echo "The requested commit is not present in main history." >&2
+              exit 1
+            }
+          else
+            echo "Staging accepts only main or a lowercase full commit SHA." >&2
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$deploy_sha" origin/main; then
+            echo "Staging revisions must already be contained in origin/main." >&2
+            exit 1
+          fi
+          git checkout --detach "$deploy_sha"
+          echo "sha=$deploy_sha" >> "$GITHUB_OUTPUT"
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
@@ -52,10 +75,6 @@ jobs:
       name: brandwell-staging
       url: https://staging-ai.brandwell.ai
     steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ needs.validate.outputs.sha }}
-          persist-credentials: false
       - name: Configure BrandWell staging SSH identity
         env:
           SSH_PRIVATE_KEY: ${{ secrets.BRANDWELL_STAGING_SSH_PRIVATE_KEY }}
@@ -88,8 +107,14 @@ jobs:
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
             "$SSH_USER@$SSH_HOST" deploy-brandwell-staging "$DEPLOY_SHA"
-      - name: Verify BrandWell staging health
+      - name: Verify BrandWell staging readiness
+        env:
+          EXPECTED_REVISION: ${{ needs.validate.outputs.sha }}
         run: |
-          curl --fail --silent --show-error \
+          response="$(curl --fail --silent --show-error \
             --retry 12 --retry-delay 5 --retry-all-errors \
-            https://staging-ai.brandwell.ai/health
+            https://staging-ai.brandwell.ai/ready)"
+          READINESS_RESPONSE="$response" node -e '
+            const readiness = JSON.parse(process.env.READINESS_RESPONSE || "null");
+            if (readiness?.ok !== true || readiness?.service !== "aimee" || readiness?.revision !== process.env.EXPECTED_REVISION) process.exit(1);
+          '

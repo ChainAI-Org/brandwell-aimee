@@ -1,5 +1,22 @@
 export type BrandwellWorkloadType = "general" | "computer" | "lightweight" | "reasoning";
 
+export type ManagedModelCatalogEntry = {
+  id: string;
+  name: string;
+  inputModalities: string[];
+  outputModalities: string[];
+  supportedParameters: string[];
+  reasoning: boolean;
+  contextLength?: number;
+  maxCompletionTokens?: number;
+  pricing: {
+    prompt?: string;
+    completion?: string;
+    inputCacheRead?: string;
+    inputCacheWrite?: string;
+  };
+};
+
 export type WorkspaceModelCredential = {
   workspaceId: string;
   serviceIdentityId: string;
@@ -17,6 +34,7 @@ export type WorkspaceModelCredential = {
   lightweightModel?: string | null;
   reasoningModel?: string | null;
   fallbackModels: readonly string[];
+  modelCatalog?: unknown;
   maxTokens?: number | null;
   thinkingLevel?: string | null;
 };
@@ -28,6 +46,8 @@ export type ResolvedModelConfig = {
   maxTokens?: number;
   thinkingLevel?: string;
   fallbackModels: string[];
+  fallbackMetadata?: Record<string, ManagedModelCatalogEntry>;
+  modelMetadata?: ManagedModelCatalogEntry;
   costPolicy: {
     monthlyLimitMicros: bigint;
     dailyLimitMicros?: bigint;
@@ -77,6 +97,13 @@ export function resolveModelConfig(
           : null;
   const model = override?.trim() || credential.preferredModel;
   const fallbackModels = [...new Set(credential.fallbackModels.filter((item) => item !== model))];
+  const modelMetadata = modelCatalogEntry(credential.modelCatalog, model);
+  const fallbackMetadata = Object.fromEntries(
+    fallbackModels.flatMap((fallbackModel) => {
+      const metadata = modelCatalogEntry(credential.modelCatalog, fallbackModel);
+      return metadata ? [[fallbackModel, metadata] as const] : [];
+    }),
+  );
 
   return {
     provider: credential.provider,
@@ -85,6 +112,8 @@ export function resolveModelConfig(
     ...(credential.maxTokens ? { maxTokens: credential.maxTokens } : {}),
     ...(credential.thinkingLevel ? { thinkingLevel: credential.thinkingLevel } : {}),
     fallbackModels,
+    ...(Object.keys(fallbackMetadata).length > 0 ? { fallbackMetadata } : {}),
+    ...(modelMetadata ? { modelMetadata } : {}),
     costPolicy: {
       monthlyLimitMicros: credential.monthlyLimitMicros,
       ...(credential.dailyLimitMicros ? { dailyLimitMicros: credential.dailyLimitMicros } : {}),
@@ -95,4 +124,13 @@ export function resolveModelConfig(
       hardLimitExceeded: false,
     },
   };
+}
+
+function modelCatalogEntry(value: unknown, modelId: string): ManagedModelCatalogEntry | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const entry = (value as Record<string, unknown>)[modelId];
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return undefined;
+  const candidate = entry as Partial<ManagedModelCatalogEntry>;
+  if (candidate.id !== modelId || typeof candidate.name !== "string") return undefined;
+  return candidate as ManagedModelCatalogEntry;
 }

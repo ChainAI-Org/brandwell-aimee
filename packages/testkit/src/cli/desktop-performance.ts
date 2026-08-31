@@ -77,8 +77,8 @@ try {
   preview = startPreview(benchmarkEnv);
   await waitForUrl(webOrigin);
 
-  const executablePath = await packagedExecutable();
-  const benchmark = { executablePath, env: benchmarkEnv };
+  const executablePath = desktopElectronExecutable();
+  const benchmark = { executablePath, args: [desktopRoot], env: benchmarkEnv };
   const primedProfile = path.join(temporaryRoot, "profile-primed");
   await prepareAuthenticatedProfile(benchmark, primedProfile);
   await seedBenchmarkThread(handles.prisma);
@@ -185,7 +185,7 @@ function performanceEnvironment(databaseUrl: string): NodeJS.ProcessEnv {
 }
 
 function buildProductionArtifacts(env: NodeJS.ProcessEnv) {
-  run("pnpm", ["--filter", "@rakazo/desktop", "pack:dir"], env);
+  run("pnpm", ["--filter", "@brandwell/desktop", "pack:dir"], env);
 }
 
 function migrateDatabase(env: NodeJS.ProcessEnv) {
@@ -216,12 +216,7 @@ function startPreview(env: NodeJS.ProcessEnv) {
   );
 }
 
-async function packagedExecutable() {
-  const out = path.join(desktopRoot, "out");
-  const candidates = process.platform === "darwin" ? await findNamed(out, "Rakazo.app") : [];
-  if (process.platform === "darwin" && candidates[0]) {
-    return path.join(candidates[0], "Contents/MacOS/Rakazo");
-  }
+function desktopElectronExecutable() {
   const desktopRequire = createRequire(path.join(desktopRoot, "package.json"));
   return desktopRequire("electron") as string;
 }
@@ -238,6 +233,7 @@ async function findNamed(directory: string, name: string): Promise<string[]> {
 
 interface BenchmarkContext {
   executablePath: string;
+  args: string[];
   env: NodeJS.ProcessEnv;
 }
 
@@ -287,7 +283,7 @@ async function prepareAuthenticatedProfile(benchmark: BenchmarkContext, profile:
       await page.getByRole("button", { name: "Continue" }).click();
       await page.getByText("A bit of everything", { exact: true }).click();
       await page.getByText("Clear and tight", { exact: true }).click();
-      await page.getByRole("button", { name: "Open Rakazo" }).click();
+      await page.getByRole("button", { name: "Open BrandWell's AIMEE" }).click();
     }
     await waitForShell(page);
   } finally {
@@ -352,6 +348,7 @@ async function launchDesktop(
   const launchClockMs = performance.now();
   const app = await electron.launch({
     executablePath: benchmark.executablePath,
+    args: benchmark.args,
     env: {
       ...benchmark.env,
       RAKAZO_PERFORMANCE_USER_DATA: profile,
@@ -744,7 +741,7 @@ function environmentFingerprint(versions: { electron?: string; chrome?: string }
     electron: versions.electron,
     chrome: versions.chrome,
     playwright: createRequire(import.meta.url)("@playwright/test/package.json").version,
-    buildMode: "production-vite-preview+electron-builder-dir",
+    buildMode: "production-vite-preview+unpackaged-electron",
     rendererMode: remoteRenderer ? "remote" : "bundled",
     warmWindow: disableWarmWindow ? "disabled" : "enabled",
     assetDelayMs,
@@ -753,7 +750,7 @@ function environmentFingerprint(versions: { electron?: string; chrome?: string }
 
 async function measureBundles() {
   const web = await directorySize(path.join(webRoot, "dist"));
-  const applications = await findNamed(path.join(desktopRoot, "out"), "Rakazo.app");
+  const applications = await findNamed(path.join(desktopRoot, "out"), "BrandWell's AIMEE.app");
   const desktop = applications[0] ? await directorySize(applications[0]) : null;
   return { web, desktop };
 }
@@ -817,7 +814,7 @@ function roundedSummary(values: number[]): NumericSummary {
 
 function renderMarkdown(report: PerformanceReport) {
   const summary = report.summary;
-  return `# Rakazo desktop performance — ${report.label}
+  return `# BrandWell's AIMEE desktop performance: ${report.label}
 
 - Commit: \`${report.environment.gitSha.slice(0, 12)}\`
 - Platform: ${report.environment.platform}/${report.environment.arch}

@@ -1,6 +1,6 @@
-# Contributing to Rakazo
+# Contributing to AIMEE
 
-Thanks for helping improve Rakazo. Keep changes focused and testable.
+Thanks for helping improve AIMEE. Keep changes focused and testable.
 
 ## Run locally
 
@@ -21,7 +21,7 @@ pnpm dev
 
 | Command | When to run |
 | --- | --- |
-| `pnpm test` | Default. Units, properties, and in-process contracts. Scripted runtime, fake sandbox, in-memory wakeup — no live connector or model-provider calls. |
+| `pnpm test` | Default. Units, properties, and in-process contracts. Scripted runtime, fake sandbox, in-memory wakeup. No live connector or model-provider calls. |
 | `pnpm test:integration` | Postgres via Testcontainers: product journeys, authorization, executor lifecycle, Graphile / LISTEN/NOTIFY. Needs Docker. |
 | `pnpm test:e2e` | Playwright against the emulated API. Needs Docker. |
 | `pnpm test:topology` | Local product-path smoke: Docker computer + Graphile worker recovery. Needs Docker. Not PR CI. |
@@ -56,6 +56,6 @@ capability config, fixtures, logs, or snapshots; use the encrypted secret store 
 
 | Address | Use for |
 | --- | --- |
-| [security@rakazo.com](mailto:security@rakazo.com) | Vulnerabilities only — see [SECURITY.md](SECURITY.md) |
-| [support@rakazo.com](mailto:support@rakazo.com) | User and support questions |
-| [elie@rakazo.com](mailto:elie@rakazo.com) | Maintainer |
+| [security@brandwell.ai](mailto:security@brandwell.ai) | Vulnerabilities only. See [SECURITY.md](SECURITY.md) |
+| [support@brandwell.ai](mailto:support@brandwell.ai) | User and support questions |
+| [support@brandwell.ai](mailto:support@brandwell.ai) | Maintainer contact |

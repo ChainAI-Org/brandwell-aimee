@@ -70,7 +70,17 @@ export async function provisionComputer(
     where: {
       id: computerId,
       state: { in: ["stopped", "suspended", "error"] },
-      ...(context.botId ? { bots: { some: { id: context.botId, archivedAt: null } } } : {}),
+      ...(context.botId
+        ? {
+            bots: {
+              some: {
+                id: context.botId,
+                archivedAt: null,
+                OR: [{ managedByBrandWell: false }, { managedStatus: "active" }],
+              },
+            },
+          }
+        : {}),
     },
     data: { state: "booting" },
   });
@@ -108,7 +118,17 @@ export async function provisionComputer(
       where: {
         id: computerId,
         state: "booting",
-        ...(context.botId ? { bots: { some: { id: context.botId, archivedAt: null } } } : {}),
+        ...(context.botId
+          ? {
+              bots: {
+                some: {
+                  id: context.botId,
+                  archivedAt: null,
+                  OR: [{ managedByBrandWell: false }, { managedStatus: "active" }],
+                },
+              },
+            }
+          : {}),
       },
       data: {
         state: "running",

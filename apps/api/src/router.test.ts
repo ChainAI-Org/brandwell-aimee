@@ -161,6 +161,91 @@ describe("account preferences", () => {
   });
 });
 
+describe("BrandWell managed workspace self-service governance", () => {
+  const actor = {
+    workspaceId: "workspace-1",
+    userId: "client-user-1",
+    email: "client@example.com",
+    isDeploymentOwner: false,
+  } satisfies Actor;
+
+  function governanceHandler() {
+    const findManagedWorkspace = vi.fn(async () => ({ id: "brandwell-workspace-1" }));
+    const putSecret = vi.fn();
+    const transaction = vi.fn();
+    const deps = {
+      prisma: {
+        brandwellAiWorkspace: { findUnique: findManagedWorkspace },
+        $transaction: transaction,
+      } as unknown as PrismaClient,
+      secrets: { put: putSecret },
+      env: {
+        defaultProvider: "openrouter",
+        defaultModel: "openai/gpt-5.4-mini",
+        webOrigin: "http://127.0.0.1:5173",
+        screenProxySecret: "fake-test-secret",
+        sandboxProvider: "fake",
+      },
+      dataDir: "/tmp/aimee-router-governance-test",
+    } as unknown as RouterDeps;
+    return {
+      findManagedWorkspace,
+      putSecret,
+      transaction,
+      handler: new RPCHandler(createRouter(deps)),
+    };
+  }
+
+  async function post(
+    handler: ReturnType<typeof governanceHandler>["handler"],
+    path: string,
+    json: unknown,
+  ) {
+    return handler.handle(
+      new Request(`http://127.0.0.1/rpc/${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+  }
+
+  it("blocks connecting a personal model credential", async () => {
+    const { handler, findManagedWorkspace, putSecret } = governanceHandler();
+    const { response } = await post(handler, "models/connect", {
+      provider: "openrouter",
+      apiKey: "sk-or-client-key",
+    });
+
+    expect(response.status).toBe(403);
+    expect(findManagedWorkspace).toHaveBeenCalledWith({
+      where: { rakazoWorkspaceId: "workspace-1" },
+      select: { id: true },
+    });
+    expect(putSecret).not.toHaveBeenCalled();
+  });
+
+  it("blocks changing the personal default model", async () => {
+    const { handler, transaction } = governanceHandler();
+    const { response } = await post(handler, "models/setDefault", {
+      provider: "openrouter",
+      modelId: "openai/gpt-5.4-mini",
+    });
+
+    expect(response.status).toBe(403);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("blocks ordinary AI employee creation", async () => {
+    const { handler, transaction } = governanceHandler();
+    const { response } = await post(handler, "bots/create", { name: "Bypass bot" });
+
+    expect(response.status).toBe(403);
+    expect(transaction).not.toHaveBeenCalled();
+  });
+});
+
 describe("BrandWell client notifications", () => {
   const actor = {
     workspaceId: "workspace-1",
@@ -262,6 +347,36 @@ describe("BrandWell client notifications", () => {
   });
 });
 
+describe("bot chat authentication", () => {
+  it("rejects chat listing before any workspace data is read", async () => {
+    const findMany = vi.fn();
+    const deps = {
+      prisma: { thread: { findMany } } as unknown as PrismaClient,
+      env: {
+        defaultProvider: "fake",
+        defaultModel: "fake-model",
+        webOrigin: "http://127.0.0.1:5173",
+        screenProxySecret: "fake-test-secret",
+        sandboxProvider: "fake",
+      },
+      dataDir: "/tmp/aimee-router-chat-auth-test",
+    } as unknown as RouterDeps;
+    const handler = new RPCHandler(createRouter(deps));
+
+    const { response } = await handler.handle(
+      new Request("http://127.0.0.1/rpc/threads/list", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: { botId: "bot-1" } }),
+      }),
+      { prefix: "/rpc", context: {} },
+    );
+
+    expect(response.status).toBe(401);
+    expect(findMany).not.toHaveBeenCalled();
+  });
+});
+
 describe("thread answer delivery", () => {
   it("accepts a durable answer when the immediate worker wake fails", async () => {
     const answerRunInput = vi.fn().mockResolvedValue(true);
@@ -271,7 +386,7 @@ describe("thread answer delivery", () => {
       bot: {
         findFirst: vi.fn().mockResolvedValue({
           id: "bot-1",
-          thread: { id: "thread-1" },
+          thread: { id: "thread-1", botId: "bot-1", archivedAt: null },
           computer: null,
         }),
       },

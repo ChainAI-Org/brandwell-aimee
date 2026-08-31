@@ -32,6 +32,7 @@ import {
   destroyBot,
   EncryptedSecretStore,
   ExpoPushProvider,
+  fenceManagedComputerForLifecycleInTransaction,
   GraphileJobPublisher,
   InMemoryJobQueue,
   InMemoryRealtimeFanout,
@@ -50,6 +51,7 @@ import {
   pushTokenPath,
   type RemoteConnectorDependencies,
   ScriptedAgentRuntime,
+  stopManagedComputerForLifecycle,
   toComputerRef,
   WorkspaceMemoryProviderResolver,
 } from "@rakazo/adapters";
@@ -66,6 +68,10 @@ import {
   takeBrandwellSupportControl,
 } from "./brandwell-support.js";
 import { type AppEnv, loadEnv } from "./env.js";
+import {
+  createPrismaProductionReadinessDataSource,
+  mountProductionReadinessRoute,
+} from "./readiness.js";
 import { createRouter } from "./router.js";
 import { mountVoiceHttpRoutes } from "./voice.js";
 
@@ -404,33 +410,78 @@ export async function createApp(
                 },
               ),
             syncDesiredState: (workspaceId, input) =>
-              syncBrandwellWorkspaceDesiredStateWithPrisma(workspaceId, input, prisma),
+              syncBrandwellWorkspaceDesiredStateWithPrisma(
+                workspaceId,
+                input,
+                prisma,
+                openRouterManagement,
+              ),
             provisionSidekick: (workspaceId, input) =>
               provisionBrandwellSidekickWithPrisma(workspaceId, input, {
                 prisma,
+                secretCipher: {
+                  encrypt: async (plaintext, context) => {
+                    const stored = await secrets.put(plaintext, {
+                      operationId: `brandwell-sidekick:${input.brandwellSidekickId}`,
+                      traceId: `brandwell-sidekick:${input.brandwellSidekickId}`,
+                      workspaceId: context.workspaceId,
+                      userId: context.userId,
+                      signal: new AbortController().signal,
+                    });
+                    return stored.ciphertext;
+                  },
+                },
+                openRouter: openRouterManagement,
                 systemUserId: env.brandwellSystemUserId,
                 sandboxKind: env.sandboxProvider,
                 defaultModel: env.defaultModel,
+                monthlyLimitMicros: usdToMicros(env.brandwellOpenRouterMonthlyLimitUsd),
+                warningLimitMicros: usdToMicros(env.brandwellOpenRouterWarningLimitUsd),
+                ...(env.brandwellOpenRouterDailyLimitUsd
+                  ? { dailyLimitMicros: usdToMicros(env.brandwellOpenRouterDailyLimitUsd) }
+                  : {}),
               }),
-            setSidekickLifecycle: async (sidekickId, action) => {
-              if (action !== "resume") {
-                const sidekick = await prisma.brandwellSidekick.findFirst({
-                  where: { OR: [{ id: sidekickId }, { brandwellSidekickId: sidekickId }] },
-                  include: { computer: true },
-                });
-                if (sidekick?.computer?.providerRef) {
-                  await sandbox.stop(
-                    toComputerRef(sidekick.computer),
-                    brandwellComputerContext(sidekick.computer),
-                  );
-                }
-              }
-              return setBrandwellSidekickLifecycleWithPrisma(sidekickId, action, prisma);
-            },
+            setSidekickLifecycle: (sidekickId, action, input) =>
+              setBrandwellSidekickLifecycleWithPrisma(sidekickId, action, {
+                prisma,
+                openRouter: openRouterManagement,
+                idempotencyKey: input.idempotencyKey,
+                auditMetadata: input.auditMetadata,
+                computerLifecycle: {
+                  fence: (tx, request) =>
+                    fenceManagedComputerForLifecycleInTransaction(tx, {
+                      computerId: request.computerId,
+                      botId: request.botId,
+                      reason: `BrandWell Sidekick ${request.action} requested`,
+                    }).then(() => undefined),
+                  stop: (request) =>
+                    stopManagedComputerForLifecycle(
+                      { prisma, sandbox, home, jobs },
+                      {
+                        computerId: request.computerId,
+                        botId: request.botId,
+                        reason: `BrandWell Sidekick ${request.action} requested`,
+                        checkpointRequired: request.checkpointRequired,
+                        markCheckpointed: request.markCheckpointed,
+                      },
+                      brandwellSidekickLifecycleContext(request),
+                    ),
+                },
+              }),
             rolloutSkillBundle: (workspaceId) =>
               rolloutBrandwellSkillBundleWithPrisma(workspaceId, prisma),
             reconcileModelUsage: (workspaceId) =>
               reconcileBrandwellOpenRouterUsage(prisma, openRouterManagement, workspaceId),
+            validateOpenRouterModel: async (modelId) => {
+              const model = await openRouterManagement.getModel(modelId);
+              if (
+                !model?.outputModalities.includes("text") ||
+                !model.supportedParameters.includes("tools")
+              ) {
+                return null;
+              }
+              return model;
+            },
             updateOpenRouterLimit: async (keyHash, monthlyLimitMicros) => {
               await openRouterManagement.updateKey(keyHash, {
                 limitUsd: monthlyLimitMicros > 0n ? microsToUsd(monthlyLimitMicros) : null,
@@ -457,6 +508,10 @@ export async function createApp(
     const session = await auth.api.getSession({ headers: sessionHeaders(c.req.raw) });
     if (!session?.user) return null;
     return requireMembership(prisma, session.user.id).catch(() => null);
+  });
+  mountProductionReadinessRoute(app, {
+    config: env,
+    dataSource: createPrismaProductionReadinessDataSource(prisma),
   });
   app.get("/health", (c) =>
     c.json({
@@ -503,6 +558,24 @@ function brandwellComputerContext(computer: { id: string; workspaceId: string; u
     traceId: `brandwell-cancellation:${computer.id}`,
     workspaceId: computer.workspaceId,
     userId: computer.userId,
+    signal: new AbortController().signal,
+  };
+}
+
+function brandwellSidekickLifecycleContext(input: {
+  operationId: string;
+  action: "pause" | "cancel";
+  botId: string;
+  workspaceId: string;
+  userId: string;
+}) {
+  const operationId = `brandwell-sidekick-lifecycle:${input.operationId}:${input.action}`;
+  return {
+    operationId,
+    traceId: operationId,
+    workspaceId: input.workspaceId,
+    userId: input.userId,
+    botId: input.botId,
     signal: new AbortController().signal,
   };
 }
