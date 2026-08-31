@@ -72,6 +72,7 @@ import {
 } from "./brandwell-support.js";
 import { BrandwellPlatformAuthClient } from "./brandwell-user-auth.js";
 import { type AppEnv, loadEnv } from "./env.js";
+import { BRANDWELL_MANAGED_ORIGINS, isTrustedOrigin } from "./origin-policy.js";
 import {
   createPrismaProductionReadinessDataSource,
   mountProductionReadinessRoute,
@@ -218,8 +219,8 @@ export async function createApp(
         }
       : {}),
     extraOrigins: [
+      ...BRANDWELL_MANAGED_ORIGINS,
       "aimee://",
-      "rakazo://",
       "exp://",
       "exp://*",
       "http://localhost:8081",
@@ -644,24 +645,6 @@ function brandwellSidekickLifecycleContext(input: {
     botId: input.botId,
     signal: new AbortController().signal,
   };
-}
-
-function isTrustedOrigin(origin: string, env: AppEnv) {
-  if (!origin) return true;
-  if (origin === env.webOrigin || origin === env.apiUrl || origin === env.authUrl) return true;
-  if (
-    origin.startsWith("aimee://") ||
-    origin.startsWith("rakazo://") ||
-    origin.startsWith("exp://")
-  ) {
-    return true;
-  }
-  try {
-    const host = new URL(origin).hostname;
-    return host === "localhost" || host === "127.0.0.1";
-  } catch {
-    return false;
-  }
 }
 
 function sessionHeaders(request: Request) {
