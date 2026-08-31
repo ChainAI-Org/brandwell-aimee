@@ -965,6 +965,8 @@ model BrandwellAiWorkspace {
   provisioningStatus     String              @default("pending")
   provisioningError      String?
   provisioningMetadata   Json                @default("{}")
+  modelPolicyLeaseOwner     String?
+  modelPolicyLeaseExpiresAt DateTime?
   timezone               String              @default("UTC")
   primaryContactEmail    String
   retentionEndsAt        DateTime?
@@ -974,6 +976,7 @@ model BrandwellAiWorkspace {
   sidekicks              BrandwellSidekick[]
 
   @@index([subscriptionStatus, provisioningStatus])
+  @@index([modelPolicyLeaseExpiresAt])
   @@map("brandwell_ai_workspaces")
 }
 
