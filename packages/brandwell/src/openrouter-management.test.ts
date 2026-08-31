@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { microsToUsd, OpenRouterManagementClient, usdToMicros } from "./openrouter-management.js";
+import {
+  managedMonthlyOpenRouterKeyPolicy,
+  microsToUsd,
+  OpenRouterManagementClient,
+  openRouterProviderPolicyEvidence,
+  usdToMicros,
+} from "./openrouter-management.js";
 
 const TEST_OPENROUTER_KEY = ["sk", "or", "test-placeholder"].join("-");
 
@@ -174,5 +180,28 @@ describe("OpenRouter management client", () => {
   it("converts stored microdollar limits to provider dollar limits", () => {
     expect(microsToUsd(200_000_000n)).toBe(200);
     expect(usdToMicros(12.3456789)).toBe(12_345_679n);
+  });
+
+  it("keeps the managed reset monthly while preserving contrary create-key evidence", () => {
+    expect(
+      managedMonthlyOpenRouterKeyPolicy({
+        limitUsd: 200,
+        limitReset: "daily",
+        includeByokInLimit: false,
+      }),
+    ).toEqual({
+      limitReset: "monthly",
+      providerLimitMicros: 200_000_000n,
+      providerLimitReset: "daily",
+      providerIncludeByokInLimit: false,
+    });
+  });
+
+  it("keeps omitted provider policy evidence unknown", () => {
+    expect(openRouterProviderPolicyEvidence({})).toEqual({
+      providerLimitMicros: null,
+      providerLimitReset: null,
+      providerIncludeByokInLimit: null,
+    });
   });
 });

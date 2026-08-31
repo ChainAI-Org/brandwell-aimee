@@ -196,8 +196,11 @@ describe("BrandWell fleet health reconciliation", () => {
           disabledAt: null,
           currentUsageMicros: 10_000_000n,
           monthlyLimitMicros: 200_000_000n,
+          limitReset: "monthly",
           warningLimitMicros: 175_000_000n,
           providerLimitMicros: 200_000_000n,
+          providerLimitReset: "monthly",
+          providerIncludeByokInLimit: true,
           providerUsageSyncedAt: new Date("2026-08-27T11:45:00.000Z"),
           providerUsageSyncError: null,
         },
@@ -296,6 +299,16 @@ describe("BrandWell fleet health reconciliation", () => {
       name: "BYOK inclusion",
       providerLimitReset: "monthly",
       providerIncludeByokInLimit: false,
+    },
+    {
+      name: "missing reset proof",
+      providerLimitReset: null,
+      providerIncludeByokInLimit: true,
+    },
+    {
+      name: "missing BYOK proof",
+      providerLimitReset: "monthly",
+      providerIncludeByokInLimit: null,
     },
   ])("alerts when provider $name drifts with the same dollar limit", async (providerPolicy) => {
     const now = new Date("2026-08-27T12:00:00.000Z");

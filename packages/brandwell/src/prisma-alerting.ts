@@ -357,9 +357,8 @@ export async function reconcileBrandwellFleetHealth(
       credential.providerUsageSyncedAt &&
       !credential.providerUsageSyncError &&
       (credential.providerLimitMicros !== credential.monthlyLimitMicros ||
-        (credential.providerLimitReset != null &&
-          credential.providerLimitReset !== credential.limitReset) ||
-        credential.providerIncludeByokInLimit === false)
+        credential.providerLimitReset !== credential.limitReset ||
+        credential.providerIncludeByokInLimit !== true)
     ) {
       candidates.push({
         workspaceId: credential.workspaceId,

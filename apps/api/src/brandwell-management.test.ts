@@ -1208,14 +1208,28 @@ describe("BrandWell management API authentication", () => {
     expect(sidekickPolicyUpdateMany).toHaveBeenCalledWith({
       where: { workspaceId: "workspace-1" },
       data: expect.objectContaining({
+        limitReset: "monthly",
         preferredModel: "provider/general",
         computerModel: "provider/vision",
         monthlyLimitMicros: 175_000_000n,
       }),
     });
     const savedPolicyData = workspacePolicyUpdate.mock.calls[0]?.[0].data;
-    expect(savedPolicyData).toMatchObject({ providerLimitMicros: 175_000_000n });
+    expect(savedPolicyData).toMatchObject({
+      limitReset: "monthly",
+      providerLimitMicros: null,
+      providerLimitReset: null,
+      providerIncludeByokInLimit: null,
+    });
     expect(savedPolicyData).not.toHaveProperty("providerUsageSyncedAt");
+    expect(sidekickPolicyUpdateMany).toHaveBeenCalledWith({
+      where: { id: { in: ["sidekick-policy-1"] } },
+      data: {
+        providerLimitMicros: null,
+        providerLimitReset: null,
+        providerIncludeByokInLimit: null,
+      },
+    });
     expect(botUpdateMany).toHaveBeenCalledWith({
       where: {
         workspaceId: "workspace-1",

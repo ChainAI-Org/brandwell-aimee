@@ -30,6 +30,18 @@ export type OpenRouterKeyUpdate = {
   limitReset?: OpenRouterKeyLimitReset | null;
 };
 
+type OpenRouterKeyPolicyEvidence = {
+  limitUsd?: number;
+  limitReset?: OpenRouterKeyLimitReset;
+  includeByokInLimit?: boolean;
+};
+
+export type OpenRouterProviderPolicyEvidence = {
+  providerLimitMicros: bigint | null;
+  providerLimitReset: OpenRouterKeyLimitReset | null;
+  providerIncludeByokInLimit: boolean | null;
+};
+
 export type OpenRouterModelStatus = {
   id: string;
   name: string;
@@ -223,6 +235,25 @@ export function microsToUsd(micros: bigint): number {
 export function usdToMicros(usd: number): bigint {
   if (!Number.isFinite(usd) || usd < 0) throw new Error("Usage amount cannot be negative");
   return BigInt(Math.round(usd * 1_000_000));
+}
+
+export function openRouterProviderPolicyEvidence(
+  status: OpenRouterKeyPolicyEvidence,
+): OpenRouterProviderPolicyEvidence {
+  return {
+    providerLimitMicros: status.limitUsd === undefined ? null : usdToMicros(status.limitUsd),
+    providerLimitReset: status.limitReset ?? null,
+    providerIncludeByokInLimit: status.includeByokInLimit ?? null,
+  };
+}
+
+export function managedMonthlyOpenRouterKeyPolicy(
+  status: OpenRouterKeyPolicyEvidence,
+): OpenRouterProviderPolicyEvidence & { limitReset: "monthly" } {
+  return {
+    limitReset: "monthly",
+    ...openRouterProviderPolicyEvidence(status),
+  };
 }
 
 function requiredHash(hash: string): string {

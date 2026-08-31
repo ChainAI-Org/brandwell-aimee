@@ -13,11 +13,11 @@ import {
 import { BRANDWELL_BRAND } from "./brand-config.js";
 import { brandwellMasterOpenRouterKeyLabel } from "./openrouter-key-labels.js";
 import {
+  managedMonthlyOpenRouterKeyPolicy,
   microsToUsd,
-  type OpenRouterKeyLimitReset,
   type OpenRouterManagementClient,
   type OpenRouterModelStatus,
-  usdToMicros,
+  openRouterProviderPolicyEvidence,
 } from "./openrouter-management.js";
 import { acquireBrandwellModelPolicyLease } from "./prisma-model-policy-lease.js";
 import { installBrandwellSkillBundle } from "./prisma-skills.js";
@@ -349,7 +349,7 @@ export function createPrismaBrandwellProvisioningRunner(
                   secretId: secret.id,
                   externalKeyHash: createdKey.hash,
                   externalWorkspaceId: createdKey.workspaceId,
-                  limitReset: createdKey.limitReset ?? "monthly",
+                  ...managedMonthlyOpenRouterKeyPolicy(createdKey),
                   status: "active",
                   monthlyLimitMicros: options.monthlyLimitMicros,
                   dailyLimitMicros: options.dailyLimitMicros,
@@ -397,7 +397,7 @@ export function createPrismaBrandwellProvisioningRunner(
             if (!credential.externalKeyHash) {
               throw new Error("The AIMEE OpenRouter credential has no provider key hash");
             }
-            const desiredReset = openRouterLimitReset(credential.limitReset);
+            const desiredReset = "monthly" as const;
             const provider = await options.openRouter.updateKey(credential.externalKeyHash, {
               limitUsd: microsToUsd(credential.monthlyLimitMicros),
               limitReset: desiredReset,
@@ -406,12 +406,8 @@ export function createPrismaBrandwellProvisioningRunner(
             await options.prisma.brandwellWorkspaceModelCredential.update({
               where: { id: credential.id },
               data: {
-                providerLimitMicros:
-                  provider.limitUsd === undefined
-                    ? credential.monthlyLimitMicros
-                    : usdToMicros(provider.limitUsd),
-                providerLimitReset: provider.limitReset ?? desiredReset,
-                providerIncludeByokInLimit: provider.includeByokInLimit ?? true,
+                limitReset: desiredReset,
+                ...openRouterProviderPolicyEvidence(provider),
               },
             });
             return { resourceId: credential.id };
@@ -635,11 +631,6 @@ export function createPrismaBrandwellProvisioningRunner(
       }
     },
   };
-}
-
-function openRouterLimitReset(value: string): OpenRouterKeyLimitReset {
-  if (value === "daily" || value === "weekly" || value === "monthly") return value;
-  throw new Error("The AIMEE OpenRouter reset policy is invalid");
 }
 
 const MAX_MANAGED_OPENROUTER_MONTHLY_LIMIT_MICROS = 200_000_000n;

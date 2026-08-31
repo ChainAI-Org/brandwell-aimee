@@ -13,7 +13,11 @@ import {
 } from "./aimee-baseline.js";
 import { BRANDWELL_BRAND } from "./brand-config.js";
 import { brandwellSidekickOpenRouterKeyLabel } from "./openrouter-key-labels.js";
-import { microsToUsd, type OpenRouterManagementClient } from "./openrouter-management.js";
+import {
+  managedMonthlyOpenRouterKeyPolicy,
+  microsToUsd,
+  type OpenRouterManagementClient,
+} from "./openrouter-management.js";
 import { acquireBrandwellModelPolicyLease } from "./prisma-model-policy-lease.js";
 import type { BrandwellSecretCipher } from "./prisma-provisioning.js";
 import { installBrandwellSkillBundle } from "./prisma-skills.js";
@@ -440,7 +444,7 @@ export async function provisionBrandwellSidekickWithPrisma(
           secretId: secret.id,
           externalKeyHash: createdKey.hash,
           externalWorkspaceId: createdKey.workspaceId,
-          limitReset: createdKey.limitReset ?? "monthly",
+          ...managedMonthlyOpenRouterKeyPolicy(createdKey),
           status: "active",
           monthlyLimitMicros: modelBudget.monthlyLimitMicros,
           dailyLimitMicros: modelBudget.dailyLimitMicros,

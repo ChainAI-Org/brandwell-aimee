@@ -160,6 +160,7 @@ describe("BrandWell initial provisioning policy", () => {
     expect(credentialUpdate).toHaveBeenCalledWith({
       where: { id: "credential-1" },
       data: {
+        limitReset: "monthly",
         providerLimitMicros: 125_000_000n,
         providerLimitReset: "monthly",
         providerIncludeByokInLimit: true,
@@ -167,6 +168,61 @@ describe("BrandWell initial provisioning policy", () => {
     });
     expect(credentialUpdate.mock.calls[0]?.[0].data).not.toHaveProperty("preferredModel");
     expect(events).toEqual(["acquire", "provider", "renew", "database", "release"]);
+  });
+
+  it("does not substitute desired values when provider PATCH omits policy evidence", async () => {
+    const credential = {
+      id: "credential-1",
+      workspaceId: "workspace-1",
+      externalKeyHash: "hash-1",
+      limitReset: "daily",
+      monthlyLimitMicros: 125_000_000n,
+    };
+    const credentialUpdate = vi.fn(async () => credential);
+    const prisma = {
+      user: { findUnique: vi.fn(async () => ({ id: "system-1" })) },
+      brandwellAiWorkspace: {
+        findUnique: vi.fn(async () => ({
+          id: "mapping-1",
+          rakazoWorkspaceId: "workspace-1",
+        })),
+        updateMany: vi.fn(async () => ({ count: 1 })),
+      },
+      brandwellWorkspaceModelCredential: {
+        findUniqueOrThrow: vi.fn(async () => credential),
+        update: credentialUpdate,
+      },
+    } as unknown as PrismaClient;
+    const runner = createPrismaBrandwellProvisioningRunner({
+      ...options(200_000_000n, 150_000_000n),
+      prisma,
+      systemUserId: "system-1",
+      openRouter: {
+        createKey: vi.fn(),
+        deleteKey: vi.fn(),
+        getModel: vi.fn(),
+        updateKey: vi.fn(async () => ({
+          hash: "hash-1",
+          disabled: false,
+          usageUsd: 0,
+          usageDailyUsd: 0,
+          usageMonthlyUsd: 0,
+        })),
+      },
+    });
+
+    await expect(runner.execute("model_configuration", provisioningCheckpoint())).resolves.toEqual({
+      resourceId: "credential-1",
+    });
+    expect(credentialUpdate).toHaveBeenCalledWith({
+      where: { id: "credential-1" },
+      data: {
+        limitReset: "monthly",
+        providerLimitMicros: null,
+        providerLimitReset: null,
+        providerIncludeByokInLimit: null,
+      },
+    });
   });
 
   it("releases the policy lease and leaves the database unchanged when provider PATCH fails", async () => {

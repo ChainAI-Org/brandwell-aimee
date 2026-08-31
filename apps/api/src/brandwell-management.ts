@@ -846,8 +846,8 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
       try {
         await policyLease.renew();
         updated = await deps.prisma.$transaction(async (tx) => {
-          const providerLimitSynced = limitTargets.length > 0;
           const sharedPolicyData = {
+            limitReset: "monthly",
             preferredModel: nextPolicy.preferredModel,
             computerModel: nextPolicy.computerModel,
             lightweightModel: nextPolicy.lightweightModel,
@@ -859,20 +859,35 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
             monthlyLimitMicros: nextPolicy.monthlyLimitMicros,
             dailyLimitMicros: nextPolicy.dailyLimitMicros,
             warningLimitMicros: nextPolicy.warningLimitMicros,
-            ...(providerLimitSynced
-              ? {
-                  providerLimitMicros: nextPolicy.monthlyLimitMicros,
-                }
-              : {}),
           };
+          const unknownProviderPolicy = {
+            providerLimitMicros: null,
+            providerLimitReset: null,
+            providerIncludeByokInLimit: null,
+          };
+          const masterLimitUpdated = limitTargets.some(
+            (credential) => credential.id === current.id,
+          );
           const row = await tx.brandwellWorkspaceModelCredential.update({
             where: { id: current.id },
-            data: sharedPolicyData,
+            data: {
+              ...sharedPolicyData,
+              ...(masterLimitUpdated ? unknownProviderPolicy : {}),
+            },
           });
           await tx.brandwellSidekickModelCredential.updateMany({
             where: { workspaceId: mapping.rakazoWorkspaceId },
             data: sharedPolicyData,
           });
+          const sidekickLimitTargetIds = limitTargets
+            .filter((credential) => credential.id !== current.id)
+            .map((credential) => credential.id);
+          if (sidekickLimitTargetIds.length > 0) {
+            await tx.brandwellSidekickModelCredential.updateMany({
+              where: { id: { in: sidekickLimitTargetIds } },
+              data: unknownProviderPolicy,
+            });
+          }
           await tx.bot.updateMany({
             where: {
               workspaceId: mapping.rakazoWorkspaceId,
