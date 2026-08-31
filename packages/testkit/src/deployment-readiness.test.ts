@@ -44,5 +44,7 @@ describe("BrandWell deployment readiness gates", () => {
       /worker:[\s\S]*?environment:\s+NODE_ENV: production\s+GIT_SHA: \$\{GIT_SHA:-\}/,
     );
     expect(caddy).toMatch(/handle \/ready \{\s+reverse_proxy api:3100\s+\}/);
+    expect(caddy).toContain("ai.brandwell.ai");
+    expect(caddy).toContain("staging-ai.brandwell.ai");
   });
 });

@@ -1,4 +1,4 @@
-{$RAKAZO_HOST:app.example.com} {
+{$RAKAZO_HOST:app.example.com}, ai.brandwell.ai, staging-ai.brandwell.ai {
 	encode zstd gzip
 
 	handle /health {
