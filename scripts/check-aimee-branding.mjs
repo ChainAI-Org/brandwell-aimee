@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const targets = [
+  ".env.example",
   ".github/ISSUE_TEMPLATE",
   ".github/workflows",
   "CHANGELOG.md",

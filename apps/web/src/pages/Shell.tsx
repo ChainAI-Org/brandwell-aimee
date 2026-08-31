@@ -3190,6 +3190,7 @@ export function ShellPage() {
             email={session.data?.user.email}
             usage={usage}
             focusUsage={accountSettingsFocusUsage}
+            managed={managedWorkspace}
             avatarStyle={bootstrapMe?.avatarStyle ?? "robot"}
             onAvatarStyleChange={async (avatarStyle) => {
               const nextMe = await rpc.preferences.update({ avatarStyle });

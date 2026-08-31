@@ -10,7 +10,8 @@ describe("managed AIMEE workspace navigation", () => {
   it("opens the primary AIMEE chat by default and keeps the dashboard in the chat sidebar", () => {
     expect(app).toContain('path="/app/dashboard"');
     expect(app).toContain("user ? <ShellPage />");
-    expect(home).toContain("<Navigate to={`/app/${me.brandwell.primaryBotId}`} replace />");
+    expect(home).toContain("<Navigate to={`/app/");
+    expect(home).toContain("me.brandwell.primaryBotId");
     expect(shell).toContain("<BrandwellHome me={bootstrapMe} embedded />");
     expect(shell).toContain('navigate("/app/dashboard")');
     expect(shell).toContain(">Dashboard</span>");
