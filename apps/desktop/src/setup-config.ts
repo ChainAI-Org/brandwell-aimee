@@ -4,17 +4,19 @@ import type { DesktopSetup } from "@rakazo/contracts";
 
 /** Where `pnpm dev` serves the AIMEE web app on this machine. */
 export const DEFAULT_LOCAL_WEB_URL = "http://127.0.0.1:5173";
+/** Fixed control-plane origin used by installed BrandWell-managed desktop builds. */
+export const MANAGED_WEB_URL = "https://ai.brandwell.ai";
 
 export const SETUP_FILE_NAME = "setup.json";
 
 export type StartupTarget =
-  | { kind: "app"; url: string; source: "env" | "saved" }
+  | { kind: "app"; url: string; source: "env" | "saved" | "managed" }
   | { kind: "setup" };
 
 const SCHEME = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//;
 
 /**
- * Accepts what a person would actually type ("localhost:5173", "rakazo.example.com")
+ * Accepts what a person would actually type ("localhost:5173", "aimee.example.com")
  * and returns a canonical http(s) origin, or null when the input can never
  * securely address a AIMEE server.
  */
@@ -73,15 +75,23 @@ export function serializeSetup(setup: DesktopSetup): string {
 }
 
 /**
- * Decides between the first-run setup window and the app window. An explicit
- * `RAKAZO_WEB_URL` still wins over saved configuration so test and performance
- * harnesses can point the shell anywhere without touching a user's real setup.
+ * Decides between the app window and the support-only server chooser. Installed
+ * managed builds stay pinned to the BrandWell origin. Development and an explicit
+ * support override retain the local/custom server flow and compatibility env vars.
  */
 export function resolveStartupTarget(input: {
   envUrl?: string;
   saved?: DesktopSetup | null;
   forceSetup?: boolean;
+  managedUrl?: string;
+  serverChooserEnabled?: boolean;
 }): StartupTarget {
+  if (input.serverChooserEnabled === false) {
+    const managedUrl = normalizeServerUrl(input.managedUrl ?? "");
+    return managedUrl === null
+      ? { kind: "setup" }
+      : { kind: "app", url: managedUrl, source: "managed" };
+  }
   if (input.forceSetup === true) return { kind: "setup" };
 
   const envUrl = input.envUrl?.trim();

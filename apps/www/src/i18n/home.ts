@@ -97,49 +97,49 @@ const DE_ROSTER: RosterBot[] = [
   {
     name: "Sales Outbound",
     color: "#F5A03C",
-    slug: "rakazo/sales-outbound",
+    slug: "aimee/sales-outbound",
     desc: "Recherchiert nachts Accounts, bewertet Intent, entwirft in deinem Ton und hinterlässt eine Review-Liste.",
   },
   {
     name: "Inbox Manager",
     color: "#6A6BF5",
-    slug: "rakazo/inbox-manager",
+    slug: "aimee/inbox-manager",
     desc: "Archiviert den Lärm, antwortet auf Routine-Threads und parkt Entwürfe, die du lesen solltest.",
   },
   {
     name: "Talent Scout",
     color: "#3B82F6",
-    slug: "rakazo/talent-scout",
+    slug: "aimee/talent-scout",
     desc: "Liest jede Bewerbung, shortlistet nach deiner Latte und schreibt die Intro-Mails.",
   },
   {
     name: "Expense Manager",
     color: "#F2622A",
-    slug: "rakazo/expense-manager",
+    slug: "aimee/expense-manager",
     desc: "Ordnet Belege den Buchungen zu, reicht den Report ein und fragt nach, statt zu raten.",
   },
   {
     name: "Bug Triage",
     color: "#D9508A",
-    slug: "rakazo/bug-triage",
+    slug: "aimee/bug-triage",
     desc: "Reproduziert Reports in einem echten Browser und hängt die Schritte an das Issue.",
   },
   {
     name: "Account Manager",
     color: "#9B5CF6",
-    slug: "rakazo/account-manager",
+    slug: "aimee/account-manager",
     desc: "Hält Renewal-Kontext, beantwortet bekannte Fragen und eskaliert den Rest.",
   },
   {
     name: "Paid Media",
     color: "#3EC5A8",
-    slug: "rakazo/paid-media",
+    slug: "aimee/paid-media",
     desc: "Überwacht den Spend täglich, pausiert, was nicht konvertiert, und meldet, was sich geändert hat.",
   },
   {
     name: "Chief of Staff",
     color: "#8B93A8",
-    slug: "rakazo/chief-of-staff",
+    slug: "aimee/chief-of-staff",
     desc: "Führt die Woche: Briefings, Buchungen und Übergaben zwischen deinen anderen Bots.",
   },
 ];
@@ -148,59 +148,59 @@ const KO_ROSTER: RosterBot[] = [
   {
     name: "Sales Outbound",
     color: "#F5A03C",
-    slug: "rakazo/sales-outbound",
+    slug: "aimee/sales-outbound",
     desc: "밤새 계정을 조사하고 의도를 점수한 뒤, 당신 말투로 초안을 써 검토 목록을 남깁니다.",
   },
   {
     name: "Inbox Manager",
     color: "#6A6BF5",
-    slug: "rakazo/inbox-manager",
+    slug: "aimee/inbox-manager",
     desc: "잡음을 보관처리하고, 루틴 스레드에 답하며, 확인이 필요한 초안은 보류합니다.",
   },
   {
     name: "Talent Scout",
     color: "#3B82F6",
-    slug: "rakazo/talent-scout",
+    slug: "aimee/talent-scout",
     desc: "지원서를 모두 읽고 기준에 맞게 숏리스트한 뒤 소개 메일을 작성합니다.",
   },
   {
     name: "Expense Manager",
     color: "#F2622A",
-    slug: "rakazo/expense-manager",
+    slug: "aimee/expense-manager",
     desc: "영수증과 결제를 맞추고 리포트를 제출하며, 추측하기 전에 묻습니다.",
   },
   {
     name: "Bug Triage",
     color: "#D9508A",
-    slug: "rakazo/bug-triage",
+    slug: "aimee/bug-triage",
     desc: "실제 브라우저에서 리포트를 재현하고 이슈에 재현 절차를 붙입니다.",
   },
   {
     name: "Account Manager",
     color: "#9B5CF6",
-    slug: "rakazo/account-manager",
+    slug: "aimee/account-manager",
     desc: "갱신 맥락을 유지하고 알려진 질문에 답하며, 나머지는 에스컬레이션합니다.",
   },
   {
     name: "Paid Media",
     color: "#3EC5A8",
-    slug: "rakazo/paid-media",
+    slug: "aimee/paid-media",
     desc: "매일 지출을 지켜보고 전환되지 않는 건 일시정지한 뒤, 바뀐 점을 보고합니다.",
   },
   {
     name: "Chief of Staff",
     color: "#8B93A8",
-    slug: "rakazo/chief-of-staff",
+    slug: "aimee/chief-of-staff",
     desc: "한 주를 운영합니다: 브리핑, 예약, 다른 봇 사이의 핸드오프.",
   },
 ];
 
 const HOME_COPY: Record<Locale, HomeCopy> = {
   en: {
-    title: "Rakazo | Open source Grok Bot alternative",
+    title: "BrandWell's AIMEE | Done-for-you AI employees",
     description: SITE_DESCRIPTION,
     ogImageAlt:
-      "Rakazo — AI teammates you actually own. Your keys, your model, your machine.",
+      "BrandWell's AIMEE, done-for-you AI employees that do real work.",
     availableLanguage: "English",
     skipToContent: "Skip to content",
     starFallback: "Star",
@@ -218,21 +218,21 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
       badge: "Apache-2.0",
       pill: "Self-hosted",
       heading: "AI teammates you actually own",
-      lead: "Rakazo is an open source Grok Bot alternative. Give a bot real work. It signs in to your tools, uses them the way you do, and comes back when it needs you.",
+      lead: "BrandWell's AIMEE gives every client and Sidekick an AI employee with managed model access and a dedicated computer. Give AIMEE real work and it handles the follow-through.",
       getStarted: "Get started",
       viewOnGithub: "View on GitHub",
       setupWithAgent: "Set up with your agent",
       copiedForAgent: "Copied for your agent",
-      copyFailed: "Copy failed — try again",
+      copyFailed: "Copy failed. Try again",
     },
     selfHost: {
       eyebrow: "Self-hosted",
       heading: "The computer is yours",
-      copy: "Every bot gets a sandboxed browser and shell — running in your Docker, in your account, behind your firewall. Sessions and credentials never leave it.",
+      copy: "Every bot gets a sandboxed browser and shell running in your Docker, in your account, behind your firewall. Sessions and credentials never leave it.",
       features: [
         {
           title: "Any model, your key",
-          body: "Point a bot at Claude, GPT, Grok, or a local model. Swap per bot — the cheap one triages, the smart one writes.",
+          body: "Point a bot at Claude, GPT, Grok, or a local model. Swap per bot: the cheap one triages, the smart one writes.",
         },
         {
           title: "Readable routines",
@@ -247,13 +247,13 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
     roster: {
       eyebrow: "Bot Templates",
       heading: "Give each bot a job",
-      copy: "Start a new bot and it interviews you — a few questions about the work, how you write, and where it lives. Then it gets going.",
+      copy: "Start a new bot and it interviews you with a few questions about the work, how you write, and where it lives. Then it gets going.",
       bots: EN_ROSTER,
     },
     openSource: {
       eyebrow: "Open source",
       heading: "No pricing page. Just the repo.",
-      copy: "Rakazo is Apache-2.0 licensed and runs on your own machine with your own model keys. Nothing is gated, nothing phones home.",
+      copy: "AIMEE includes an Apache-2.0 core for operators who want to run it on their own infrastructure. BrandWell also provides the managed, done-for-you service.",
       selfHostTitle: "Self-host",
       selfHostMeta: "Available today",
       selfHostItems: [
@@ -277,7 +277,7 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
     },
     cta: {
       heading: "Meet your first bot",
-      copy: "Give Rakazo something you have been putting off and let it handle the follow-through.",
+      copy: "Give AIMEE something you have been putting off and let it handle the follow-through.",
       getStarted: "Get started",
       viewOnGithub: "View on GitHub",
       openSourceValue: "Open source",
@@ -291,12 +291,12 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
     },
     getStartedDialog: {
       closeLabel: "Close get started dialog",
-      eyebrow: "Rakazo Cloud",
-      title: "Get started with Rakazo",
+      eyebrow: "Managed by BrandWell",
+      title: "Get started with AIMEE",
       copy: "Leave your email and we’ll let you know when your hosted workspace is ready.",
       successTitle: "You’re in.",
       successCopy:
-        "We’ll email you when hosted Rakazo is ready. Want to start today? Rakazo is already available on GitHub.",
+        "We’ll contact you to configure your managed AIMEE workspace. The open source core is also available on GitHub.",
       done: "Done",
       viewOnGithub: "View on GitHub",
     },
@@ -315,11 +315,11 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
     },
   },
   de: {
-    title: "Rakazo | Open-Source-Alternative zu Grok Bot",
+    title: "BrandWell AIMEE | KI-Mitarbeiter für echte Arbeit",
     description:
-      "Rakazo ist eine Open-Source-Alternative zu Grok Bot für persistente KI-Teamkollegen, die echte Arbeit erledigen. Deine Keys, dein Modell, deine Maschine.",
+      "BrandWell AIMEE bietet dauerhafte KI-Mitarbeiter, die echte Arbeit in deinen verbundenen Tools erledigen.",
     ogImageAlt:
-      "Rakazo — KI-Teamkollegen, die dir wirklich gehören. Deine Keys, dein Modell, deine Maschine.",
+      "BrandWell AIMEE, KI-Mitarbeiter für echte Arbeit.",
     availableLanguage: "German",
     skipToContent: "Zum Inhalt springen",
     starFallback: "Star",
@@ -337,25 +337,25 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
       badge: "Apache-2.0",
       pill: "Self-hosted",
       heading: "KI-Teamkollegen, die dir wirklich gehören",
-      lead: "Rakazo ist eine Open-Source-Alternative zu Grok Bot. Gib einem Bot echte Arbeit. Er meldet sich in deinen Tools an, nutzt sie wie du — und kommt zurück, wenn er dich braucht.",
+      lead: "BrandWell AIMEE gibt deinem Team KI-Mitarbeiter mit verwaltetem Modellzugriff und eigenem Computer. Gib AIMEE echte Arbeit und es kümmert sich um die Umsetzung.",
       getStarted: "Loslegen",
       viewOnGithub: "Auf GitHub ansehen",
       setupWithAgent: "Mit deinem Agenten einrichten",
       copiedForAgent: "Für deinen Agenten kopiert",
-      copyFailed: "Kopieren fehlgeschlagen — erneut versuchen",
+      copyFailed: "Kopieren fehlgeschlagen. Erneut versuchen",
     },
     selfHost: {
       eyebrow: "Self-hosted",
       heading: "Der Computer gehört dir",
-      copy: "Jeder Bot bekommt einen sandboxierten Browser und eine Shell — in deinem Docker, in deinem Account, hinter deiner Firewall. Sessions und Zugangsdaten verlassen ihn nie.",
+      copy: "Jeder Bot bekommt einen sandboxierten Browser und eine Shell in deinem Docker, in deinem Account, hinter deiner Firewall. Sessions und Zugangsdaten verlassen ihn nie.",
       features: [
         {
           title: "Beliebiges Modell, dein Key",
-          body: "Richte einen Bot auf Claude, GPT, Grok oder ein lokales Modell aus. Pro Bot wechselbar — der günstige triagiert, der smarte schreibt.",
+          body: "Richte einen Bot auf Claude, GPT, Grok oder ein lokales Modell aus. Pro Bot wechselbar: Der günstige triagiert, der smarte schreibt.",
         },
         {
           title: "Lesbare Routinen",
-          body: "Zeig einem Bot einmal einen Workflow — er speichert eine Routine als Markdown, das du lesen, editieren und committen kannst.",
+          body: "Zeig einem Bot einmal einen Workflow. Er speichert eine Routine als Markdown, das du lesen, editieren und committen kannst.",
         },
         {
           title: "Freigaben, die greifen",
@@ -366,13 +366,13 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
     roster: {
       eyebrow: "Bot-Vorlagen",
       heading: "Gib jedem Bot eine Aufgabe",
-      copy: "Starte einen neuen Bot und er interviewt dich — ein paar Fragen zur Arbeit, zu deinem Schreibstil und wo sie lebt. Dann legt er los.",
+      copy: "Starte einen neuen Bot und er interviewt dich mit ein paar Fragen zur Arbeit, zu deinem Schreibstil und wo sie lebt. Dann legt er los.",
       bots: DE_ROSTER,
     },
     openSource: {
       eyebrow: "Open Source",
       heading: "Keine Preisseite. Nur das Repo.",
-      copy: "Rakazo ist Apache-2.0-lizenziert und läuft auf deiner Maschine mit deinen Model-Keys. Nichts ist freigeschaltet, nichts telefoniert nach Hause.",
+      copy: "AIMEE enthält einen Apache-2.0-lizenzierten Kern für Betreiber, die es auf ihrer eigenen Infrastruktur ausführen möchten.",
       selfHostTitle: "Self-host",
       selfHostMeta: "Heute verfügbar",
       selfHostItems: [
@@ -396,7 +396,7 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
     },
     cta: {
       heading: "Triff deinen ersten Bot",
-      copy: "Gib Rakazo etwas, das du aufgeschoben hast — und lass es den Follow-through übernehmen.",
+      copy: "Gib AIMEE etwas, das du aufgeschoben hast, und lass es die Umsetzung übernehmen.",
       getStarted: "Loslegen",
       viewOnGithub: "Auf GitHub ansehen",
       openSourceValue: "Open Source",
@@ -410,12 +410,12 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
     },
     getStartedDialog: {
       closeLabel: "Loslegen-Dialog schließen",
-      eyebrow: "Rakazo Cloud",
-      title: "Mit Rakazo loslegen",
-      copy: "Hinterlasse deine E-Mail — wir melden uns, wenn dein gehosteter Workspace bereit ist.",
+      eyebrow: "Von BrandWell verwaltet",
+      title: "Mit AIMEE loslegen",
+      copy: "Hinterlasse deine E-Mail. Wir melden uns, wenn dein gehosteter Workspace bereit ist.",
       successTitle: "Du bist dabei.",
       successCopy:
-        "Wir mailen dir, wenn gehostetes Rakazo bereit ist. Heute starten? Rakazo ist schon auf GitHub verfügbar.",
+        "Wir melden uns, um deinen verwalteten AIMEE-Arbeitsbereich einzurichten. Der Open-Source-Kern ist auch auf GitHub verfügbar.",
       done: "Fertig",
       viewOnGithub: "Auf GitHub ansehen",
     },
@@ -434,10 +434,10 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
     },
   },
   ko: {
-    title: "Rakazo | 오픈소스 Grok Bot 대안",
+    title: "BrandWell AIMEE | 실제 업무를 수행하는 AI 직원",
     description:
-      "Rakazo는 실제 업무를 수행하는 지속형 AI 팀원을 위한 오픈소스 Grok Bot 대안입니다. 키, 모델, 머신 — 모두 당신 것.",
-    ogImageAlt: "Rakazo — 진짜로 내 것인 AI 팀원. 키, 모델, 머신 — 모두 당신 것.",
+      "BrandWell AIMEE는 연결된 도구에서 실제 업무를 수행하는 지속형 AI 직원을 제공합니다.",
+    ogImageAlt: "BrandWell AIMEE, 실제 업무를 수행하는 AI 직원.",
     availableLanguage: "Korean",
     skipToContent: "본문으로 건너뛰기",
     starFallback: "Star",
@@ -455,21 +455,21 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
       badge: "Apache-2.0",
       pill: "셀프 호스트",
       heading: "진짜로 내 것인 AI 팀원",
-      lead: "Rakazo는 오픈소스 Grok Bot 대안입니다. 봇에게 실제 업무를 맡기세요. 봇이 도구에 로그인하고, 당신처럼 사용하며, 필요할 때 돌아와 묻습니다.",
+      lead: "BrandWell AIMEE는 관리형 모델 액세스와 전용 컴퓨터를 갖춘 AI 직원을 제공합니다. AIMEE에 실제 업무를 맡기면 후속 작업까지 처리합니다.",
       getStarted: "시작하기",
       viewOnGithub: "GitHub에서 보기",
       setupWithAgent: "에이전트로 설정하기",
       copiedForAgent: "에이전트용으로 복사됨",
-      copyFailed: "복사 실패 — 다시 시도",
+      copyFailed: "복사 실패. 다시 시도",
     },
     selfHost: {
       eyebrow: "셀프 호스트",
       heading: "컴퓨터는 당신 것",
-      copy: "모든 봇은 샌드박스 브라우저와 셸을 가집니다 — 당신의 Docker, 당신의 계정, 당신의 방화벽 안에서. 세션과 자격 증명은 밖으로 나가지 않습니다.",
+      copy: "모든 봇은 당신의 Docker, 계정, 방화벽 안에서 샌드박스 브라우저와 셸을 가집니다. 세션과 자격 증명은 밖으로 나가지 않습니다.",
       features: [
         {
           title: "어떤 모델이든, 키는 당신 것",
-          body: "봇을 Claude, GPT, Grok 또는 로컬 모델에 연결하세요. 봇마다 바꿀 수 있습니다 — 저렴한 모델은 분류하고, 똑똑한 모델은 작성합니다.",
+          body: "봇을 Claude, GPT, Grok 또는 로컬 모델에 연결하세요. 봇마다 바꿀 수 있습니다. 저렴한 모델은 분류하고, 똑똑한 모델은 작성합니다.",
         },
         {
           title: "읽을 수 있는 루틴",
@@ -484,13 +484,13 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
     roster: {
       eyebrow: "봇 템플릿",
       heading: "봇마다 역할을 주세요",
-      copy: "새 봇을 시작하면 인터뷰합니다 — 업무, 글쓰기 방식, 작업이 어디에 있는지 몇 가지 질문. 그다음 바로 시작합니다.",
+      copy: "새 봇을 시작하면 업무, 글쓰기 방식, 작업이 어디에 있는지 몇 가지 질문합니다. 그다음 바로 시작합니다.",
       bots: KO_ROSTER,
     },
     openSource: {
       eyebrow: "오픈소스",
       heading: "가격 페이지 없음. 리포만.",
-      copy: "Rakazo는 Apache-2.0 라이선스이며, 당신 머신에서 당신 모델 키로 실행됩니다. 잠긴 기능도, 외부로 연락하는 것도 없습니다.",
+      copy: "AIMEE에는 자체 인프라에서 운영하려는 팀을 위한 Apache-2.0 오픈 소스 코어가 포함되어 있습니다.",
       selfHostTitle: "셀프 호스트",
       selfHostMeta: "지금 사용 가능",
       selfHostItems: [
@@ -514,7 +514,7 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
     },
     cta: {
       heading: "첫 봇을 만나보세요",
-      copy: "미뤄 두었던 일을 Rakazo에 맡기고, 후속까지 맡기세요.",
+      copy: "미뤄 두었던 일을 AIMEE에 맡기고 후속 작업까지 처리하세요.",
       getStarted: "시작하기",
       viewOnGithub: "GitHub에서 보기",
       openSourceValue: "오픈소스",
@@ -528,12 +528,12 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
     },
     getStartedDialog: {
       closeLabel: "시작하기 대화상자 닫기",
-      eyebrow: "Rakazo Cloud",
-      title: "Rakazo 시작하기",
+      eyebrow: "BrandWell 관리형 서비스",
+      title: "AIMEE 시작하기",
       copy: "이메일을 남겨 주세요. 호스팅 워크스페이스가 준비되면 알려 드립니다.",
       successTitle: "등록되었습니다.",
       successCopy:
-        "호스팅 Rakazo가 준비되면 메일로 알려 드립니다. 오늘 시작하려면? Rakazo는 이미 GitHub에서 사용할 수 있습니다.",
+        "관리형 AIMEE 작업 공간을 구성할 수 있도록 연락드리겠습니다. 오픈 소스 코어도 GitHub에서 사용할 수 있습니다.",
       done: "완료",
       viewOnGithub: "GitHub에서 보기",
     },

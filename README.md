@@ -1,15 +1,15 @@
-# Rakazo
+# BrandWell's AIMEE
 
-[![GitHub stars](https://img.shields.io/github/stars/elie222/rakazo?labelColor=black&style=for-the-badge&color=2563EB)](https://github.com/elie222/rakazo/stargazers)
-[![Discord](https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?labelColor=black&style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/RWwKa2Sn7h)
+[![GitHub stars](https://img.shields.io/github/stars/ChainAI-Org/brandwell-aimee?labelColor=black&style=for-the-badge&color=2563EB)](https://github.com/ChainAI-Org/brandwell-aimee/stargazers)
 
-![Rakazo — AI teammates you actually own](./docs/readme-hero.png)
+![BrandWell's AIMEE, AI employees that do real work](./docs/readme-hero.png)
 
-Rakazo is an open-source platform for running persistent AI teammates. It is available on the web,
+AIMEE is BrandWell's platform for running persistent AI employees. It is available on the web,
 as an Electron desktop app, and through an Expo mobile app. Bring your own model and computer
 provider, or run the complete stack locally.
 
-Rakazo is in beta. Learn more at [rakazo.com](https://rakazo.com).
+The managed BrandWell service connects clients, Sidekicks, models, computers, skills, and billing
+through one control plane. Learn more at [brandwell.ai](https://brandwell.ai).
 
 ## Features
 
@@ -21,10 +21,6 @@ Rakazo is in beta. Learn more at [rakazo.com](https://rakazo.com).
 - Bring-your-own model credentials through Pi
 - App integrations through Composio or Pipedream Connect, plus user-installed Treg, remote MCP, and OpenAPI tool sources
 - Docker, E2B, Daytona, Box, and trusted local-computer support
-
-## Demo
-
-https://github.com/user-attachments/assets/dccdeddb-2134-4a56-8eed-b2e591736b1c
 
 ## Stack
 
@@ -44,8 +40,8 @@ https://github.com/user-attachments/assets/dccdeddb-2134-4a56-8eed-b2e591736b1c
 You need Node.js 22+, pnpm 9, and Docker Desktop.
 
 ```bash
-git clone https://github.com/elie222/rakazo.git
-cd rakazo
+git clone https://github.com/ChainAI-Org/brandwell-aimee.git
+cd brandwell-aimee
 cp .env.example .env
 ```
 
@@ -79,7 +75,7 @@ provider selection, backups, and upgrades, see the [self-hosting guide](./docs/s
 
 ## Desktop and mobile
 
-The Electron and Expo apps are clients of the same Rakazo API used by the web app.
+The Electron and Expo apps are clients of the same AIMEE API used by the web app.
 
 With the development stack running, launch Electron with:
 
@@ -87,15 +83,11 @@ With the development stack running, launch Electron with:
 pnpm --filter @brandwell/desktop dev
 ```
 
-On first run the desktop app asks whether to use the Rakazo stack on this computer
-(`http://127.0.0.1:5173`) or connect to an existing server. Public servers must use HTTPS; HTTP is
-accepted only for loopback and private LAN addresses (not link-local). The app verifies Rakazo's
-health endpoint before saving, and later launches go straight to that instance.
-
-Use **Change Rakazo Server…** in the application menu to reconnect. Closing that window without
-saving returns to the previous instance. For development automation, set `RAKAZO_WEB_URL` to point
-the shell somewhere else without changing the saved instance, or `RAKAZO_FORCE_SETUP=1` to run
-setup again.
+Installed BrandWell desktop builds open `https://ai.brandwell.ai` directly. They do not expose a
+server chooser. Development builds retain the localhost and custom-server flow. BrandWell support
+can opt an installed build into that flow with `BRANDWELL_AIMEE_SUPPORT_SERVER_CHOOSER=1`; the
+legacy `RAKAZO_WEB_URL` and `RAKAZO_FORCE_SETUP` compatibility variables are honored only in that
+support mode or an unpackaged development build.
 
 Mobile build and release instructions live in [docs/mobile-release.md](./docs/mobile-release.md).
 BrandWell operators should also use the dedicated [AIMEE deployment runbook](./docs/brandwell-deployment.md)
@@ -109,7 +101,7 @@ footer language links (`/`, `/de/`, `/ko/`); other marketing pages stay English.
 
 ## Development
 
-Rakazo is a TypeScript monorepo built with React, Electron, Expo, Hono, Postgres, Prisma, Graphile
+AIMEE is a TypeScript monorepo built with React, Electron, Expo, Hono, Postgres, Prisma, Graphile
 Worker, and Pi.
 
 ```text
@@ -162,6 +154,4 @@ Contributions are welcome. Please read [CONTRIBUTING.md](./CONTRIBUTING.md) befo
 request. For security vulnerabilities, follow [SECURITY.md](./SECURITY.md) instead of filing a public
 issue.
 
-Rakazo is licensed under the [Apache License 2.0](./LICENSE).
-
-Questions and ideas are welcome in the [Rakazo Discord community](https://discord.gg/RWwKa2Sn7h).
+AIMEE is licensed under the [Apache License 2.0](./LICENSE).

@@ -18,10 +18,10 @@ import {
 describe("normalizeRepoUrl", () => {
   it("accepts the official repository and https forks", () => {
     expect(normalizeRepoUrl(OFFICIAL_REPO_URL)).toEqual({
-      url: "https://github.com/elie222/rakazo",
+      url: "https://github.com/ChainAI-Org/brandwell-aimee",
     });
-    expect(normalizeRepoUrl("  https://github.com/me/rakazo.git/  ")).toEqual({
-      url: "https://github.com/me/rakazo.git",
+    expect(normalizeRepoUrl("  https://github.com/me/brandwell-aimee.git/  ")).toEqual({
+      url: "https://github.com/me/brandwell-aimee.git",
     });
     expect(normalizeRepoUrl("https://git.example.com:8443/team/rakazo.git")).toEqual({
       url: "https://git.example.com:8443/team/rakazo.git",
@@ -32,8 +32,8 @@ describe("normalizeRepoUrl", () => {
     expect(normalizeRepoUrl("git@github.com:me/rakazo.git")).toEqual({
       url: "git@github.com:me/rakazo.git",
     });
-    expect(normalizeRepoUrl("ssh://git@github.com/me/rakazo.git")).toEqual({
-      url: "ssh://git@github.com/me/rakazo.git",
+    expect(normalizeRepoUrl("ssh://git@github.com/me/brandwell-aimee.git")).toEqual({
+      url: "ssh://git@github.com/me/brandwell-aimee.git",
     });
   });
 
@@ -41,46 +41,48 @@ describe("normalizeRepoUrl", () => {
     for (const input of [
       "",
       "   ",
-      "http://github.com/me/rakazo",
-      "git://github.com/me/rakazo",
+      "http://github.com/me/brandwell-aimee",
+      "git://github.com/me/brandwell-aimee",
       "file:///etc/passwd",
       "/srv/rakazo",
       "https://github.com",
       "https://github.com/onlyone",
       "https://github.com/me/../../etc",
-      "https://user:secret@github.com/me/rakazo",
-      "https://token@github.com/me/rakazo",
-      "ssh://bad%0auser@github.com/me/rakazo",
-      "https://github.com/me/rakazo?x=1",
-      "https://github.com/me/rakazo#frag",
+      "https://user:secret@github.com/me/brandwell-aimee",
+      "https://token@github.com/me/brandwell-aimee",
+      "ssh://bad%0auser@github.com/me/brandwell-aimee",
+      "https://github.com/me/brandwell-aimee?x=1",
+      "https://github.com/me/brandwell-aimee#frag",
       "https://github.com/me/rak azo",
       "--upload-pack=touch /tmp/pwned",
       "-o ProxyCommand=id",
-      `https://github.com/me/rakazo${"x".repeat(400)}`,
+      `https://github.com/me/brandwell-aimee${"x".repeat(400)}`,
     ]) {
       expect(normalizeRepoUrl(input), input).toHaveProperty("error");
     }
   });
 
   it("rejects an embedded newline that could smuggle a second argument", () => {
-    expect(normalizeRepoUrl("https://github.com/me/rakazo\n--exec=id")).toHaveProperty("error");
+    expect(normalizeRepoUrl("https://github.com/me/brandwell-aimee\n--exec=id")).toHaveProperty(
+      "error",
+    );
   });
 });
 
 describe("repoIdentity", () => {
   it("treats every spelling of the same remote as one repository", () => {
-    const identity = "github.com/elie222/rakazo";
-    expect(repoIdentity("https://github.com/elie222/rakazo")).toBe(identity);
-    expect(repoIdentity("https://github.com/elie222/rakazo.git")).toBe(identity);
-    expect(repoIdentity("git@github.com:elie222/rakazo.git")).toBe(identity);
-    expect(repoIdentity("ssh://git@github.com/Elie222/Rakazo")).toBe(identity);
+    const identity = "github.com/chainai-org/brandwell-aimee";
+    expect(repoIdentity("https://github.com/ChainAI-Org/brandwell-aimee")).toBe(identity);
+    expect(repoIdentity("https://github.com/ChainAI-Org/brandwell-aimee.git")).toBe(identity);
+    expect(repoIdentity("git@github.com:ChainAI-Org/brandwell-aimee.git")).toBe(identity);
+    expect(repoIdentity("ssh://git@github.com/chainai-org/brandwell-aimee")).toBe(identity);
     expect(repoIdentity("not a url")).toBeNull();
   });
 
   it("only calls the real upstream official", () => {
-    expect(isOfficialRepoUrl("git@github.com:elie222/rakazo.git")).toBe(true);
-    expect(isOfficialRepoUrl("https://github.com/attacker/rakazo")).toBe(false);
-    expect(isOfficialRepoUrl("https://githubb.com/elie222/rakazo")).toBe(false);
+    expect(isOfficialRepoUrl("git@github.com:ChainAI-Org/brandwell-aimee.git")).toBe(true);
+    expect(isOfficialRepoUrl("https://github.com/attacker/brandwell-aimee")).toBe(false);
+    expect(isOfficialRepoUrl("https://githubb.com/ChainAI-Org/brandwell-aimee")).toBe(false);
   });
 });
 

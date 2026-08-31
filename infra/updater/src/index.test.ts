@@ -23,6 +23,21 @@ const currentCommit = "1".repeat(40);
 const targetCommit = "2".repeat(40);
 const temporaryDirectories: string[] = [];
 
+function trustedReleaseFetch(
+  options: { tag?: string; status?: string } = {},
+): typeof globalThis.fetch {
+  const tag = options.tag ?? "v1.1.0";
+  const status = options.status ?? "ahead";
+  return async (input) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+    if (url.endsWith("/releases/latest")) {
+      return Response.json({ tag_name: tag, draft: false, prerelease: false });
+    }
+    if (url.includes("/compare/")) return Response.json({ status });
+    return Response.json({ message: "not found" }, { status: 404 });
+  };
+}
+
 afterEach(async () => {
   await Promise.all(
     temporaryDirectories.splice(0).map((directory) => rm(directory, { recursive: true })),
@@ -107,7 +122,10 @@ describe("updater HTTP surface", () => {
     const response = await app.request("/apply", {
       method: "POST",
       headers: authorized,
-      body: JSON.stringify({ repoUrl: "https://github.com/elie222/rakazo", branch: "--exec=id" }),
+      body: JSON.stringify({
+        repoUrl: "https://github.com/ChainAI-Org/brandwell-aimee",
+        branch: "--exec=id",
+      }),
     });
     expect(response.status).toBe(400);
   });
@@ -117,7 +135,10 @@ describe("updater HTTP surface", () => {
     const response = await createUpdaterApp(fixture.config).request("/apply", {
       method: "POST",
       headers: authorized,
-      body: JSON.stringify({ repoUrl: "https://github.com/someone/rakazo", branch: "main" }),
+      body: JSON.stringify({
+        repoUrl: "https://github.com/someone/brandwell-aimee",
+        branch: "main",
+      }),
     });
     expect(response.status).toBe(400);
     const payload = (await response.json()) as { error: string };
@@ -174,8 +195,11 @@ describe("updater orchestration", () => {
       }
       return ok();
     };
-    const subject = createUpdaterApp(fixture.config, { run });
-    const input = { repoUrl: "https://github.com/elie222/rakazo", branch: "main" };
+    const subject = createUpdaterApp(fixture.config, { run, fetch: trustedReleaseFetch() });
+    const input = {
+      repoUrl: "https://github.com/ChainAI-Org/brandwell-aimee",
+      branch: "main",
+    };
     const first = request(subject, "/apply", input);
     await atRemote;
     const second = await request(subject, "/apply", input);
@@ -183,6 +207,49 @@ describe("updater orchestration", () => {
     await expect(second.json()).resolves.toEqual({ error: "An update is already running." });
     releaseGate?.(ok(`${targetCommit}\trefs/tags/v1.1.0\n`));
     expect((await first).status).toBe(200);
+  });
+
+  it("ignores a higher raw tag that is not the latest published release", async () => {
+    const fixture = await deployment();
+    const untrustedCommit = "9".repeat(40);
+    const calls: string[][] = [];
+    const run: UpdaterCommandRunner = async (command, args) => {
+      calls.push([command, ...args]);
+      return ok(`${untrustedCommit}\trefs/tags/v999.0.0\n${targetCommit}\trefs/tags/v1.1.0\n`);
+    };
+    const subject = createUpdaterApp(fixture.config, {
+      run,
+      fetch: trustedReleaseFetch({ tag: "v1.1.0" }),
+    });
+    const response = await request(subject, "/plan", {
+      repoUrl: "https://github.com/ChainAI-Org/brandwell-aimee",
+      branch: "main",
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      targetCommit,
+      targetTag: `sha-${targetCommit}`,
+    });
+    expect(calls[0]).toEqual(expect.arrayContaining(["refs/tags/v1.1.0", "refs/tags/v1.1.0^{}"]));
+  });
+
+  it("refuses a published release whose commit is not on main", async () => {
+    const fixture = await deployment();
+    const run: UpdaterCommandRunner = async () => ok(`${targetCommit}\trefs/tags/v1.1.0\n`);
+    const subject = createUpdaterApp(fixture.config, {
+      run,
+      fetch: trustedReleaseFetch({ status: "diverged" }),
+    });
+    const response = await request(subject, "/plan", {
+      repoUrl: "https://github.com/ChainAI-Org/brandwell-aimee",
+      branch: "main",
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "The latest published release is not on the protected main branch.",
+    });
   });
 
   it("restores the previous remote when a fork update fails after repointing it", async () => {
@@ -202,7 +269,7 @@ describe("updater orchestration", () => {
       if (args[0] === "fetch") return failed("registry unavailable");
       return ok();
     };
-    const subject = createUpdaterApp(fixture.config, { run });
+    const subject = createUpdaterApp(fixture.config, { run, fetch: trustedReleaseFetch() });
     const response = await request(subject, "/apply", { repoUrl: nextRemote, branch: "main" });
     const record = (await response.json()) as ServerUpdateRun;
     expect(record.ok).toBe(false);
@@ -226,9 +293,9 @@ describe("updater orchestration", () => {
       upCalls += 1;
       return upCalls === 1 ? failed("api did not become healthy") : ok("restored");
     };
-    const subject = createUpdaterApp(fixture.config, { run });
+    const subject = createUpdaterApp(fixture.config, { run, fetch: trustedReleaseFetch() });
     const response = await request(subject, "/apply", {
-      repoUrl: "https://github.com/elie222/rakazo",
+      repoUrl: "https://github.com/ChainAI-Org/brandwell-aimee",
       branch: "main",
     });
     const record = (await response.json()) as ServerUpdateRun;
@@ -270,10 +337,14 @@ describe("updater orchestration", () => {
       }
       return ok();
     };
-    const response = await request(createUpdaterApp(fixture.config, { run }), "/apply", {
-      repoUrl: "https://github.com/example/fork",
-      branch: "main",
-    });
+    const response = await request(
+      createUpdaterApp(fixture.config, { run, fetch: trustedReleaseFetch() }),
+      "/apply",
+      {
+        repoUrl: "https://github.com/example/fork",
+        branch: "main",
+      },
+    );
     const record = (await response.json()) as ServerUpdateRun;
     expect(record.ok).toBe(false);
     expect(record.steps.map((step) => step.id)).toEqual([
@@ -305,10 +376,14 @@ describe("updater orchestration", () => {
       if (args[0] === "merge") return failed("not a fast-forward");
       return ok();
     };
-    const response = await request(createUpdaterApp(fixture.config, { run }), "/apply", {
-      repoUrl: "https://github.com/example/fork",
-      branch: "main",
-    });
+    const response = await request(
+      createUpdaterApp(fixture.config, { run, fetch: trustedReleaseFetch() }),
+      "/apply",
+      {
+        repoUrl: "https://github.com/example/fork",
+        branch: "main",
+      },
+    );
     const record = (await response.json()) as ServerUpdateRun;
     expect(record.ok).toBe(false);
     expect(record.steps.map((step) => step.id)).toEqual([
@@ -343,10 +418,14 @@ describe("updater orchestration", () => {
     const before = await lstat(envFile);
     const run: UpdaterCommandRunner = async (command) =>
       command === "git" ? ok(`${targetCommit}\trefs/tags/v1.1.0\n`) : ok();
-    const response = await request(createUpdaterApp(fixture.config, { run }), "/apply", {
-      repoUrl: "https://github.com/elie222/rakazo",
-      branch: "main",
-    });
+    const response = await request(
+      createUpdaterApp(fixture.config, { run, fetch: trustedReleaseFetch() }),
+      "/apply",
+      {
+        repoUrl: "https://github.com/ChainAI-Org/brandwell-aimee",
+        branch: "main",
+      },
+    );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({ ok: true });
     const after = await lstat(envFile);
@@ -367,10 +446,14 @@ describe("updater orchestration", () => {
     await symlink(target, envFile);
     const run: UpdaterCommandRunner = async (command) =>
       command === "git" ? ok(`${targetCommit}\trefs/tags/v1.1.0\n`) : ok();
-    const response = await request(createUpdaterApp(fixture.config, { run }), "/apply", {
-      repoUrl: "https://github.com/elie222/rakazo",
-      branch: "main",
-    });
+    const response = await request(
+      createUpdaterApp(fixture.config, { run, fetch: trustedReleaseFetch() }),
+      "/apply",
+      {
+        repoUrl: "https://github.com/ChainAI-Org/brandwell-aimee",
+        branch: "main",
+      },
+    );
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       ok: false,

@@ -371,7 +371,7 @@ describe("update plans", () => {
     const steps = composeUpdatePlan({
       strategy: "build",
       target,
-      repoUrl: "https://github.com/someone/rakazo",
+      repoUrl: "https://github.com/someone/brandwell-aimee",
       branch: "trunk",
       repointRemote: true,
     });
@@ -399,7 +399,7 @@ describe("update plans", () => {
   });
 
   it("keeps the repository URL in argv rather than in any compose input", () => {
-    const repoUrl = "https://github.com/someone/rakazo";
+    const repoUrl = "https://github.com/someone/brandwell-aimee";
     const steps = composeUpdatePlan({
       strategy: "build",
       target,
@@ -492,10 +492,13 @@ describe("managed env assignments", () => {
 describe("sidecar boundary validation", () => {
   it("normalizes a request the API already validated", () => {
     expect(
-      validateUpdateRequest({ repoUrl: "https://github.com/elie222/rakazo.git", branch: " main " }),
+      validateUpdateRequest({
+        repoUrl: "https://github.com/ChainAI-Org/brandwell-aimee.git",
+        branch: " main ",
+      }),
     ).toEqual({
       request: {
-        repoUrl: "https://github.com/elie222/rakazo.git",
+        repoUrl: "https://github.com/ChainAI-Org/brandwell-aimee.git",
         branch: "main",
         official: true,
       },
@@ -504,12 +507,12 @@ describe("sidecar boundary validation", () => {
 
   it("marks a fork as unofficial so the sidecar picks the build path", () => {
     const result = validateUpdateRequest({
-      repoUrl: "https://github.com/someone/rakazo",
+      repoUrl: "https://github.com/someone/brandwell-aimee",
       branch: "main",
     });
     expect(result).toEqual({
       request: {
-        repoUrl: "https://github.com/someone/rakazo",
+        repoUrl: "https://github.com/someone/brandwell-aimee",
         branch: "main",
         official: false,
       },

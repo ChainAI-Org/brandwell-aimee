@@ -1,7 +1,7 @@
 # BrandWell AIMEE mobile release runbook
 
 The BrandWell mobile app is a branded client of the managed AIMEE control plane. Production builds
-use `https://ai.brandwell.ai`; clients do not choose an arbitrary Rakazo server.
+use `https://ai.brandwell.ai`; clients do not choose an arbitrary AIMEE server.
 
 ## Distribution decision
 

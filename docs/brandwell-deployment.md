@@ -1,6 +1,6 @@
 # BrandWell AIMEE deployment runbook
 
-This runbook covers the managed BrandWell control plane. The generic Rakazo self-hosting guide
+This runbook covers the managed BrandWell control plane. The generic AIMEE self-hosting guide
 remains the source for the underlying Compose topology, backups, computer providers, and upgrades.
 
 ## Product topology
@@ -82,6 +82,13 @@ or mobile clients. The worker reconciles provider usage before evaluating fleet 
 The AIMEE control plane and the existing BrandWell portal must hold the same dedicated service
 token. Client sessions never receive it. Native Intent, TrafficID, and postcard tools use the
 service identity and an explicit BrandWell account ID on every request.
+
+Every native tool request uses the `v1` service signature. Set
+`x-brandwell-signature-version: v1` and compute the HMAC-SHA256 over these newline-delimited
+values in order: `brandwell-aimee-signature:v1`, method, pathname, BrandWell customer ID, AIMEE
+workspace ID, service identity ID, execution ID, idempotency key (blank for reads), ISO timestamp,
+and the lowercase SHA-256 hash of the exact request bytes. The portal rejects a changed route,
+identity, execution, idempotency key, timestamp, body, or signature version.
 
 The BrandWell portal is the commercial source of truth. It sends a monotonic desired-state
 revision containing the agency, client, contract, plan, account status, primary seat, Sidekick seat

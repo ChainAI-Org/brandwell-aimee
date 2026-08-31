@@ -65,6 +65,10 @@ export interface DesktopSetup {
 export interface DesktopSetupState {
   defaultLocalUrl: string;
   saved: DesktopSetup | null;
+  /** False in normal managed installs so only the BrandWell production origin can be retried. */
+  serverChooserEnabled: boolean;
+  /** Fixed managed origin used when the support-only server chooser is disabled. */
+  managedServerUrl?: string;
   /** Present when a saved or newly selected server could not be reopened. */
   error?: string;
 }

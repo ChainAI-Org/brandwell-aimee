@@ -9,11 +9,19 @@ export interface UpdaterEnvironment {
   packaged: boolean;
   version: string;
   disabled?: boolean;
+  platform?: string;
 }
 
 export function updaterSupport(env: UpdaterEnvironment): { supported: boolean; reason: string } {
   if (env.disabled === true) {
     return { supported: false, reason: "Automatic updates are turned off for this install." };
+  }
+  if (env.platform === "linux") {
+    return {
+      supported: false,
+      reason:
+        "Automatic updates are not available on Linux. Download releases from the official AIMEE repository.",
+    };
   }
   if (!env.packaged) {
     return { supported: false, reason: "Automatic updates only run in an installed build." };
@@ -175,7 +183,9 @@ export function reduceUpdateState(
           phase: "idle",
           percent: null,
           message: event.userInitiated ? "Could not reach the update server." : null,
-          checkedAt: now,
+          // `checkedAt` means the feed answered successfully. Clearing it prevents
+          // a silent background network failure from rendering as "Up to date".
+          checkedAt: null,
         };
       }
       return { ...state, phase: "error", percent: null, message: failure.message, checkedAt: now };
@@ -291,7 +301,6 @@ export class DesktopUpdateController {
             return;
           }
           this.push({ type: "available", version });
-          void this.download();
         });
         updater.on("update-not-available", () => this.push({ type: "not-available" }));
         updater.on("download-progress", (payload) => {
@@ -379,6 +388,9 @@ export class DesktopUpdateController {
 
   private async runDownload() {
     if (this.current.phase !== "available") return this.current;
+    // A valid download is always started from a visible renderer action, even when the
+    // available release was found by the launch-time background check.
+    this.checkWasRequested = true;
     const updater = await this.updater();
     if (updater === null || this.current.phase !== "available") return this.current;
     this.push({ type: "download-start" });

@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { ApprovalRulesSettings } from "../components/ApprovalRulesSettings";
+import { DesktopUpdateSettings } from "../components/DesktopUpdateSettings";
 import { getActiveUiLocale, setUiLocale } from "../lib/i18n";
 import { UI_LOCALE_LABELS, UI_LOCALES, type UiLocale } from "../lib/ui-locale";
 
@@ -18,6 +19,7 @@ export function AccountSettingsOverlay({
   name,
   usage,
   focusUsage,
+  managed = false,
   avatarStyle,
   onAvatarStyleChange,
   onClose,
@@ -26,6 +28,7 @@ export function AccountSettingsOverlay({
   name: string;
   usage?: { runs: number; inputTokens: number; outputTokens: number } | null;
   focusUsage?: boolean;
+  managed?: boolean;
   avatarStyle: AvatarStyle;
   onAvatarStyleChange: (style: AvatarStyle) => Promise<void>;
   onClose: () => void;
@@ -100,7 +103,11 @@ export function AccountSettingsOverlay({
               <Trans>Settings</Trans>
             </h2>
             <p className="mt-1 text-[13.5px] text-[#7A7A80]">
-              <Trans>Account preferences apply across all your bots.</Trans>
+              {managed ? (
+                "Preferences for your BrandWell AIMEE workspace."
+              ) : (
+                <Trans>Account preferences apply across all your AI employees.</Trans>
+              )}
             </p>
           </div>
           <button
@@ -183,9 +190,15 @@ export function AccountSettingsOverlay({
             </p>
           ) : null}
           <p className={`text-[12.5px] text-[#6C6C70] ${usage ? "mt-2" : "mt-3"}`}>
-            <Trans>Model spend uses your provider keys.</Trans>
+            {managed ? (
+              "Model access and usage are included in your BrandWell AIMEE plan and managed centrally."
+            ) : (
+              <Trans>Model spend uses your provider keys.</Trans>
+            )}
           </p>
         </div>
+
+        <DesktopUpdateSettings />
 
         <details
           data-testid="advanced-settings"

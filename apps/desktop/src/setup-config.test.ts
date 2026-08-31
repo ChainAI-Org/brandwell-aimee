@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_LOCAL_WEB_URL,
   isAimeeHealth,
+  MANAGED_WEB_URL,
   normalizeServerUrl,
   parseSetupInput,
   parseStoredSetup,
@@ -18,13 +19,13 @@ describe("server address normalization", () => {
     expect(normalizeServerUrl("127.0.0.1:5173")).toBe("http://127.0.0.1:5173");
     expect(normalizeServerUrl("localhost:5173")).toBe("http://localhost:5173");
     expect(normalizeServerUrl("192.168.1.20:3100")).toBe("http://192.168.1.20:3100");
-    expect(normalizeServerUrl("rakazo.example.com")).toBe("https://rakazo.example.com");
+    expect(normalizeServerUrl("aimee.example.com")).toBe("https://aimee.example.com");
   });
 
   it("keeps an explicit secure scheme and port but stores only the origin", () => {
-    expect(normalizeServerUrl("https://rakazo.example.com")).toBe("https://rakazo.example.com");
-    expect(normalizeServerUrl("https://rakazo.example.com:8443/team")).toBe(
-      "https://rakazo.example.com:8443",
+    expect(normalizeServerUrl("https://aimee.example.com")).toBe("https://aimee.example.com");
+    expect(normalizeServerUrl("https://aimee.example.com:8443/team")).toBe(
+      "https://aimee.example.com:8443",
     );
   });
 
@@ -37,7 +38,7 @@ describe("server address normalization", () => {
   });
 
   it("rejects cleartext public servers but permits private-network development", () => {
-    expect(normalizeServerUrl("http://rakazo.example.com")).toBeNull();
+    expect(normalizeServerUrl("http://aimee.example.com")).toBeNull();
     expect(normalizeServerUrl("http://10.0.0.8:3100")).toBe("http://10.0.0.8:3100");
     expect(normalizeServerUrl("http://[fd00::1]:3100")).toBe("http://[fd00::1]:3100");
   });
@@ -58,13 +59,13 @@ describe("server address normalization", () => {
   );
 
   it("rejects embedded credentials rather than writing them to disk", () => {
-    expect(normalizeServerUrl("https://user:secret@rakazo.example.com")).toBeNull();
+    expect(normalizeServerUrl("https://user:secret@aimee.example.com")).toBeNull();
   });
 });
 
 describe("saved setup", () => {
   it("round-trips through the on-disk format", () => {
-    const setup = { mode: "existing", serverUrl: "https://rakazo.example.com" } as const;
+    const setup = { mode: "existing", serverUrl: "https://aimee.example.com" } as const;
     expect(parseStoredSetup(serializeSetup(setup))).toEqual(setup);
   });
 
@@ -100,7 +101,7 @@ describe("saved setup", () => {
 });
 
 describe("startup target", () => {
-  const saved = { mode: "existing", serverUrl: "https://rakazo.example.com" } as const;
+  const saved = { mode: "existing", serverUrl: "https://aimee.example.com" } as const;
 
   it("runs setup on a first launch", () => {
     expect(resolveStartupTarget({})).toEqual({ kind: "setup" });
@@ -109,7 +110,7 @@ describe("startup target", () => {
   it("opens the saved instance on later launches", () => {
     expect(resolveStartupTarget({ saved })).toEqual({
       kind: "app",
-      url: "https://rakazo.example.com",
+      url: "https://aimee.example.com",
       source: "saved",
     });
   });
@@ -141,12 +142,34 @@ describe("startup target", () => {
       }),
     ).toEqual({ kind: "setup" });
   });
+
+  it("pins a normal managed install to BrandWell production", () => {
+    expect(
+      resolveStartupTarget({
+        managedUrl: MANAGED_WEB_URL,
+        serverChooserEnabled: false,
+        envUrl: "http://127.0.0.1:4321",
+        saved,
+        forceSetup: true,
+      }),
+    ).toEqual({ kind: "app", url: MANAGED_WEB_URL, source: "managed" });
+  });
+
+  it("retains the custom server flow only when the support override enables it", () => {
+    expect(
+      resolveStartupTarget({
+        managedUrl: MANAGED_WEB_URL,
+        serverChooserEnabled: true,
+        forceSetup: true,
+      }),
+    ).toEqual({ kind: "setup" });
+  });
 });
 
 describe("bundled renderer eligibility", () => {
   it("stands in for http(s) origins only", () => {
     expect(servesBundledRenderer(DEFAULT_LOCAL_WEB_URL)).toBe(true);
-    expect(servesBundledRenderer("https://rakazo.example.com")).toBe(true);
+    expect(servesBundledRenderer("https://aimee.example.com")).toBe(true);
     expect(servesBundledRenderer("data:text/html,<p>fixture</p>")).toBe(false);
     expect(servesBundledRenderer("nonsense")).toBe(false);
   });

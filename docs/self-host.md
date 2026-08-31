@@ -1,4 +1,4 @@
-# Self-hosting Rakazo
+# Self-hosting AIMEE
 
 The signed-in product is a long-running API, a Graphile Worker, Postgres, and a computer provider (Docker supervisor, E2B, Daytona, or Box). It is not a static site. The marketing site in `apps/www` can be hosted separately.
 
@@ -8,7 +8,7 @@ Same as the README quick start: `.env` from `.env.example`, Postgres via Compose
 
 ## Docker Compose (single machine)
 
-1. Copy `.env.example` to `.env` and set `BETTER_AUTH_SECRET` and `ENCRYPTION_KEY` to long random strings. Rakazo refuses placeholder or missing secrets outside `development` / `test` (or when `RAKAZO_ALLOW_DEV_SECRETS=1` is set).
+1. Copy `.env.example` to `.env` and set `BETTER_AUTH_SECRET` and `ENCRYPTION_KEY` to long random strings. AIMEE refuses placeholder or missing secrets outside `development` / `test` (or when `RAKAZO_ALLOW_DEV_SECRETS=1` is set).
 2. Set `OPENROUTER_API_KEY` (and `COMPOSIO_API_KEY` if you want Plugins).
 3. Build the computer image: `pnpm sandbox:build` (Compose also builds it via the `computer` service).
 4. `docker compose --env-file .env -f infra/compose/docker-compose.yml up --build`
@@ -67,15 +67,15 @@ RAKAZO_LOCAL_CONTEXT_WINDOW=32768
 RAKAZO_LOCAL_MAX_TOKENS=4096
 ```
 
-The loopback default is suitable when running Rakazo from a source checkout. In Docker Compose,
+The loopback default is suitable when running AIMEE from a source checkout. In Docker Compose,
 use the model server's Compose service name or another address reachable from the containers.
 Only configure an endpoint you control: prompts, attachments, and tool results sent to that model
-leave Rakazo through this URL. Leave `RAKAZO_LOCAL_MODELS` blank to disable the provider.
+leave AIMEE through this URL. Leave `RAKAZO_LOCAL_MODELS` blank to disable the provider.
 
 Each user can also connect their own OpenAI-compatible endpoint from **Connect a model** /
 **Settings → Models** on web and mobile. Choose **OpenAI-compatible**, enter the server base URL
 (for example `http://127.0.0.1:8000/v1` for Rapid-MLX, Ollama, LM Studio, llama.cpp, or vLLM),
-the exact model id from that server, and an optional API key. By default Rakazo only allows
+the exact model id from that server, and an optional API key. By default AIMEE only allows
 loopback, RFC1918, and `host.docker.internal` targets. To permit public hostnames, set
 `RAKAZO_OPENAI_COMPAT_ALLOW_PUBLIC=1` in the deployment environment. Public hostnames must resolve
 only to public addresses; redirects and DNS answers that reach private or link-local networks are
@@ -85,13 +85,19 @@ Do not commit `.env`. Never put `COMPOSIO_API_KEY`, OpenRouter keys, or provider
 
 ## Choosing a computer provider
 
-The Electron desktop app is a client of the same API. Docker and E2B still apply. On first launch, Electron asks the deployment owner whether bots should keep using Docker or run on this Mac as you. `SANDBOX_PROVIDER=desktop` is a separate, explicit provider that always runs commands on the service host.
+The computer provider is a server-side setting. Installed BrandWell desktop builds open
+`https://ai.brandwell.ai` directly and do not ask users to choose a server or computer provider.
+Self-hosted operators can use the browser client or an unpackaged development desktop build.
+BrandWell support can expose the legacy custom-server chooser in an installed build with
+`BRANDWELL_AIMEE_SUPPORT_SERVER_CHOOSER=1`. Only that support mode and unpackaged development honor
+`RAKAZO_WEB_URL` and `RAKAZO_FORCE_SETUP`. `SANDBOX_PROVIDER=desktop` is a separate, explicit server
+setting that always runs commands on the service host.
 
 - **Docker** is the default for local use and the quickest self-hosted setup. Workspace bots share a persistent Team Computer by default; Private computers are optional. Keep the supervisor private, as the included Compose file does.
-- **E2B** runs bot computers away from the Rakazo host and is the recommended choice for public or multi-user production deployments. Rakazo checkpoints the portable workspace and browser-profile directory to `DATA_DIR`; the E2B disk is a runtime cache, not the durable source of truth.
+- **E2B** runs AI employee computers away from the AIMEE host and is the recommended choice for public or multi-user production deployments. AIMEE checkpoints the portable workspace and browser-profile directory to `DATA_DIR`; the E2B disk is a runtime cache, not the durable source of truth.
 - **Daytona** provides the same remote-computer contract through Daytona sandboxes. Configure `DAYTONA_API_KEY` and optionally `DAYTONA_API_URL`, `DAYTONA_TARGET`, and `DAYTONA_SNAPSHOT`. Lifecycle settings use minutes. Keep `DAYTONA_AUTO_DELETE_INTERVAL=-1` for managed client computers, and let the application stop idle computers through both `SANDBOX_IDLE_MS` and `DAYTONA_AUTO_STOP_INTERVAL`. The BrandWell staging baseline is 2 vCPU, 4 GiB memory, and 10 GiB disk because 10 GiB is the current account limit. The `brandwell-aimee-browser-v1` snapshot includes Google Chrome Stable, a fresh per-sandbox browser profile, the ColorZilla extension, common command-line utilities, fonts, image tools, and PDF tools. Daytona's native computer-use API provides screenshots, so no screenshot extension is required.
-- **Box by ASCII** provides a managed Linux desktop through `BOX_API_KEY` and optionally `BOX_API_URL`. Rakazo always creates or resumes boxes with `noEnv: true`, keeps the portable workspace under `/home/user/rakazo-home`, and refreshes a two-hour TTL. A Box currently exposes one shared desktop, so concurrent Team bots can still use shell and files but only one can use graphical tools at a time.
-- **Desktop provider** / **This Mac** runs commands on the API/worker host. Docker stays the default. The Electron app asks once; if you choose This Mac, bots can use working directories under your home folder. Do not enable it on a public or shared service. macOS does not show its own permission dialog for this.
+- **Box by ASCII** provides a managed Linux desktop through `BOX_API_KEY` and optionally `BOX_API_URL`. AIMEE always creates or resumes boxes with `noEnv: true`, keeps the portable workspace under `/home/user/rakazo-home`, and refreshes a two-hour TTL. A Box currently exposes one shared desktop, so concurrent Team AI employees can still use shell and files but only one can use graphical tools at a time.
+- **Desktop provider** / **This Mac** runs commands on the API/worker host. Docker stays the default. Enable `SANDBOX_PROVIDER=desktop` deliberately for a trusted single-user host; the managed Electron app does not select it. Do not enable it on a public or shared service. macOS does not show its own permission dialog for this.
 - **Fake** is only an emulator for verification.
 
 ## Backup
@@ -239,17 +245,17 @@ Product contracts stay compatible across cloud and self-hosted.
 
 ### Published images and tags
 
-`.github/workflows/publish-server-image.yml` publishes to `ghcr.io/<owner>/<repo>/…`, derived from
-`${{ github.repository }}` rather than hardcoded, so a fork's CI fills the fork's own namespace. For
-this repository that is:
+`.github/workflows/publish-server-image.yml` publishes official images only from
+`ChainAI-Org/brandwell-aimee`. Pull requests still build both images without package-publish authority.
+The official release namespace is:
 
 | Image | Contents |
 | --- | --- |
-| `ghcr.io/elie222/rakazo/app` | api, worker, and web: one image, three commands |
-| `ghcr.io/elie222/rakazo/updater` | the updater sidecar, plus the Docker CLI |
+| `ghcr.io/chainai-org/brandwell-aimee/app` | api, worker, and web: one image, three commands |
+| `ghcr.io/chainai-org/brandwell-aimee/updater` | the updater sidecar, plus the Docker CLI |
 
 If you deploy from your own fork, set `RAKAZO_IMAGE` and `RAKAZO_UPDATER_IMAGE` to your namespace.
-your CI cannot publish into someone else's.
+Your CI cannot publish into someone else's.
 
 | Tag | Published on | Moves? |
 | --- | --- | --- |
@@ -369,7 +375,7 @@ Enabling the `updater` profile requires `RAKAZO_UPDATER_TOKEN` to be a dedicated
 least 32 characters in production). It must differ from `BETTER_AUTH_SECRET` and
 `SANDBOX_SUPERVISOR_TOKEN`. Leave the profile disabled if you would rather not grant the capability.
 
-## What “Rakazo Cloud” still needs
+## What managed AIMEE hosting still needs
 
 The product cannot be “pushed live” as a Vercel serverless app. Graphile Worker, Postgres `LISTEN`, Pi runs, and Docker computers need durable processes and a sandbox host.
 
@@ -377,15 +383,17 @@ To run a hosted product (same codebase):
 
 1. Push `main` (this checkout may be ahead of GitHub).
 2. Provision managed Postgres 16 and run `pnpm db:migrate`.
-3. Run **API** and **worker** as always-on Node 22 services (Fly machines, a VM, ECS, k8s). Not lambda-style request handlers.
-4. Persist and back up `DATA_DIR` (bot homes, browser profiles, artifacts). Today the concrete store is a local filesystem (`LocalAgentHomeStore`), so attach a Rakazo-owned durable volume shared by API and worker processes. The storage contract is separate from the computer-provider contract, but an object-storage implementation is not wired yet.
-5. Choose computers: **`SANDBOX_PROVIDER=e2b`**, `daytona`, or `box` with the matching provider key for a public or multi-user production service. Each Team or Private Computer reconnects to its sandbox id (`providerRef`), while workspace state is checkpointed outside the provider at run completion, explicit stop, and idle suspension. If that sandbox is gone or the deployment changes providers, the replacement is hydrated from Rakazo's copy. Idle computers pause after `SANDBOX_IDLE_MS` (default 10 minutes) and resume on the next message or Take control. Docker remains the local and trusted single-machine default.
+3. Run **API** and **worker** as always-on Node 24 services (Fly machines, a VM, ECS, k8s). Not lambda-style request handlers.
+4. Persist and back up `DATA_DIR` (AI employee homes, browser profiles, artifacts). Today the concrete store is a local filesystem (`LocalAgentHomeStore`), so attach an operator-owned durable volume shared by API and worker processes. The storage contract is separate from the computer-provider contract, but an object-storage implementation is not wired yet.
+5. Choose computers: **`SANDBOX_PROVIDER=e2b`**, `daytona`, or `box` with the matching provider key for a public or multi-user production service. Each Team or Private Computer reconnects to its sandbox id (`providerRef`), while workspace state is checkpointed outside the provider at run completion, explicit stop, and idle suspension. If that sandbox is gone or the deployment changes providers, the replacement is hydrated from AIMEE's copy. Idle computers pause after `SANDBOX_IDLE_MS` (default 10 minutes) and resume on the next message or Take control. Docker remains the local and trusted single-machine default.
 6. A Hetzner CX22 (2 vCPU / 4 GB) is enough for API + worker + Postgres when E2B owns the desktops. 2 GB works for a quiet box; 8 GB is only needed if you also run Docker computers on that same machine.
 7. Set public HTTPS `WEB_ORIGIN` / `BETTER_AUTH_URL` / `API_URL`, secrets, and an OpenRouter (or other Pi) deployment key if you want to skip per-user model keys.
 8. Put the web app behind the same origin as `/api` and `/rpc` (Vite preview proxy, or a reverse proxy). Docker noVNC connections use short-lived signed `/novnc/*` capabilities; do not replace that route with an unrestricted port proxy.
 9. Deploy `apps/www` to your public website and point `app.example.com` (or similar) at the product origin.
-10. Turn on `SIGNUP_ALLOWLIST` until you want open registration. There is no Rakazo-managed model billing in version 1. Users bring keys.
+10. Turn on `SIGNUP_ALLOWLIST` until you want open registration. Self-hosted AIMEE users bring their own model keys; BrandWell-managed workspaces use centrally provisioned keys and budgets.
 
-Expo / desktop installers are clients of that origin (`EXPO_PUBLIC_API_URL`, `RAKAZO_WEB_URL`). They are not a Cloud control plane.
+Expo store builds are clients of `EXPO_PUBLIC_API_URL`. Installed BrandWell desktop builds are
+pinned to `https://ai.brandwell.ai`; `RAKAZO_WEB_URL` is available only in the explicit desktop
+support mode described above. These clients are not a Cloud control plane.
 
 The iOS and Android app can also point at a self-hosted origin at runtime. On the sign-in screen, tap **Use a custom server** and enter the same HTTPS origin as `WEB_ORIGIN` (for example `https://app.example.com`). Store builds still default to `EXPO_PUBLIC_API_URL`; the in-app setting is an override for people running their own API. Changing the server signs the device out of any previous session.

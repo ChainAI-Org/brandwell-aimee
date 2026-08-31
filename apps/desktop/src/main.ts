@@ -19,6 +19,7 @@ import {
 import {
   DEFAULT_LOCAL_WEB_URL,
   isAimeeHealth,
+  MANAGED_WEB_URL,
   normalizeServerUrl,
   parseSetupInput,
   probeFailureMessage,
@@ -33,6 +34,8 @@ import { browserWindowOptions, setupWindowOptions, warmWindowTtlMs } from "./win
 app.setName("BrandWell's AIMEE");
 
 const PERFORMANCE_USER_DATA = process.env.RAKAZO_PERFORMANCE_USER_DATA;
+const SERVER_CHOOSER_ENABLED =
+  !app.isPackaged || process.env.BRANDWELL_AIMEE_SUPPORT_SERVER_CHOOSER === "1";
 const PROBE_TIMEOUT_MS = 8_000;
 const PROBE_RESPONSE_LIMIT_BYTES = 64 * 1024;
 let mainWindow: BrowserWindow | null = null;
@@ -53,6 +56,7 @@ const updaterEnvironment = {
   packaged: app.isPackaged,
   version: app.getVersion(),
   disabled: process.env.RAKAZO_DISABLE_AUTO_UPDATE === "1",
+  platform: process.platform,
 };
 const desktopUpdater = new DesktopUpdateController(updaterEnvironment, async () => {
   const module = await import("electron-updater");
@@ -580,6 +584,9 @@ function installApplicationMenu() {
     accelerator: "CmdOrCtrl+Shift+K",
     click: () => showSetupWindow(),
   };
+  const supportItems: Electron.MenuItemConstructorOptions[] = SERVER_CHOOSER_ENABLED
+    ? [changeServer, { type: "separator" }]
+    : [];
   const template: Electron.MenuItemConstructorOptions[] =
     process.platform === "darwin"
       ? [
@@ -588,8 +595,7 @@ function installApplicationMenu() {
             submenu: [
               { role: "about" },
               { type: "separator" },
-              changeServer,
-              { type: "separator" },
+              ...supportItems,
               { role: "hide" },
               { role: "hideOthers" },
               { role: "unhide" },
@@ -603,7 +609,7 @@ function installApplicationMenu() {
       : [
           {
             label: "File",
-            submenu: [changeServer, { type: "separator" }, { role: "quit" }],
+            submenu: [...supportItems, { role: "quit" }],
           },
           { role: "editMenu" },
           { role: "windowMenu" },
@@ -773,7 +779,7 @@ function abandonPendingAppSwitch(
     currentSetup = previousSetup;
     currentTargetUrl = previousUrl;
     // If setup was already closed (e.g. during a slow write), make the restored
-    // session visible — otherwise macOS can be left with no shown window.
+    // session visible. Otherwise macOS can be left with no shown window.
     if (setupWindow === null || setupWindow.isDestroyed()) {
       clearTimeout(warmWindowTimer);
       previous.show();
@@ -852,9 +858,11 @@ app.whenReady().then(async () => {
   const userDataDir = app.getPath("userData");
   currentSetup = await readSetup(userDataDir);
   const target = resolveStartupTarget({
-    envUrl: process.env.RAKAZO_WEB_URL,
-    saved: currentSetup,
-    forceSetup: process.env.RAKAZO_FORCE_SETUP === "1",
+    envUrl: SERVER_CHOOSER_ENABLED ? process.env.RAKAZO_WEB_URL : undefined,
+    saved: SERVER_CHOOSER_ENABLED ? currentSetup : null,
+    forceSetup: SERVER_CHOOSER_ENABLED && process.env.RAKAZO_FORCE_SETUP === "1",
+    managedUrl: MANAGED_WEB_URL,
+    serverChooserEnabled: SERVER_CHOOSER_ENABLED,
   });
   if (process.env.RAKAZO_PERFORMANCE_CLEAR_CACHE === "1") {
     const cacheSessions = new Set<Session>([session.defaultSession]);
@@ -918,6 +926,8 @@ app.whenReady().then(async () => {
     return {
       defaultLocalUrl: DEFAULT_LOCAL_WEB_URL,
       saved: currentSetup,
+      serverChooserEnabled: SERVER_CHOOSER_ENABLED,
+      managedServerUrl: SERVER_CHOOSER_ENABLED ? undefined : MANAGED_WEB_URL,
       error: setupError ?? undefined,
     };
   });
@@ -977,7 +987,7 @@ app.whenReady().then(async () => {
           return { ok: false, error: message };
         }
         destroySetupWindow();
-        // Final check after setup closes — a crash in this gap still rolls back.
+        // Final check after setup closes. A crash in this gap still rolls back.
         if (rendererWatch?.crashed()) {
           const message = await recoverFromCrashedSave(userDataDir, previousSetup, previousUrl);
           return { ok: false, error: message };

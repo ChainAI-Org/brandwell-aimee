@@ -217,7 +217,7 @@ export function renderPlaywrightDashboard(history: PlaywrightRun[]): string {
       <div class="actions">
         <a class="button" href="#" id="latest-screenshots">Latest screenshots</a>
         <a class="button" href="#" id="latest-report">Latest report</a>
-        <a class="button" href="https://github.com/elie222/rakazo/actions">GitHub Actions</a>
+        <a class="button" href="https://github.com/ChainAI-Org/brandwell-aimee/actions">GitHub Actions</a>
       </div>
     </header>
 
@@ -261,8 +261,8 @@ export function renderPlaywrightDashboard(history: PlaywrightRun[]): string {
     const recentPassing = recent.filter((run) => run.result === "success").length;
     const cards = [
       ["Latest result", latest?.result ?? "No runs"],
-      ["Latest screenshots", latest ? String(latest.screenshotCount) : "—"],
-      ["Recent pass rate", recent.length ? Math.round((recentPassing / recent.length) * 100) + "%" : "—"],
+        ["Latest screenshots", latest ? String(latest.screenshotCount) : "-"],
+        ["Recent pass rate", recent.length ? Math.round((recentPassing / recent.length) * 100) + "%" : "-"],
       ["Stored runs", String(history.length)],
     ];
 

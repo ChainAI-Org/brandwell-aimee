@@ -2,7 +2,7 @@
 
 @source "./**/*.{ts,tsx}";
 
-@keyframes rakazo-avatar-spin {
+@keyframes aimee-avatar-spin {
   0% {
     transform: rotate(0deg);
   }
@@ -11,24 +11,24 @@
   }
 }
 
-.rakazo-bot-avatar-ring {
-  animation: rakazo-avatar-spin 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+.aimee-bot-avatar-ring {
+  animation: aimee-avatar-spin 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
-.rakazo-bot-avatar-eyes {
-  animation: var(--rakazo-eye-animation-name) var(--rakazo-eye-animation-duration)
-    var(--rakazo-eye-animation-easing) var(--rakazo-eye-animation-delay) infinite;
+.aimee-bot-avatar-eyes {
+  animation: var(--aimee-eye-animation-name) var(--aimee-eye-animation-duration)
+    var(--aimee-eye-animation-easing) var(--aimee-eye-animation-delay) infinite;
 }
 
-.rakazo-organic-avatar-body {
+.aimee-organic-avatar-body {
   transform-origin: center;
 }
 
-.rakazo-organic-avatar[data-working="true"] .rakazo-organic-avatar-eyes {
-  animation: rakazo-organic-eyes 1.35s ease-in-out infinite;
+.aimee-organic-avatar[data-working="true"] .aimee-organic-avatar-eyes {
+  animation: aimee-organic-eyes 1.35s ease-in-out infinite;
 }
 
-@keyframes rakazo-organic-eyes {
+@keyframes aimee-organic-eyes {
   0%,
   100% {
     transform: translateX(-6%);
@@ -38,7 +38,7 @@
   }
 }
 
-@keyframes rakazo-eyes-idle-0 {
+@keyframes aimee-eyes-idle-0 {
   0%,
   32%,
   100% {
@@ -66,7 +66,7 @@
   }
 }
 
-@keyframes rakazo-eyes-idle-1 {
+@keyframes aimee-eyes-idle-1 {
   0%,
   25%,
   100% {
@@ -94,7 +94,7 @@
   }
 }
 
-@keyframes rakazo-eyes-idle-2 {
+@keyframes aimee-eyes-idle-2 {
   0%,
   28%,
   100% {
@@ -122,7 +122,7 @@
   }
 }
 
-@keyframes rakazo-eyes-idle-3 {
+@keyframes aimee-eyes-idle-3 {
   0%,
   24%,
   100% {
@@ -150,7 +150,7 @@
   }
 }
 
-@keyframes rakazo-eyes-working {
+@keyframes aimee-eyes-working {
   0% {
     transform: translate(-4px, 0) scale(0.92, 0.95);
   }
@@ -169,20 +169,20 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rakazo-bot-avatar-ring,
-  .rakazo-bot-avatar-eyes {
+  .aimee-bot-avatar-ring,
+  .aimee-bot-avatar-eyes {
     animation: none;
   }
 
-  .rakazo-organic-avatar-body animate {
+  .aimee-organic-avatar-body animate {
     display: none;
   }
 
-  .rakazo-organic-avatar[data-working="true"] .rakazo-organic-avatar-eyes {
+  .aimee-organic-avatar[data-working="true"] .aimee-organic-avatar-eyes {
     animation: none;
   }
 
-  .rakazo-bot-avatar-visor {
+  .aimee-bot-avatar-visor {
     transition: none;
   }
 }

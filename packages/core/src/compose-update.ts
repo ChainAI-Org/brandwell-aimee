@@ -7,13 +7,13 @@ import {
 
 /**
  * The GitHub repository whose CI fills the image namespace. `publish-server-image.yml` pushes to
- * `ghcr.io/${{ github.repository }}`, so the namespace always belongs to whichever repository ran
- * the workflow. Naming a different owner here points the deployment at packages nobody publishes.
+ * this explicit package path and refuses to publish from any other repository. Naming a different
+ * owner here points the deployment at packages nobody publishes.
  *
  * `OFFICIAL_REPO_URL` names the same repository, so the source commit selected from a release is
  * guaranteed to have been eligible for this repository's publishing workflow.
  */
-export const PUBLISHED_IMAGE_REPO = "elie222/rakazo";
+export const PUBLISHED_IMAGE_REPO = "chainai-org/brandwell-aimee";
 
 /** The published server image. One image runs api, worker, and web. */
 export const OFFICIAL_SERVER_IMAGE = `ghcr.io/${PUBLISHED_IMAGE_REPO}/app`;
@@ -397,7 +397,7 @@ export interface TrackedDirtyDecision {
  * Porcelain lists every tracked path git considers dirty, including CRLF-only noise when a Windows
  * `core.autocrlf=true` checkout is bind-mounted into Linux. `contentChanged` is the same comparison
  * after `--ignore-cr-at-eol`. Porcelain-only paths are dropped; a path that still has a content
- * diff stays dirty. If the content diffs could not be read, porcelain is the last word — the guard
+ * diff stays dirty. If the content diffs could not be read, porcelain is the last word. The guard
  * is not weakened for a failed filter.
  */
 export function resolveTrackedDirtyPaths(input: {

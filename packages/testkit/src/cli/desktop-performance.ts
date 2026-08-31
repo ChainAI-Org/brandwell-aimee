@@ -171,6 +171,7 @@ function performanceEnvironment(databaseUrl: string): NodeJS.ProcessEnv {
     API_PROXY_TARGET: apiOrigin,
     WEB_PORT: String(webPort),
     RAKAZO_HOST: "127.0.0.1",
+    BRANDWELL_AIMEE_SUPPORT_SERVER_CHOOSER: "1",
     RAKAZO_WEB_URL: webOrigin,
     RAKAZO_DISABLE_BUNDLED_RENDERER: remoteRenderer ? "1" : "0",
     RAKAZO_DISABLE_WARM_WINDOW: disableWarmWindow ? "1" : "0",

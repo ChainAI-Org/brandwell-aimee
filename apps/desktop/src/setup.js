@@ -10,6 +10,12 @@
   const checkButton = document.getElementById("check");
   const continueButton = document.getElementById("continue");
   const quitButton = document.getElementById("quit");
+  const heading = document.getElementById("setup-heading");
+  const subheading = document.getElementById("setup-subheading");
+  const choices = document.getElementById("server-choices");
+  const supportFootnote = document.getElementById("support-footnote");
+  let serverChooserEnabled = true;
+  let managedServerUrl = "";
 
   function selectedMode() {
     const checked = form.querySelector('input[name="mode"]:checked');
@@ -17,6 +23,7 @@
   }
 
   function activeField() {
+    if (!serverChooserEnabled) return serverUrl;
     return selectedMode() === "new" ? localUrl : serverUrl;
   }
 
@@ -32,6 +39,14 @@
   }
 
   function syncPanels() {
+    if (!serverChooserEnabled) {
+      choices.hidden = true;
+      panelNew.hidden = true;
+      panelExisting.hidden = true;
+      checkButton.hidden = true;
+      supportFootnote.hidden = true;
+      return;
+    }
     const mode = selectedMode();
     panelNew.hidden = mode !== "new";
     panelExisting.hidden = mode === "new";
@@ -82,8 +97,8 @@
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const mode = selectedMode();
-    const value = activeField().value;
+    const mode = serverChooserEnabled ? selectedMode() : "existing";
+    const value = serverChooserEnabled ? activeField().value : managedServerUrl;
 
     setBusy(true);
     setStatus("Connecting…");
@@ -107,8 +122,16 @@
     try {
       const state = await bridge.state();
       if (state === null) throw new Error("Setup is not active");
+      serverChooserEnabled = state.serverChooserEnabled !== false;
+      managedServerUrl = state.managedServerUrl ?? "";
+      if (!serverChooserEnabled) {
+        heading.textContent = "BrandWell's AIMEE";
+        subheading.textContent = "Connect to your managed BrandWell workspace.";
+        continueButton.textContent = "Retry";
+        serverUrl.value = managedServerUrl;
+      }
       localUrl.value = state.defaultLocalUrl;
-      if (state.saved !== null) {
+      if (serverChooserEnabled && state.saved !== null) {
         const modeInput = document.querySelector(`input[name="mode"][value="${state.saved.mode}"]`);
         if (modeInput !== null) modeInput.checked = true;
         if (state.saved.mode === "existing") serverUrl.value = state.saved.serverUrl;
@@ -116,7 +139,8 @@
       }
       syncPanels();
       if (state.error) setStatus(state.error, "error");
-      activeField().focus();
+      if (serverChooserEnabled) activeField().focus();
+      else continueButton.focus();
     } catch {
       setStatus("Setup could not start. Quit BrandWell's AIMEE and try again.", "error");
       setBusy(true);

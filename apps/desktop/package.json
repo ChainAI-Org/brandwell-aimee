@@ -50,6 +50,13 @@
     "extraMetadata": {
       "main": "dist/main.js"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ChainAI-Org",
+        "repo": "brandwell-aimee"
+      }
+    ],
     "mac": {
       "icon": "assets/icon.icns",
       "category": "public.app-category.productivity",

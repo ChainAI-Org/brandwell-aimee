@@ -60,6 +60,10 @@ describe("updaterSupport", () => {
     expect(updaterSupport(packaged).supported).toBe(true);
     expect(updaterSupport({ packaged: false, version: "0.1.0" }).supported).toBe(false);
     expect(updaterSupport({ ...packaged, disabled: true }).supported).toBe(false);
+    expect(updaterSupport({ ...packaged, platform: "linux" })).toMatchObject({
+      supported: false,
+      reason: expect.stringContaining("not available on Linux"),
+    });
   });
 
   it("starts unsupported builds in a state that explains itself", () => {
@@ -210,7 +214,10 @@ describe("reduceUpdateState", () => {
 
   it("says nothing about being offline unless the user asked", () => {
     const offline = new Error("getaddrinfo ENOTFOUND github.com");
-    expect(apply([{ type: "failed", error: offline, userInitiated: false }]).message).toBeNull();
+    expect(apply([{ type: "failed", error: offline, userInitiated: false }])).toMatchObject({
+      message: null,
+      checkedAt: null,
+    });
     expect(apply([{ type: "failed", error: offline, userInitiated: true }]).message).toContain(
       "Could not reach",
     );
@@ -293,7 +300,7 @@ describe("DesktopUpdateController", () => {
     await first;
   });
 
-  it("automatically downloads one verified stable update and tracks progress", async () => {
+  it("waits for an explicit download and then tracks progress", async () => {
     let fake: ReturnType<typeof fakeUpdater>;
     fake = fakeUpdater({
       checkForUpdates: vi.fn(async () => {
@@ -308,7 +315,9 @@ describe("DesktopUpdateController", () => {
     const controller = new DesktopUpdateController(packaged, async () => fake.updater, clock);
 
     await controller.check(false);
-    await vi.waitFor(() => expect(fake.updater.downloadUpdate).toHaveBeenCalledTimes(1));
+    expect(controller.state()).toMatchObject({ phase: "available", availableVersion: "0.2.0" });
+    expect(fake.updater.downloadUpdate).not.toHaveBeenCalled();
+    await controller.download();
     await vi.waitFor(() => expect(controller.state().phase).toBe("ready"));
     expect(controller.state()).toMatchObject({
       availableVersion: "0.2.0",
@@ -316,7 +325,7 @@ describe("DesktopUpdateController", () => {
     });
   });
 
-  it("joins manual downloads to the automatic download already in flight", async () => {
+  it("joins concurrent manual downloads", async () => {
     const download = deferred();
     let fake: ReturnType<typeof fakeUpdater>;
     fake = fakeUpdater({
@@ -332,9 +341,45 @@ describe("DesktopUpdateController", () => {
     const first = controller.download();
     const second = controller.download();
     expect(second).toBe(first);
-    expect(fake.updater.downloadUpdate).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(fake.updater.downloadUpdate).toHaveBeenCalledTimes(1));
     download.resolve();
     await first;
+  });
+
+  it("reports an offline failure from an explicit download", async () => {
+    let fake: ReturnType<typeof fakeUpdater>;
+    fake = fakeUpdater({
+      checkForUpdates: vi.fn(async () => {
+        fake.emit("checking-for-update");
+        fake.emit("update-available", { version: "0.2.0" });
+      }),
+      downloadUpdate: vi.fn(async () => {
+        fake.emit("error", new Error("getaddrinfo ENOTFOUND github.com"));
+      }),
+    });
+    const controller = new DesktopUpdateController(packaged, async () => fake.updater, clock);
+
+    await controller.check(false);
+    expect(await controller.download()).toMatchObject({
+      phase: "idle",
+      message: "Could not reach the update server.",
+    });
+  });
+
+  it("does not let an out-of-phase download mark a background check as manual", async () => {
+    let fake: ReturnType<typeof fakeUpdater>;
+    fake = fakeUpdater({
+      checkForUpdates: vi.fn(async () => {
+        fake.emit("checking-for-update");
+        fake.emit("error", new Error("getaddrinfo ENOTFOUND github.com"));
+      }),
+    });
+    const controller = new DesktopUpdateController(packaged, async () => fake.updater, clock);
+
+    await controller.download();
+    await controller.check(false);
+
+    expect(controller.state()).toMatchObject({ phase: "idle", message: null, checkedAt: null });
   });
 
   it("does not treat later background failures as user-requested", async () => {
@@ -359,7 +404,7 @@ describe("DesktopUpdateController", () => {
     now += MIN_CHECK_INTERVAL_MS;
     await controller.check(false);
 
-    expect(controller.state()).toMatchObject({ phase: "idle", message: null });
+    expect(controller.state()).toMatchObject({ phase: "idle", message: null, checkedAt: null });
   });
 
   it("runs installation at most once", async () => {
@@ -375,6 +420,7 @@ describe("DesktopUpdateController", () => {
     });
     const controller = new DesktopUpdateController(packaged, async () => fake.updater, clock);
     await controller.check(false);
+    await controller.download();
     await vi.waitFor(() => expect(controller.state().phase).toBe("ready"));
 
     await Promise.all([controller.install(), controller.install()]);
@@ -397,6 +443,7 @@ describe("DesktopUpdateController", () => {
     });
     const controller = new DesktopUpdateController(packaged, async () => fake.updater, clock);
     await controller.check(false);
+    await controller.download();
     await vi.waitFor(() => expect(controller.state().phase).toBe("ready"));
 
     const state = await controller.install();

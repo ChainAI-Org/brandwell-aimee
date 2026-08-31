@@ -18,11 +18,11 @@
     </header>
 
     <main class="shell">
-      <h1 class="heading">Welcome to BrandWell's AIMEE</h1>
-      <p class="subheading">Choose which server this app should use.</p>
+      <h1 id="setup-heading" class="heading">Welcome to BrandWell's AIMEE</h1>
+      <p id="setup-subheading" class="subheading">Choose which server this app should use.</p>
 
       <form id="setup" class="card" novalidate>
-        <fieldset class="choices">
+        <fieldset id="server-choices" class="choices">
           <legend class="sr-only">Instance</legend>
 
           <label class="choice" for="mode-new">
@@ -69,7 +69,9 @@
         </div>
       </form>
 
-      <p class="footnote">Change later from the AIMEE menu (⌘/Ctrl+Shift+K).</p>
+      <p id="support-footnote" class="footnote">
+        Change later from the AIMEE menu (⌘/Ctrl+Shift+K).
+      </p>
     </main>
 
     <script src="setup.js"></script>

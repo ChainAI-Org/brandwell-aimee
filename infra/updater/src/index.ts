@@ -29,7 +29,7 @@ import {
   repoIdentity,
   resolveTrackedDirtyPaths,
   rollbackTarget,
-  selectLatestRelease,
+  selectLatestReleaseTag,
   upsertEnvAssignments,
   validateUpdateRequest,
 } from "@rakazo/core";
@@ -143,10 +143,11 @@ const runCommand: UpdaterCommandRunner = (
 
 export function createUpdaterApp(
   config: UpdaterConfig,
-  options: { run?: UpdaterCommandRunner } = {},
+  options: { run?: UpdaterCommandRunner; fetch?: typeof globalThis.fetch } = {},
 ) {
   const app = new Hono();
   const run = options.run ?? runCommand;
+  const fetchRelease = options.fetch ?? globalThis.fetch;
   const composeTarget = {
     composeFile: config.composeFile,
     envFiles: [config.envFile],
@@ -219,10 +220,11 @@ export function createUpdaterApp(
           checkout,
         };
       })();
-      planInFlight = work.finally(() => {
+      const tracked = work.finally(() => {
         planInFlight = null;
       });
-      return c.json(await work);
+      planInFlight = tracked;
+      return c.json(await tracked);
     } catch (error) {
       return refusal(c, error);
     }
@@ -382,26 +384,91 @@ export function createUpdaterApp(
     };
   }
 
-  /** `ls-remote` reads the tag list without cloning, so it works for the pull path with no checkout. */
+  /** Published GitHub Releases are the trust channel. Raw tags never become deployable releases. */
   async function resolveRelease(repoUrl: string) {
-    const listed = await run("git", ["ls-remote", "--tags", "--", repoUrl], {
-      cwd: config.deployDir,
-      timeoutMs: STEP_TIMEOUT_MS.fetch ?? DEFAULT_TIMEOUT_MS,
-    });
+    const releaseResponse = await requestGitHub(
+      "https://api.github.com/repos/ChainAI-Org/brandwell-aimee/releases/latest",
+      "latest published release",
+    );
+    const releaseTag =
+      typeof releaseResponse === "object" &&
+      releaseResponse !== null &&
+      "tag_name" in releaseResponse &&
+      typeof releaseResponse.tag_name === "string"
+        ? selectLatestReleaseTag([releaseResponse.tag_name])
+        : null;
+    const published =
+      typeof releaseResponse === "object" &&
+      releaseResponse !== null &&
+      "draft" in releaseResponse &&
+      releaseResponse.draft === false &&
+      "prerelease" in releaseResponse &&
+      releaseResponse.prerelease === false;
+    if (!published || releaseTag === null) {
+      throw new UpdateRefused("The official repository has no trusted stable release.");
+    }
+
+    const listed = await run(
+      "git",
+      [
+        "ls-remote",
+        "--tags",
+        "--",
+        repoUrl,
+        `refs/tags/${releaseTag}`,
+        `refs/tags/${releaseTag}^{}`,
+      ],
+      {
+        cwd: config.deployDir,
+        timeoutMs: STEP_TIMEOUT_MS.fetch ?? DEFAULT_TIMEOUT_MS,
+      },
+    );
     if (!listed.ok) {
       throw new UpdateRefused(`Could not read releases from ${repoUrl}: ${listed.output}`);
     }
-    const release = selectLatestRelease(parseLsRemoteReleases(listed.output));
-    if (release === null) {
+    const release = parseLsRemoteReleases(listed.output).find(({ tag }) => tag === releaseTag);
+    if (release === undefined) {
       throw new UpdateRefused(
-        `${repoUrl} has no published release tags, so there is no image to pull.`,
+        `${repoUrl} does not have the tag named by its latest published release.`,
       );
+    }
+    const ancestry = await requestGitHub(
+      `https://api.github.com/repos/ChainAI-Org/brandwell-aimee/compare/${release.commit}...main`,
+      "release ancestry",
+    );
+    const status =
+      typeof ancestry === "object" && ancestry !== null && "status" in ancestry
+        ? ancestry.status
+        : null;
+    if (status !== "ahead" && status !== "identical") {
+      throw new UpdateRefused("The latest published release is not on the protected main branch.");
     }
     return {
       releaseTag: release.tag,
       commit: release.commit,
       imageTag: commitImageTag(release.commit),
     };
+  }
+
+  async function requestGitHub(url: string, label: string): Promise<unknown> {
+    let response: Response;
+    try {
+      response = await fetchRelease(url, {
+        headers: {
+          Accept: "application/vnd.github+json",
+          "User-Agent": "brandwell-aimee-updater",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      });
+    } catch {
+      throw new UpdateRefused(`Could not read the ${label} from GitHub.`);
+    }
+    if (!response.ok) throw new UpdateRefused(`Could not read the ${label} from GitHub.`);
+    try {
+      return await response.json();
+    } catch {
+      throw new UpdateRefused(`GitHub returned an invalid ${label}.`);
+    }
   }
 
   /** The branch head on the remote, read without fetching, so a plan does not mutate the checkout. */

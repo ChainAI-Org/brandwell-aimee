@@ -3,6 +3,7 @@ import {
   ABOUT_MARKDOWN,
   AGENT_INSTRUCTIONS,
   HOME_MARKDOWN,
+  PRIVACY_MARKDOWN,
   getMarkdownAlternate,
   getMarkdownDocument,
   markdownResponse,
@@ -33,8 +34,8 @@ describe("agent content negotiation", () => {
   });
 
   it("maps canonical and trailing-slash page paths to Markdown documents", () => {
-    expect(getMarkdownDocument("/")).toContain("# Rakazo");
-    expect(getMarkdownDocument("/about/")).toContain("# About Rakazo");
+    expect(getMarkdownDocument("/")).toContain("# BrandWell's AIMEE");
+    expect(getMarkdownDocument("/about/")).toContain("# About BrandWell's AIMEE");
     expect(getMarkdownAlternate("/")).toBe("/index.md");
     expect(getMarkdownAlternate("/support/")).toBe("/support.md");
     expect(getMarkdownDocument("/missing")).toBeUndefined();
@@ -43,16 +44,27 @@ describe("agent content negotiation", () => {
   });
 
   it("publishes specific when-to-use instructions for agents", () => {
-    expect(HOME_MARKDOWN).toContain("open source Grok Bot alternative");
-    expect(ABOUT_MARKDOWN).toContain("open source Grok Bot alternative");
-    expect(AGENT_INSTRUCTIONS).toContain("open source Grok Bot alternative");
-    expect(AGENT_INSTRUCTIONS).toContain("## When to use Rakazo");
-    expect(AGENT_INSTRUCTIONS).toContain("## How an agent should use Rakazo");
-    expect(AGENT_INSTRUCTIONS).toContain("Self-hosting is available now");
+    expect(HOME_MARKDOWN).toContain("Done-for-you AI employees");
+    expect(ABOUT_MARKDOWN).toContain("persistent AI employees");
+    expect(AGENT_INSTRUCTIONS).toContain("Done-for-you AI employees");
+    expect(AGENT_INSTRUCTIONS).toContain("## When to use AIMEE");
+    expect(AGENT_INSTRUCTIONS).toContain("## How an agent should use AIMEE");
+    expect(AGENT_INSTRUCTIONS).toContain("Self-hosting is also available");
+  });
+
+  it("defers privacy claims to BrandWell's governing policy", () => {
+    expect(PRIVACY_MARKDOWN).toContain("https://brandwell.ai/privacy-policy/");
+    expect(PRIVACY_MARKDOWN).not.toContain("does not sell personal information");
+  });
+
+  it("keeps AIMEE product links on the dedicated canonical", () => {
+    expect(HOME_MARKDOWN).toContain("https://aimee.brandwell.ai/llms.txt");
+    expect(HOME_MARKDOWN).toContain("https://brandwell.ai/privacy-policy/");
+    expect(HOME_MARKDOWN).not.toContain("https://brandwell.ai/privacy/");
   });
 
   it("returns cache-safe Markdown responses and omits bodies for HEAD", async () => {
-    const response = markdownResponse("# Rakazo\n");
+    const response = markdownResponse("# BrandWell's AIMEE\n");
     expect(response.headers.get("content-type")).toBe(
       "text/markdown; charset=utf-8",
     );
@@ -60,9 +72,9 @@ describe("agent content negotiation", () => {
       '</llms.txt>; rel="describedby"; type="text/plain"',
     );
     expect(response.headers.get("vary")).toBe("Accept, Accept-Encoding");
-    await expect(response.text()).resolves.toBe("# Rakazo\n");
+    await expect(response.text()).resolves.toBe("# BrandWell's AIMEE\n");
 
-    const headResponse = markdownResponse("# Rakazo\n", "HEAD", 404);
+    const headResponse = markdownResponse("# BrandWell's AIMEE\n", "HEAD", 404);
     expect(headResponse.status).toBe(404);
     await expect(headResponse.text()).resolves.toBe("");
   });

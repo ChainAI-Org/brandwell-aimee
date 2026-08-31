@@ -27,7 +27,7 @@ describe("BotAvatar", () => {
     (status) => {
       const html = renderToString(<BotAvatar color="#3B82F6" status={status} />);
       expect(html).toContain("<svg");
-      expect(html).toContain("rakazo-bot-avatar-ring");
+      expect(html).toContain("aimee-bot-avatar-ring");
     },
   );
 
@@ -41,10 +41,10 @@ describe("BotAvatar", () => {
       <BotAvatar color="#D9508A" identity="maya" size={28} status="running" variant="organic" />,
     );
 
-    expect(html).toContain("rakazo-organic-avatar");
+    expect(html).toContain("aimee-organic-avatar");
     expect(html).toContain('data-working="true"');
     expect(html).toContain("<animate");
-    expect(html).not.toContain("rakazo-bot-avatar-visor");
+    expect(html).not.toContain("aimee-bot-avatar-visor");
   });
 
   it("generates distinct organic silhouettes for distinct bot identities", () => {
@@ -63,6 +63,6 @@ describe("BotAvatar", () => {
       </AvatarStyleProvider>,
     );
 
-    expect(html).toContain("rakazo-organic-avatar");
+    expect(html).toContain("aimee-organic-avatar");
   });
 });

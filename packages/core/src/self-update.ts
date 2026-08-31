@@ -1,5 +1,5 @@
 /** The repository a stock AIMEE deployment tracks. */
-export const OFFICIAL_REPO_URL = "https://github.com/elie222/rakazo";
+export const OFFICIAL_REPO_URL = "https://github.com/ChainAI-Org/brandwell-aimee";
 export const DEFAULT_UPDATE_BRANCH = "main";
 export const DEFAULT_UPDATE_REMOTE = "origin";
 
@@ -80,7 +80,7 @@ function normalizeRepoPath(raw: string): string | null {
   return segments.join("/");
 }
 
-/** `github.com/elie222/rakazo` for every spelling of the same remote, for comparison only. */
+/** A normalized official repository identity used only for comparison. */
 export function repoIdentity(url: string): string | null {
   const normalized = normalizeRepoUrl(url);
   if ("error" in normalized) return null;
