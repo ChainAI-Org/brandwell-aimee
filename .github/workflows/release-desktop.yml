@@ -92,6 +92,8 @@ jobs:
     name: Build ${{ matrix.artifact }} release artifacts
     needs: validate
     runs-on: ${{ matrix.os }}
+    environment:
+      name: brandwell-desktop-release
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -253,6 +255,8 @@ jobs:
     name: Attest and publish complete release
     needs: [validate, build]
     runs-on: ubuntu-24.04
+    environment:
+      name: brandwell-desktop-release
     # Tagged server builds may use the full 180-minute build allowance plus
     # manifest signing. Keep the desktop publisher alive long enough to verify
     # that signed manifest instead of failing a valid slow multi-arch release.
@@ -325,6 +329,27 @@ jobs:
             (.images.app.digest | test("^sha256:[0-9a-f]{64}$")) and
             (.images.updater.digest | test("^sha256:[0-9a-f]{64}$"))
           ' "$manifest" >/dev/null
+      - name: Verify the exact production AIMEE revision is ready
+        env:
+          RELEASE_SHA: ${{ needs.validate.outputs.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          readiness="$(mktemp)"
+          trap 'rm -f "$readiness"' EXIT
+          status="$(curl --fail-with-body --silent --show-error \
+            --output "$readiness" --write-out '%{http_code}' \
+            --connect-timeout 10 --max-time 30 \
+            --retry 6 --retry-delay 10 --retry-all-errors --retry-max-time 240 \
+            --proto '=https' --tlsv1.2 \
+            https://ai.brandwell.ai/ready)"
+          if [[ ! "$status" =~ ^2[0-9]{2}$ ]]; then
+            echo "BrandWell production readiness returned HTTP $status." >&2
+            exit 1
+          fi
+          jq -e --arg sha "$RELEASE_SHA" \
+            '.ok == true and .service == "aimee" and .revision == $sha' \
+            "$readiness" >/dev/null
       - name: Verify the complete stable update feed
         env:
           RELEASE_SHA: ${{ needs.validate.outputs.sha }}
