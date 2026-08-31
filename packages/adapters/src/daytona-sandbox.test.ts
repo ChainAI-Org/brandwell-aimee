@@ -1,6 +1,10 @@
 import type { Sandbox } from "@daytona/sdk";
 import { describe, expect, it, vi } from "vitest";
-import { DaytonaSandboxProvider, type DaytonaSandboxSdk } from "./daytona-sandbox.js";
+import {
+  DaytonaSandboxProvider,
+  type DaytonaSandboxSdk,
+  managedDesktopBrandingCommand,
+} from "./daytona-sandbox.js";
 
 const context = {
   operationId: "test",
@@ -94,6 +98,11 @@ describe("DaytonaSandboxProvider", () => {
       activeWindow: { id: "7", title: "Browser" },
     });
     expect(observation.image).toEqual(Uint8Array.from([1, 2, 3]));
+    expect(
+      fixture.executeCommand.mock.calls.some(([command]) =>
+        String(command).includes('custom-title" -s "AIMEE"'),
+      ),
+    ).toBe(true);
 
     const result = await provider.act(
       computer,
@@ -134,6 +143,14 @@ describe("DaytonaSandboxProvider", () => {
     await provider.stop(computer, context);
     expect(fixture.expireSignedPreviewUrl).toHaveBeenCalledWith(6080, "preview-token");
     expect(fixture.stop).toHaveBeenCalledWith(120);
+  });
+
+  it("replaces the provider account label with the managed AIMEE desktop identity", () => {
+    const command = managedDesktopBrandingCommand();
+    expect(command).toContain('usermod -c "AIMEE"');
+    expect(command).toContain('button-title" -s 3');
+    expect(command).toContain('custom-title" -s "AIMEE"');
+    expect(command).not.toContain('custom-title" -s "daytona"');
   });
 
   it("reconnects stopped sandboxes and replaces missing ones", async () => {

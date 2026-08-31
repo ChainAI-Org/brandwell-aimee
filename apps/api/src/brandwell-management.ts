@@ -539,6 +539,99 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     return c.json({ agents: agents.map(agentDto) });
   });
 
+  app.get("/internal/workspaces/:id/conversations", async (c) => {
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
+    const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
+    if (!mapping) return c.json({ error: "Workspace not found" }, 404);
+    const limit = boundedLimit(c.req.query("limit"));
+    const employees = await deps.prisma.bot.findMany({
+      where: {
+        workspaceId: mapping.rakazoWorkspaceId,
+        managedByBrandWell: true,
+        archivedAt: null,
+      },
+      select: { id: true, name: true, title: true },
+      orderBy: [{ pinned: "desc" }, { updatedAt: "desc" }],
+    });
+    const employeeById = new Map(employees.map((employee) => [employee.id, employee]));
+    const threads = employees.length
+      ? await deps.prisma.thread.findMany({
+          where: {
+            workspaceId: mapping.rakazoWorkspaceId,
+            botId: { in: employees.map((employee) => employee.id) },
+            archivedAt: null,
+          },
+          select: { id: true, botId: true, title: true, updatedAt: true },
+          orderBy: [{ updatedAt: "desc" }],
+          take: Math.min(limit, 25),
+        })
+      : [];
+    const recent = threads.length
+      ? await deps.prisma.message.findMany({
+          where: { threadId: { in: threads.map((thread) => thread.id) } },
+          select: {
+            id: true,
+            threadId: true,
+            seq: true,
+            role: true,
+            blocks: true,
+            runId: true,
+            createdAt: true,
+          },
+          orderBy: [{ createdAt: "desc" }, { seq: "desc" }],
+          take: limit,
+        })
+      : [];
+    const safeMessages = recent
+      .map((message) => ({ ...message, text: sanitizedConversationText(message.blocks) }))
+      .filter((message) => message.text);
+    const conversations = threads
+      .map((thread) => ({
+        id: thread.id,
+        title: thread.title,
+        updatedAt: thread.updatedAt,
+        employee: thread.botId ? (employeeById.get(thread.botId) ?? null) : null,
+        messages: safeMessages
+          .filter((message) => message.threadId === thread.id)
+          .sort((left, right) => left.seq - right.seq)
+          .map((message) => ({
+            id: message.id,
+            seq: message.seq,
+            role: conversationRole(message.role),
+            text: message.text,
+            runId: message.runId,
+            createdAt: message.createdAt,
+          })),
+      }))
+      .filter((conversation) => conversation.messages.length > 0);
+    const reason = String(c.req.query("reason") ?? "")
+      .trim()
+      .slice(0, 500);
+    await deps.prisma.brandwellAuditLog.create({
+      data: {
+        workspaceId: mapping.rakazoWorkspaceId,
+        actorType: "brandwell_operator",
+        action: "conversation.inspect",
+        resourceType: "brandwell_ai_workspace",
+        resourceId: mapping.id,
+        metadata: {
+          conversationCount: conversations.length,
+          messageCount: safeMessages.length,
+          limit,
+          ...(reason ? { reason } : {}),
+          ...operatorAuditMetadata(operator.value),
+        },
+      },
+    });
+    return c.json({
+      conversations,
+      messageCount: safeMessages.length,
+      limited: recent.length >= limit,
+      inspectedAt: new Date().toISOString(),
+    });
+  });
+
   app.get("/internal/workspaces/:id/computer", async (c) => {
     const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
     if (!mapping) return c.json({ error: "Workspace not found" }, 404);
@@ -1321,6 +1414,66 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     }
     return c.json(clientNotificationResponse(row, false));
   });
+}
+
+function conversationRole(role: string): "client" | "aimee" | "system" {
+  const normalized = role.trim().toLowerCase();
+  if (["user", "human", "client"].includes(normalized)) return "client";
+  if (["assistant", "bot", "aimee"].includes(normalized)) return "aimee";
+  return "system";
+}
+
+export function sanitizedConversationText(value: unknown): string {
+  if (!Array.isArray(value)) return "";
+  const text: string[] = [];
+  for (const candidate of value) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const block = candidate as Record<string, unknown>;
+    const kind = String(block.kind ?? "");
+    if (["text", "meta", "progress", "computer", "handoff"].includes(kind)) {
+      appendSafeConversationText(text, block.text);
+    } else if (kind === "ask") {
+      appendSafeConversationText(text, block.text);
+    } else if (kind === "choice") {
+      appendSafeConversationText(text, block.question);
+    } else if (kind === "bot_message_sent") {
+      appendSafeConversationText(text, block.text, `To ${String(block.toBotName ?? "teammate")}: `);
+    } else if (kind === "bot_message_received") {
+      appendSafeConversationText(
+        text,
+        block.text,
+        `From ${String(block.fromBotName ?? "teammate")}: `,
+      );
+    } else if (kind === "card" && Array.isArray(block.lines)) {
+      for (const line of block.lines) {
+        if (!line || typeof line !== "object") continue;
+        const item = line as Record<string, unknown>;
+        const key = compactConversationText(item.k, 120);
+        const detail = compactConversationText(item.v, 500);
+        if (key && detail) text.push(`${key}: ${detail}`);
+      }
+    } else if (kind === "subagent") {
+      appendSafeConversationText(text, block.progress);
+      appendSafeConversationText(text, block.result);
+    }
+  }
+  return text.join("\n").split(String.fromCharCode(0)).join("").trim().slice(0, 4_000);
+}
+
+function appendSafeConversationText(target: string[], value: unknown, prefix = ""): void {
+  const compact = compactConversationText(value, 4_000);
+  if (compact) target.push(`${prefix}${compact}`);
+}
+
+function compactConversationText(value: unknown, limit: number): string {
+  return typeof value === "string"
+    ? value
+        .split(String.fromCharCode(0))
+        .join("")
+        .replace(/[ \t]+/g, " ")
+        .trim()
+        .slice(0, limit)
+    : "";
 }
 
 async function findWorkspaceMapping(prisma: PrismaClient, id: string) {
