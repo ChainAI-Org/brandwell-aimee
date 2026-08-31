@@ -75,9 +75,9 @@ export function serializeSetup(setup: DesktopSetup): string {
 }
 
 /**
- * Decides between the app window and the support-only server chooser. Installed
- * managed builds stay pinned to the BrandWell origin. Development and an explicit
- * support override retain the local/custom server flow and compatibility env vars.
+ * Decides between the app window and the development-only server chooser. Installed
+ * managed builds stay pinned to the BrandWell origin. Unpackaged development retains
+ * the local/custom server flow and compatibility environment variables.
  */
 export function resolveStartupTarget(input: {
   envUrl?: string;

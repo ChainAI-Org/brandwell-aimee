@@ -77,8 +77,8 @@ try {
   preview = startPreview(benchmarkEnv);
   await waitForUrl(webOrigin);
 
-  const executablePath = await packagedExecutable();
-  const benchmark = { executablePath, env: benchmarkEnv };
+  const executablePath = desktopElectronExecutable();
+  const benchmark = { executablePath, args: [desktopRoot], env: benchmarkEnv };
   const primedProfile = path.join(temporaryRoot, "profile-primed");
   await prepareAuthenticatedProfile(benchmark, primedProfile);
   await seedBenchmarkThread(handles.prisma);
@@ -171,7 +171,6 @@ function performanceEnvironment(databaseUrl: string): NodeJS.ProcessEnv {
     API_PROXY_TARGET: apiOrigin,
     WEB_PORT: String(webPort),
     RAKAZO_HOST: "127.0.0.1",
-    BRANDWELL_AIMEE_SUPPORT_SERVER_CHOOSER: "1",
     RAKAZO_WEB_URL: webOrigin,
     RAKAZO_DISABLE_BUNDLED_RENDERER: remoteRenderer ? "1" : "0",
     RAKAZO_DISABLE_WARM_WINDOW: disableWarmWindow ? "1" : "0",
@@ -217,13 +216,7 @@ function startPreview(env: NodeJS.ProcessEnv) {
   );
 }
 
-async function packagedExecutable() {
-  const out = path.join(desktopRoot, "out");
-  const candidates =
-    process.platform === "darwin" ? await findNamed(out, "BrandWell's AIMEE.app") : [];
-  if (process.platform === "darwin" && candidates[0]) {
-    return path.join(candidates[0], "Contents/MacOS/BrandWell's AIMEE");
-  }
+function desktopElectronExecutable() {
   const desktopRequire = createRequire(path.join(desktopRoot, "package.json"));
   return desktopRequire("electron") as string;
 }
@@ -240,6 +233,7 @@ async function findNamed(directory: string, name: string): Promise<string[]> {
 
 interface BenchmarkContext {
   executablePath: string;
+  args: string[];
   env: NodeJS.ProcessEnv;
 }
 
@@ -354,6 +348,7 @@ async function launchDesktop(
   const launchClockMs = performance.now();
   const app = await electron.launch({
     executablePath: benchmark.executablePath,
+    args: benchmark.args,
     env: {
       ...benchmark.env,
       RAKAZO_PERFORMANCE_USER_DATA: profile,
@@ -746,7 +741,7 @@ function environmentFingerprint(versions: { electron?: string; chrome?: string }
     electron: versions.electron,
     chrome: versions.chrome,
     playwright: createRequire(import.meta.url)("@playwright/test/package.json").version,
-    buildMode: "production-vite-preview+electron-builder-dir",
+    buildMode: "production-vite-preview+unpackaged-electron",
     rendererMode: remoteRenderer ? "remote" : "bundled",
     warmWindow: disableWarmWindow ? "disabled" : "enabled",
     assetDelayMs,

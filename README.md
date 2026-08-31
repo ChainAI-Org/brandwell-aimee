@@ -84,10 +84,9 @@ pnpm --filter @brandwell/desktop dev
 ```
 
 Installed BrandWell desktop builds open `https://ai.brandwell.ai` directly. They do not expose a
-server chooser. Development builds retain the localhost and custom-server flow. BrandWell support
-can opt an installed build into that flow with `BRANDWELL_AIMEE_SUPPORT_SERVER_CHOOSER=1`; the
-legacy `RAKAZO_WEB_URL` and `RAKAZO_FORCE_SETUP` compatibility variables are honored only in that
-support mode or an unpackaged development build.
+server chooser, including through environment overrides. Unpackaged development builds retain the
+localhost and custom-server flow and honor the legacy `RAKAZO_WEB_URL` and `RAKAZO_FORCE_SETUP`
+compatibility variables.
 
 Mobile build and release instructions live in [docs/mobile-release.md](./docs/mobile-release.md).
 BrandWell operators should also use the dedicated [AIMEE deployment runbook](./docs/brandwell-deployment.md)

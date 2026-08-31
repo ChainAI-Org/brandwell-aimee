@@ -21,21 +21,24 @@ import {
   isAimeeHealth,
   MANAGED_WEB_URL,
   normalizeServerUrl,
-  parseSetupInput,
   probeFailureMessage,
   resolveStartupTarget,
   safeExternalUrl,
   servesBundledRenderer,
   sessionPartitionForServerUrl,
 } from "./setup-config.js";
+import {
+  isServerChooserEnabled,
+  parseSetupIpcPayload,
+  parseSetupProbeUrl,
+} from "./setup-policy.js";
 import { clearSetup, readSetup, writeSetup } from "./setup-store.js";
 import { browserWindowOptions, setupWindowOptions, warmWindowTtlMs } from "./window-options.js";
 
 app.setName("BrandWell's AIMEE");
 
 const PERFORMANCE_USER_DATA = process.env.RAKAZO_PERFORMANCE_USER_DATA;
-const SERVER_CHOOSER_ENABLED =
-  !app.isPackaged || process.env.BRANDWELL_AIMEE_SUPPORT_SERVER_CHOOSER === "1";
+const SERVER_CHOOSER_ENABLED = isServerChooserEnabled(app.isPackaged);
 const PROBE_TIMEOUT_MS = 8_000;
 const PROBE_RESPONSE_LIMIT_BYTES = 64 * 1024;
 let mainWindow: BrowserWindow | null = null;
@@ -856,6 +859,10 @@ function safeOrigin(targetUrl: string) {
 
 app.whenReady().then(async () => {
   const userDataDir = app.getPath("userData");
+  const setupPolicy = {
+    serverChooserEnabled: SERVER_CHOOSER_ENABLED,
+    managedServerUrl: MANAGED_WEB_URL,
+  };
   currentSetup = await readSetup(userDataDir);
   const target = resolveStartupTarget({
     envUrl: SERVER_CHOOSER_ENABLED ? process.env.RAKAZO_WEB_URL : undefined,
@@ -934,8 +941,16 @@ app.whenReady().then(async () => {
 
   ipcMain.handle("desktop.setup.test", async (event, url: unknown) => {
     if (!fromSetupWindow(event)) return { ok: false, error: "Setup is not active." };
-    if (typeof url !== "string") return { ok: false, error: "Enter a server address." };
-    return probeServer(url);
+    const serverUrl = parseSetupProbeUrl(url, setupPolicy);
+    if (serverUrl === null) {
+      return {
+        ok: false,
+        error: SERVER_CHOOSER_ENABLED
+          ? "Enter a valid server address."
+          : "Installed AIMEE builds can connect only to the managed BrandWell service.",
+      };
+    }
+    return probeServer(serverUrl);
   });
 
   ipcMain.handle("desktop.setup.save", async (event, payload: unknown) => {
@@ -946,12 +961,13 @@ app.whenReady().then(async () => {
     const previousSetup = currentSetup;
     const previousUrl = currentTargetUrl;
     try {
-      const setup = parseSetupInput(payload);
+      const setup = parseSetupIpcPayload(payload, setupPolicy);
       if (setup === null) {
         return {
           ok: false,
-          error:
-            "Enter a valid server address. Public servers require HTTPS; a new local instance must use localhost.",
+          error: SERVER_CHOOSER_ENABLED
+            ? "Enter a valid server address. Public servers require HTTPS; a new local instance must use localhost."
+            : "Installed AIMEE builds can connect only to the managed BrandWell service.",
         };
       }
 

@@ -88,10 +88,9 @@ Do not commit `.env`. Never put `COMPOSIO_API_KEY`, OpenRouter keys, or provider
 The computer provider is a server-side setting. Installed BrandWell desktop builds open
 `https://ai.brandwell.ai` directly and do not ask users to choose a server or computer provider.
 Self-hosted operators can use the browser client or an unpackaged development desktop build.
-BrandWell support can expose the legacy custom-server chooser in an installed build with
-`BRANDWELL_AIMEE_SUPPORT_SERVER_CHOOSER=1`. Only that support mode and unpackaged development honor
-`RAKAZO_WEB_URL` and `RAKAZO_FORCE_SETUP`. `SANDBOX_PROVIDER=desktop` is a separate, explicit server
-setting that always runs commands on the service host.
+Only unpackaged development honors `RAKAZO_WEB_URL` and `RAKAZO_FORCE_SETUP`.
+`SANDBOX_PROVIDER=desktop` is a separate, explicit server setting that always runs commands on the
+service host.
 
 - **Docker** is the default for local use and the quickest self-hosted setup. Workspace bots share a persistent Team Computer by default; Private computers are optional. Keep the supervisor private, as the included Compose file does.
 - **E2B** runs AI employee computers away from the AIMEE host and is the recommended choice for public or multi-user production deployments. AIMEE checkpoints the portable workspace and browser-profile directory to `DATA_DIR`; the E2B disk is a runtime cache, not the durable source of truth.
@@ -393,7 +392,7 @@ To run a hosted product (same codebase):
 10. Turn on `SIGNUP_ALLOWLIST` until you want open registration. Self-hosted AIMEE users bring their own model keys; BrandWell-managed workspaces use centrally provisioned keys and budgets.
 
 Expo store builds are clients of `EXPO_PUBLIC_API_URL`. Installed BrandWell desktop builds are
-pinned to `https://ai.brandwell.ai`; `RAKAZO_WEB_URL` is available only in the explicit desktop
-support mode described above. These clients are not a Cloud control plane.
+pinned to `https://ai.brandwell.ai`; `RAKAZO_WEB_URL` is available only to unpackaged development
+builds. These clients are not a Cloud control plane.
 
 The iOS and Android app can also point at a self-hosted origin at runtime. On the sign-in screen, tap **Use a custom server** and enter the same HTTPS origin as `WEB_ORIGIN` (for example `https://app.example.com`). Store builds still default to `EXPO_PUBLIC_API_URL`; the in-app setting is an override for people running their own API. Changing the server signs the device out of any previous session.

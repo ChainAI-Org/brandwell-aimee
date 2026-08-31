@@ -41,7 +41,7 @@ describe("desktop release workflow", () => {
   });
 
   it("requires signed platform builds before a single publication job", () => {
-    expect(workflow).toContain("-c.forceCodeSigning=true");
+    expect(workflow).toContain("--config.forceCodeSigning=true");
     expect(workflow).toContain("codesign --verify --deep --strict");
     expect(workflow).toContain('grep -Fqx "TeamIdentifier=$EXPECTED_TEAM_ID"');
     expect(workflow).toContain("Get-AuthenticodeSignature");
@@ -53,6 +53,12 @@ describe("desktop release workflow", () => {
     expect(workflow).toContain("DESKTOP_MAC_CSC_LINK");
     expect(workflow).toContain("DESKTOP_WIN_CSC_LINK");
     expect(workflow).toContain("DESKTOP_WIN_EXPECTED_PUBLISHER");
+    expect(workflow).toContain(
+      '"--config.win.signtoolOptions.publisherName=$env:EXPECTED_PUBLISHER"',
+    );
+    expect(workflow).toContain(
+      "node scripts/verify-windows-update-config.mjs $config $env:EXPECTED_PUBLISHER",
+    );
     expect(workflow).not.toMatch(/secrets\.DESKTOP_CSC_(?:LINK|KEY_PASSWORD)/);
     expect(workflow).not.toContain("cache: pnpm");
     expect(workflow).toContain("apps/desktop/out/latest*.yml");
@@ -70,7 +76,7 @@ describe("desktop release workflow", () => {
     expect(workflow).toContain('grep -Fqx "owner: ChainAI-Org"');
     expect(workflow).toContain('grep -Fqx "repo: brandwell-aimee"');
     expect(workflow).toContain("Verify Linux update feed is pinned to the official GitHub channel");
-    expect(workflow).toContain("Windows update config missing");
+    expect(workflow).toContain("verify-windows-update-config.mjs");
     expect(workflow).toContain("RELEASE_VERSION:");
     expect(workflow).toContain('grep -Fqx "version: $RELEASE_VERSION"');
   });
@@ -83,9 +89,10 @@ describe("desktop release workflow", () => {
     expect(ciWorkflow).toContain("@brandwell/desktop --fail-if-no-match");
   });
 
-  it("keeps packaged local benchmarks behind the explicit support override", () => {
-    expect(desktopPerformanceHarness).toContain('BRANDWELL_AIMEE_SUPPORT_SERVER_CHOOSER: "1"');
+  it("keeps local desktop benchmarks unpackaged", () => {
+    expect(desktopPerformanceHarness).not.toContain("BRANDWELL_AIMEE_SUPPORT_SERVER_CHOOSER");
     expect(desktopPerformanceHarness).toContain("RAKAZO_WEB_URL: webOrigin");
+    expect(desktopPerformanceHarness).toContain("args: [desktopRoot]");
   });
 
   it("publishes branded artifacts to the ChainAI organization update channel", () => {

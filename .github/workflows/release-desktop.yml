@@ -144,7 +144,7 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: >-
           pnpm --filter @brandwell/desktop --fail-if-no-match exec electron-builder
-          --mac --universal --publish never -c.forceCodeSigning=true
+          --mac --universal --publish never --config.forceCodeSigning=true
       - name: Verify macOS signature, notarization ticket, and update feed
         if: runner.os == 'macOS'
         shell: bash
@@ -178,9 +178,11 @@ jobs:
         env:
           WIN_CSC_LINK: ${{ secrets.DESKTOP_WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.DESKTOP_WIN_CSC_KEY_PASSWORD }}
+          EXPECTED_PUBLISHER: ${{ secrets.DESKTOP_WIN_EXPECTED_PUBLISHER }}
         run: >-
           pnpm --filter @brandwell/desktop --fail-if-no-match exec electron-builder
-          --win --x64 --publish never -c.forceCodeSigning=true
+          --win --x64 --publish never --config.forceCodeSigning=true
+          "--config.win.signtoolOptions.publisherName=$env:EXPECTED_PUBLISHER"
       - name: Verify Windows Authenticode signature and publisher-bound update feed
         if: runner.os == 'Windows'
         shell: pwsh
@@ -206,15 +208,7 @@ jobs:
             }
           }
           $config = "apps/desktop/out/win-unpacked/resources/app-update.yml"
-          if (-not (Select-String -Path $config -Pattern '^publisherName:' -Quiet)) {
-            throw "Windows update config is not bound to the signing publisher."
-          }
-          $feed = Get-Content -Raw $config
-          foreach ($expected in @("provider: github", "owner: ChainAI-Org", "repo: brandwell-aimee")) {
-            if ($feed -notmatch "(?m)^$([regex]::Escape($expected))\r?$") {
-              throw "Windows update config missing '$expected'."
-            }
-          }
+          node scripts/verify-windows-update-config.mjs $config $env:EXPECTED_PUBLISHER
 
       - name: Package x64 Linux AppImage
         if: runner.os == 'Linux'

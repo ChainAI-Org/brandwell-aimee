@@ -155,7 +155,7 @@ describe("startup target", () => {
     ).toEqual({ kind: "app", url: MANAGED_WEB_URL, source: "managed" });
   });
 
-  it("retains the custom server flow only when the support override enables it", () => {
+  it("retains the custom server flow only when unpackaged development enables it", () => {
     expect(
       resolveStartupTarget({
         managedUrl: MANAGED_WEB_URL,
