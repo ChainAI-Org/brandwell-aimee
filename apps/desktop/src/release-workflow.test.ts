@@ -65,6 +65,15 @@ describe("desktop release workflow", () => {
     expect(workflow).not.toContain("apps/desktop/out/*.yml");
   });
 
+  it("waits through the complete tagged server build and signing window", () => {
+    expect(serverImageWorkflow).toContain(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: literal GitHub Actions expression under test
+      "timeout-minutes: ${{ (github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')) && 180 || 90 }}",
+    );
+    expect(workflow).toContain("timeout-minutes: 225");
+    expect(workflow).toContain("for _ in $(seq 1 420); do");
+  });
+
   it("does not offer unsigned Linux artifacts through the automatic updater", () => {
     expect(workflow).toContain("Package x64 Linux AppImage");
     expect(workflow).not.toContain("Build signed ");

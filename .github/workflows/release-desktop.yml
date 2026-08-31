@@ -253,7 +253,10 @@ jobs:
     name: Attest and publish complete release
     needs: [validate, build]
     runs-on: ubuntu-24.04
-    timeout-minutes: 105
+    # Tagged server builds may use the full 180-minute build allowance plus
+    # manifest signing. Keep the desktop publisher alive long enough to verify
+    # that signed manifest instead of failing a valid slow multi-arch release.
+    timeout-minutes: 225
     permissions:
       actions: read
       attestations: write
@@ -279,7 +282,7 @@ jobs:
         run: |
           set -euo pipefail
           run_id=""
-          for _ in $(seq 1 180); do
+          for _ in $(seq 1 420); do
             run="$(gh run list --workflow publish-server-image.yml --commit "$RELEASE_SHA" --event push --limit 20 \
               --json databaseId,headBranch,status,conclusion \
               --jq "map(select(.headBranch == \"$RELEASE_TAG\"))[0] // {}")"
