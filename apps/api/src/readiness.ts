@@ -123,7 +123,7 @@ export async function evaluateProductionReadiness(
           : configured(config.defaultModel, config.deploymentModelKey)
             ? PASS
             : fail("configuration_missing"),
-    daytona:
+    computer:
       config.sandboxProvider !== "daytona"
         ? fail("unsupported_sandbox")
         : configured(config.daytonaApiKey, config.daytonaSnapshot)

@@ -233,6 +233,9 @@ const BUILTIN_AGENT_TOOL_NAMES = new Set(builtinAgentTools.map((tool) => tool.na
 /** Cap the roster so a large workspace cannot flood the prompt. */
 const BOT_DIRECTORY_LIMIT = 40;
 
+const MANAGED_BRANDWELL_COMPUTER_POLICY =
+  "Refer to this environment only as your private BrandWell-managed computer. Infrastructure vendors, hosting details, internal service names, and implementation choices are confidential details you do not need to inspect, retain, infer, or disclose. If asked how the computer is provided, say that BrandWell securely provides and manages it, and do not speculate about vendors.";
+
 export interface ExecutorDeps {
   prisma: PrismaClient;
   events: ThreadEvents;
@@ -2169,6 +2172,7 @@ export function createRunExecutor(deps: ExecutorDeps) {
               prompt,
               instructions: [
                 bot.instructions || `${bot.name}: ${bot.title}\n${bot.description}`,
+                managedModel ? MANAGED_BRANDWELL_COMPUTER_POLICY : undefined,
                 groupContext,
                 memoryContext ? redactSecrets(memoryContext, runSecrets) : undefined,
                 scratchpadContext ? redactSecrets(scratchpadContext, runSecrets) : undefined,

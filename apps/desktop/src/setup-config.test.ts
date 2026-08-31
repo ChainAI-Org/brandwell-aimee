@@ -218,7 +218,7 @@ describe("AIMEE production readiness response", () => {
       managedAdmin: pass,
       openRouterManagement: pass,
       runtimeInference: pass,
-      daytona: pass,
+      computer: pass,
       brandwellBridge: pass,
     },
   };

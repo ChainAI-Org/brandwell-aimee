@@ -40,7 +40,7 @@ describe("BrandWell platform user authentication", () => {
       Response.json(
         {
           error:
-            "The last AIMEE invoice failed. Ask your BrandWell account administrator to pay the past-due invoice to restore access.",
+            "The last BrandWell invoice failed. Ask your BrandWell account administrator to pay the past-due invoice to restore access.",
           code: "aimee_billing_past_due",
         },
         { status: 402 },

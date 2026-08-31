@@ -59,6 +59,8 @@ import {
 
 const DAYTONA_FALLBACK_DISPLAY = ":0";
 const DAYTONA_SCREEN_TTL_SECONDS = 3_600;
+const AIMEE_WORKSPACE_DIRECTORY = "aimee-home";
+const LEGACY_WORKSPACE_DIRECTORY = "rakazo-home";
 
 export type DaytonaSandboxSdk = Pick<Daytona, "create" | "get">;
 
@@ -614,7 +616,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     if (cached) return cached;
     const home = (await sandbox.getUserHomeDir()) ?? (await sandbox.getWorkDir());
     if (!home) throw new Error("Daytona did not report a sandbox home directory");
-    const root = path.posix.join(home, "rakazo-home");
+    const root = path.posix.join(home, AIMEE_WORKSPACE_DIRECTORY);
     if (this.boxes.get(sandbox.id) === sandbox) this.workspaceRoots.set(sandbox.id, root);
     return root;
   }
@@ -626,7 +628,13 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     let preparation!: Promise<void>;
     preparation = (async () => {
       const root = await this.workspaceRoot(sandbox);
-      const result = await sandbox.process.executeCommand(`mkdir -p -- ${shellQuote(root)}`);
+      const legacyRoot = path.posix.join(path.posix.dirname(root), LEGACY_WORKSPACE_DIRECTORY);
+      const result = await sandbox.process.executeCommand(
+        [
+          `if test ! -e ${shellQuote(root)} && test -d ${shellQuote(legacyRoot)}; then mv -- ${shellQuote(legacyRoot)} ${shellQuote(root)}; fi`,
+          `mkdir -p -- ${shellQuote(root)}`,
+        ].join("\n"),
+      );
       if (result.exitCode !== 0) {
         throw new Error(result.result || "could not create Daytona workspace");
       }

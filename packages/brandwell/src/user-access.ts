@@ -235,7 +235,7 @@ export async function requireBrandwellUserAccess(prisma: PrismaClient, userId: s
 function assertActiveBilling(commercialStatus: string, subscriptionStatus: string) {
   if (commercialStatus === "past_due" || subscriptionStatus === "past_due") {
     throw new BrandwellUserAccessError(
-      "The last AIMEE invoice failed. Ask your BrandWell account administrator to pay the past-due invoice to restore access.",
+      "The last BrandWell invoice failed. Ask your BrandWell account administrator to pay the past-due invoice to restore access.",
       "aimee_billing_past_due",
       402,
     );

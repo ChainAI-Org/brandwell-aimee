@@ -27,7 +27,7 @@ const READINESS_CHECK_NAMES = [
   "managedAdmin",
   "openRouterManagement",
   "runtimeInference",
-  "daytona",
+  "computer",
   "brandwellBridge",
 ] as const;
 

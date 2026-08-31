@@ -79,7 +79,7 @@ describe("mobile API authentication", () => {
         jsonResponse(
           {
             message:
-              "The last AIMEE invoice failed. Ask your BrandWell account administrator to pay the past-due invoice to restore access.",
+              "The last BrandWell invoice failed. Ask your BrandWell account administrator to pay the past-due invoice to restore access.",
           },
           { status: 402 },
         ),
