@@ -1,9 +1,33 @@
+import { createHash, createHmac } from "node:crypto";
 import type { AdapterContext } from "@rakazo/adapter-kit";
 import type { PrismaClient } from "@rakazo/db";
 import { describe, expect, it, vi } from "vitest";
 import { BrandwellNativeConnector } from "./brandwell-native-connector.js";
 
 const SERVICE_TOKEN = "service-token-for-tests-0123456789abcdef";
+
+function expectedSignature(
+  endpoint: string,
+  serialized: string,
+  timestamp: string,
+  idempotencyKey = "",
+) {
+  const requestHash = createHash("sha256").update(serialized).digest("hex");
+  return createHmac("sha256", SERVICE_TOKEN)
+    .update([
+      "brandwell-aimee-signature:v1",
+      "POST",
+      endpoint,
+      "customer-acme",
+      "workspace-acme",
+      "service-acme",
+      "effect-1",
+      idempotencyKey,
+      timestamp,
+      requestHash,
+    ].join("\n"))
+    .digest("hex");
+}
 
 function context(overrides: Partial<AdapterContext> = {}): AdapterContext {
   return {
@@ -73,6 +97,48 @@ describe("BrandWell native connector", () => {
     expect(tools.find((tool) => tool.name === "brandwell_trafficid_get_visitors")?.readOnly).toBe(
       true,
     );
+    expect(tools.find((tool) => tool.name === "brandwell_visibility_get_overview")?.readOnly).toBe(
+      true,
+    );
+    expect(tools.filter((tool) => tool.name.startsWith("brandwell_visibility_"))).toHaveLength(8);
+  });
+
+  it("routes visibility reads through the signed cached-data endpoint", async () => {
+    let requestUrl: string | URL | Request | undefined;
+    let requestInit: RequestInit | undefined;
+    const connector = new BrandwellNativeConnector(activePrisma(), {
+      apiBaseUrl: "https://portal.example.test",
+      serviceToken: SERVICE_TOKEN,
+      fetch: async (url, init) => {
+        requestUrl = url;
+        requestInit = init;
+        return new Response(JSON.stringify({ search_console: { status: "ready" } }));
+      },
+      now: () => new Date("2026-08-30T17:00:00.000Z"),
+    });
+
+    const events = await eventsFrom(connector, "brandwell_visibility_get_search_console", {
+      limit: 50,
+      include_daily: false,
+    });
+
+    expect(events).toEqual([{ type: "result", data: { search_console: { status: "ready" } } }]);
+    expect(requestUrl).toBe("https://portal.example.test/internal/aimee/visibility/read");
+    expect(requestInit?.headers).not.toHaveProperty("x-brandwell-idempotency-key");
+    const serialized = String(requestInit?.body);
+    const headers = requestInit?.headers as Record<string, string>;
+    expect(headers["x-brandwell-signature-version"]).toBe("v1");
+    expect(headers["x-brandwell-signature"]).toBe(
+      expectedSignature(
+        "/internal/aimee/visibility/read",
+        serialized,
+        "2026-08-30T17:00:00.000Z",
+      ),
+    );
+    expect(JSON.parse(serialized)).toEqual({
+      tool: "get_search_console_performance",
+      arguments: { limit: 50, include_daily: false },
+    });
   });
 
   it("scopes recipient intake in headers and forces agent draft intake", async () => {
@@ -118,8 +184,19 @@ describe("BrandWell native connector", () => {
       "x-brandwell-workspace-id": "workspace-acme",
       "x-brandwell-service-identity-id": "service-acme",
       "x-brandwell-idempotency-key": "workspace-acme:effect-1",
+      "x-brandwell-signature-version": "v1",
     });
-    expect(JSON.parse(String(requestInit?.body))).toMatchObject({
+    const serialized = String(requestInit?.body);
+    const headers = requestInit?.headers as Record<string, string>;
+    expect(headers["x-brandwell-signature"]).toBe(
+      expectedSignature(
+        "/internal/aimee/postcards/campaigns/campaign-acme/recipients",
+        serialized,
+        "2026-08-27T12:00:00.000Z",
+        "workspace-acme:effect-1",
+      ),
+    );
+    expect(JSON.parse(serialized)).toMatchObject({
       intake_source: "agent",
       agent_intake_source: "aimee",
       recipients: [{ email: "alex@example.com" }],

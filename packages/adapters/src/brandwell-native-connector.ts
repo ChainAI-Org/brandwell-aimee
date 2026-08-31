@@ -1,4 +1,4 @@
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import type {
   AdapterContext,
   ConnectorCall,
@@ -16,6 +16,7 @@ import {
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
+const SIGNATURE_VERSION = "v1";
 const ACTIVE_SUBSCRIPTIONS = new Set(["active", "trialing"]);
 
 const IcpsSchema = z
@@ -100,6 +101,90 @@ const ToolDefinitions = [
         icp: IcpsSchema,
       })
       .strict(),
+  },
+  {
+    name: "brandwell_visibility_get_project",
+    description: "Read the Company Project and canonical domain bound to this AIMEE workspace.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "whoami",
+    schema: z.object({}).strict(),
+  },
+  {
+    name: "brandwell_visibility_get_overview",
+    description:
+      "Read stored domain and AI visibility snapshots for this Company Project. This never refreshes a provider.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "get_visibility_overview",
+    schema: z.object({}).strict(),
+  },
+  {
+    name: "brandwell_visibility_get_search_console",
+    description:
+      "Read stored Search Console metrics, queries, pages, and opportunities for this Company Project.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "get_search_console_performance",
+    schema: z
+      .object({
+        limit: z.number().int().min(1).max(100).default(25),
+        include_daily: z.boolean().default(true),
+      })
+      .strict(),
+  },
+  {
+    name: "brandwell_visibility_get_analytics",
+    description:
+      "Read the stored Google Analytics summary, daily metrics, and acquisition rows for this Company Project.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "get_analytics_summary",
+    schema: z
+      .object({
+        limit: z.number().int().min(1).max(50).default(10),
+        include_daily: z.boolean().default(true),
+      })
+      .strict(),
+  },
+  {
+    name: "brandwell_visibility_list_saved_keywords",
+    description:
+      "List saved keyword opportunities for this Company Project from BrandWell storage.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "list_saved_keywords",
+    schema: z
+      .object({
+        status: z.enum(["candidate", "tracked", "dismissed"]).optional(),
+        limit: z.number().int().min(1).max(200).default(100),
+      })
+      .strict(),
+  },
+  {
+    name: "brandwell_visibility_get_rank_tracking",
+    description:
+      "Read the latest stored rank tracking results for this Company Project. This never runs a rank check.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "get_rank_tracking",
+    schema: z.object({}).strict(),
+  },
+  {
+    name: "brandwell_visibility_list_site_audits",
+    description: "List stored site audit runs for this Company Project. This never starts a crawl.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "list_site_audits",
+    schema: z.object({ limit: z.number().int().min(1).max(50).default(20) }).strict(),
+  },
+  {
+    name: "brandwell_visibility_get_site_audit",
+    description: "Read pages and Lighthouse results from one stored Company Project site audit.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "get_site_audit",
+    schema: z.object({ audit_id: z.string().min(1).max(80) }).strict(),
   },
   {
     name: "brandwell_postcards_create_campaign_draft",
@@ -282,10 +367,23 @@ export class BrandwellNativeConnector implements ConnectorProvider {
         ...(definition.readOnly ? {} : { agent_intake_source: "aimee" }),
       });
       const timestamp = this.now().toISOString();
+      const idempotencyKey = definition.readOnly
+        ? ""
+        : `${context.workspaceId}:${call.executionId}`;
+      const requestHash = createHash("sha256").update(serialized).digest("hex");
       const signature = createHmac("sha256", this.serviceToken)
-        .update(
-          `${timestamp}.${scope.brandwellCustomerId}.${context.workspaceId}.${call.executionId}.${serialized}`,
-        )
+        .update([
+          `brandwell-aimee-signature:${SIGNATURE_VERSION}`,
+          "POST",
+          endpoint,
+          scope.brandwellCustomerId,
+          context.workspaceId,
+          context.serviceIdentityId!,
+          call.executionId,
+          idempotencyKey,
+          timestamp,
+          requestHash,
+        ].join("\n"))
         .digest("hex");
       const response = await this.fetchImpl(`${this.baseUrl}${endpoint}`, {
         method: "POST",
@@ -298,10 +396,9 @@ export class BrandwellNativeConnector implements ConnectorProvider {
           "x-brandwell-service-identity-id": context.serviceIdentityId!,
           "x-brandwell-execution-id": call.executionId,
           "x-brandwell-timestamp": timestamp,
+          "x-brandwell-signature-version": SIGNATURE_VERSION,
           "x-brandwell-signature": signature,
-          ...(!definition.readOnly
-            ? { "x-brandwell-idempotency-key": `${context.workspaceId}:${call.executionId}` }
-            : {}),
+          ...(idempotencyKey ? { "x-brandwell-idempotency-key": idempotencyKey } : {}),
         },
         body: serialized,
         signal: combineSignals(context.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)),
@@ -367,6 +464,12 @@ function requestFor(
   definition: ToolDefinition,
   parsed: Record<string, unknown>,
 ): { endpoint: string; body: Record<string, unknown> } {
+  if ("remoteTool" in definition) {
+    return {
+      endpoint: definition.endpoint,
+      body: { tool: definition.remoteTool, arguments: parsed },
+    };
+  }
   if (definition.name === "brandwell_postcards_queue_recipients") {
     const campaignId = String(parsed.campaign_id);
     const { campaign_id: _campaignId, ...body } = parsed;
