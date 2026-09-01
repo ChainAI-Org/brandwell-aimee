@@ -145,7 +145,11 @@ export function createRepos(prisma: PrismaClient) {
       const bots = await prisma.bot.findMany({
         where: {
           workspaceId: actor.workspaceId,
-          OR: [{ userId: actor.userId }, { ownerType: "workspace", visibility: "workspace" }],
+          ...(actor.botId
+            ? { id: actor.botId }
+            : {
+                OR: [{ userId: actor.userId }, { ownerType: "workspace", visibility: "workspace" }],
+              }),
           archivedAt: options.archived ? { not: null } : null,
         },
         include: {
@@ -176,11 +180,16 @@ export function createRepos(prisma: PrismaClient) {
     },
 
     async getBot(actor: Actor, botId: string, options: { includeArchived?: boolean } = {}) {
+      if (actor.botId && actor.botId !== botId) throw new IsolationError();
       const bot = await prisma.bot.findFirst({
         where: {
           id: botId,
           workspaceId: actor.workspaceId,
-          OR: [{ userId: actor.userId }, { ownerType: "workspace", visibility: "workspace" }],
+          ...(actor.botId
+            ? {}
+            : {
+                OR: [{ userId: actor.userId }, { ownerType: "workspace", visibility: "workspace" }],
+              }),
           ...(options.includeArchived ? {} : { archivedAt: null }),
         },
         include: { thread: true, computer: true },
