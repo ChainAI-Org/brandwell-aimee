@@ -163,7 +163,8 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
 
   return (
     <div
-      className={`flex h-full min-w-0 overflow-hidden bg-[#101114] text-[#f7f7fa] ${embedded ? "flex-1" : ""}`}
+      data-testid="aimee-dashboard"
+      className={`flex h-full w-full min-w-0 max-w-full overflow-hidden bg-[#101114] text-[#f7f7fa] ${embedded ? "flex-1" : ""}`}
     >
       {embedded ? null : (
         <aside className="hidden w-[248px] shrink-0 flex-col border-e border-[#282a31] bg-[#15161a] md:flex">
@@ -203,10 +204,17 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
         </aside>
       )}
 
-      <main className="rk-scroll min-w-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-[1180px] px-5 py-8 md:px-10 md:py-10">
-          <header className="flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
-            <div>
+      <main
+        data-testid="aimee-dashboard-scroll"
+        className="rk-scroll w-full min-w-0 max-w-full flex-1 overflow-x-hidden overflow-y-auto"
+      >
+        <div className="mx-auto w-full min-w-0 max-w-[1180px] px-5 py-8 md:px-10 md:py-10">
+          <header className="flex min-w-0 flex-wrap items-end justify-between gap-5">
+            <div
+              data-testid="aimee-dashboard-intro"
+              className="min-w-0"
+              style={{ flex: "1 1 22rem", minWidth: "min(100%, 22rem)" }}
+            >
               <div className="md:hidden">
                 <BrandwellLogo className="mb-5 h-[26px] w-auto" />
               </div>
@@ -221,7 +229,7 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
                 or approval needs you.
               </p>
             </div>
-            <div className="flex gap-2.5">
+            <div className="flex shrink-0 flex-wrap gap-2.5">
               <BuiButton onClick={() => open("computer")}>View computer</BuiButton>
               <BuiButton tone="accent" onClick={() => open()}>
                 Chat with AIMEE
@@ -241,7 +249,12 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
             </div>
           ) : (
             <>
-              <section className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <section
+                className="mt-8 grid min-w-0 gap-3"
+                style={{
+                  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 15rem), 1fr))",
+                }}
+              >
                 <MetricCard
                   label="Employee status"
                   value={needsAttention ? "Needs you" : statusLabel(state.bot.status)}
@@ -277,13 +290,18 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
                     title="Needs attention"
                     detail="AIMEE will continue as soon as the requested login or approval is complete"
                   />
-                  <div className="mt-4 grid gap-2 md:grid-cols-2">
+                  <div
+                    className="mt-4 grid min-w-0 gap-2"
+                    style={{
+                      gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 18rem), 1fr))",
+                    }}
+                  >
                     {state.notifications.slice(0, 6).map((notice) => (
                       <button
                         type="button"
                         key={notice.id}
                         onClick={() => void openNotice(notice)}
-                        className="rounded-xl border border-[#3a3530] bg-[#201d1a] px-4 py-3.5 text-start hover:border-[#6d5331]"
+                        className="min-w-0 rounded-xl border border-[#3a3530] bg-[#201d1a] px-4 py-3.5 text-start hover:border-[#6d5331]"
                       >
                         <span className="flex items-center justify-between gap-3">
                           <strong className="text-[14px] font-medium text-[#fff4e2]">
@@ -304,8 +322,17 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
                 </BuiCard>
               ) : null}
 
-              <div className="mt-6 grid gap-5 lg:grid-cols-[1.25fr_.75fr]">
-                <BuiCard id="aimee-activity" className="p-5 md:p-6">
+              <div
+                className="mt-6 grid min-w-0 gap-5"
+                style={{
+                  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 20rem), 1fr))",
+                }}
+              >
+                <BuiCard
+                  id="aimee-activity"
+                  data-testid="aimee-activity-card"
+                  className="min-w-0 p-5 md:p-6"
+                >
                   <SectionHeading
                     title="Activity"
                     detail="What AIMEE is doing and what finished recently"
@@ -320,7 +347,7 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
                   </div>
                 </BuiCard>
 
-                <BuiCard className="p-5 md:p-6">
+                <BuiCard data-testid="aimee-routines-card" className="min-w-0 p-5 md:p-6">
                   <SectionHeading
                     title="Routines"
                     detail="Recurring work AIMEE runs for this workspace"
@@ -331,7 +358,7 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
                         type="button"
                         key={routine.id}
                         onClick={() => open("routines")}
-                        className="flex w-full items-center gap-3 rounded-xl border border-[#30323a] bg-[#1d1e24] px-3.5 py-3 text-start hover:border-[#454853]"
+                        className="flex w-full min-w-0 items-center gap-3 rounded-xl border border-[#30323a] bg-[#1d1e24] px-3.5 py-3 text-start hover:border-[#454853]"
                       >
                         <span
                           className={`h-2.5 w-2.5 rounded-full ${routine.active ? "bg-[#44c47a]" : "bg-[#62646e]"}`}
@@ -410,7 +437,7 @@ function MetricCard({
 }) {
   const color = tone === "good" ? "#44c47a" : tone === "warning" ? "#ffb34e" : "#b786ff";
   return (
-    <BuiCard className="min-h-[145px] p-4.5">
+    <BuiCard className="min-h-[145px] min-w-0 p-4.5">
       <div className="flex items-center justify-between text-[12px] font-medium uppercase tracking-[0.08em] text-[#858792]">
         <span>{label}</span>
         <span style={{ color }}>{icon}</span>
@@ -446,7 +473,7 @@ function ActivityRow({ run, onOpen }: { run: RunActivityRow; onOpen: () => void 
     <button
       type="button"
       onClick={onOpen}
-      className="flex w-full items-start gap-3 rounded-xl border border-transparent px-3 py-3 text-start hover:border-[#30323a] hover:bg-[#1d1e24]"
+      className="flex w-full min-w-0 items-start gap-3 overflow-hidden rounded-xl border border-transparent px-3 py-3 text-start hover:border-[#30323a] hover:bg-[#1d1e24]"
     >
       <span className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
       <span className="min-w-0 flex-1">
@@ -481,7 +508,7 @@ function statusLabel(status: string) {
 }
 
 function computerStateLabel(state?: string) {
-  if (state === "running") return "Running";
+  if (state === "running") return "Ready";
   if (state === "suspended") return "Sleeping";
   if (state === "booting") return "Waking up";
   if (state === "error") return "Needs attention";
@@ -494,7 +521,7 @@ function computerDetail(computer: ComputerStatus | null) {
     return `Last active ${formatDate(computer.lastScreenshotAt)}`;
   }
   if (computer.controlActorName) return `Controlled by ${computer.controlActorName}`;
-  return computer.state === "running" ? "Available for work" : "Wakes when needed";
+  return computer.state === "running" ? "Connects when opened" : "Wakes when needed";
 }
 
 function formatDate(value: string | Date) {
