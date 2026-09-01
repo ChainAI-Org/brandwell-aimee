@@ -943,6 +943,12 @@ app.whenReady().then(async () => {
   if (process.platform === "darwin" && icon) app.dock?.setIcon(icon);
   installApplicationMenu();
   ipcMain.handle("desktop.platform", () => process.platform);
+  ipcMain.handle("desktop.app.quit", (event) => {
+    if (!fromMainWindow(event)) return false;
+    quitting = true;
+    setImmediate(() => app.quit());
+    return true;
+  });
   ipcMain.handle("desktop.window.close", (event) => {
     windowFrom(event)?.close();
   });

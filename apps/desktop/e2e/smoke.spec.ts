@@ -41,7 +41,7 @@ test("launches with a narrow preload bridge and an isolated renderer", async () 
       };
     });
 
-    expect(renderer.bridgeKeys).toEqual(["oauth", "platform", "update", "window"]);
+    expect(renderer.bridgeKeys).toEqual(["app", "oauth", "platform", "update", "window"]);
     expect(renderer.windowKeys).toEqual(["close", "minimize", "state", "toggleMaximize"]);
     expect(renderer.updateKeys).toEqual(["check", "download", "install", "state"]);
     expect(renderer.platform).toBe(process.platform);
@@ -78,5 +78,40 @@ test("launches with a narrow preload bridge and an isolated renderer", async () 
     });
   } finally {
     await app.close();
+  }
+});
+
+test("the renderer can terminate the full desktop process", async () => {
+  const app = await electron.launch({
+    args: ["."],
+    cwd: path.resolve(import.meta.dirname, ".."),
+    env: {
+      ...process.env,
+      RAKAZO_WEB_URL: `data:text/html;charset=utf-8,${encodeURIComponent(fixture)}`,
+    },
+  });
+  let exited = false;
+
+  try {
+    const page = await app.firstWindow();
+    await expect(page.getByText("Desktop fixture ready")).toBeVisible();
+    const child = app.process();
+    const exit = new Promise<number | null>((resolve) => child.once("exit", resolve));
+
+    await page.evaluate(() => {
+      const desktop = (window as typeof window & { rakazoDesktop?: AimeeDesktop }).rakazoDesktop;
+      void desktop?.app?.quit();
+    });
+
+    const exitCode = await Promise.race([
+      exit,
+      new Promise<never>((_resolve, reject) =>
+        setTimeout(() => reject(new Error("AIMEE did not quit")), 10_000),
+      ),
+    ]);
+    exited = true;
+    expect(exitCode).toBe(0);
+  } finally {
+    if (!exited) await app.close();
   }
 });

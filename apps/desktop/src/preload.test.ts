@@ -24,14 +24,15 @@ function runPreload(file: string, ipc: { invoke?: unknown; on?: unknown; off?: u
 }
 
 describe("desktop preload bridge", () => {
-  it("exposes only the platform, the four window operations, the updater, and the OAuth bridge", async () => {
+  it("exposes only app quit, the platform, the four window operations, the updater, and the OAuth bridge", async () => {
     const { invoke, exposeInMainWorld } = runPreload("preload.cjs");
 
     expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
     const [globalName, bridge] = exposeInMainWorld.mock.calls[0] as [string, AimeeDesktop];
     expect(globalName).toBe("rakazoDesktop");
     expect(bridge.platform).toBe("linux");
-    expect(Object.keys(bridge).sort()).toEqual(["oauth", "platform", "update", "window"]);
+    expect(Object.keys(bridge).sort()).toEqual(["app", "oauth", "platform", "update", "window"]);
+    expect(Object.keys(bridge.app ?? {})).toEqual(["quit"]);
     expect(Object.keys(bridge.window).sort()).toEqual([
       "close",
       "minimize",
@@ -40,6 +41,7 @@ describe("desktop preload bridge", () => {
     ]);
     expect(Object.keys(bridge.update).sort()).toEqual(["check", "download", "install", "state"]);
 
+    await bridge.app?.quit();
     await bridge.window.close();
     await bridge.window.minimize();
     await bridge.window.toggleMaximize();
@@ -49,6 +51,7 @@ describe("desktop preload bridge", () => {
     await bridge.update.download();
     await bridge.update.install();
     expect(invoke.mock.calls.map(([channel]) => channel)).toEqual([
+      "desktop.app.quit",
       "desktop.window.close",
       "desktop.window.minimize",
       "desktop.window.toggleMaximize",
@@ -63,7 +66,7 @@ describe("desktop preload bridge", () => {
   it("keeps setup off the app bridge so a connected server cannot re-point the app", () => {
     const { exposeInMainWorld } = runPreload("preload.cjs");
     const [, bridge] = exposeInMainWorld.mock.calls[0] as [string, Record<string, unknown>];
-    expect(Object.keys(bridge).sort()).toEqual(["oauth", "platform", "update", "window"]);
+    expect(Object.keys(bridge).sort()).toEqual(["app", "oauth", "platform", "update", "window"]);
   });
 
   it("forwards captured codes without leaking the IPC event to the renderer", () => {

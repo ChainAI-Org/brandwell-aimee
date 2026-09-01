@@ -38,6 +38,10 @@ export interface AimeeDesktopOAuthCallback {
 
 export interface AimeeDesktop {
   platform: string;
+  /** Present in desktop releases that can terminate the full native process after sign-out. */
+  app?: {
+    quit: () => Promise<void>;
+  };
   window: {
     close: () => Promise<void>;
     minimize: () => Promise<void>;

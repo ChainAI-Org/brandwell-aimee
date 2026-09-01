@@ -124,6 +124,7 @@ import { type ArtifactTarget, decodeArtifactBase64 } from "../lib/artifact-open"
 import { authClient } from "../lib/auth";
 import { takeInitialBootstrap } from "../lib/bootstrap";
 import { chartViewport } from "../lib/chart-viewport";
+import { quitDesktopAfterLogout } from "../lib/desktop";
 import { dictation } from "../lib/dictation";
 import { localTimezone } from "../lib/local-timezone";
 import { connectMcpOauth } from "../lib/mcp-connect";
@@ -2515,7 +2516,13 @@ export function ShellPage() {
               ) : null}
               <button
                 type="button"
-                onClick={() => void authClient.signOut().then(() => navigate("/"))}
+                onClick={() => {
+                  setMenuOpen(false);
+                  void authClient.signOut().then(async () => {
+                    const quitRequested = await quitDesktopAfterLogout().catch(() => false);
+                    if (!quitRequested) navigate("/");
+                  });
+                }}
                 className="flex w-full items-center gap-3 rounded-[11px] px-3 py-2.5 hover:bg-[#232327]"
               >
                 <LogOut size={16} strokeWidth={1.7} className="text-[#9A9AA0]" />
