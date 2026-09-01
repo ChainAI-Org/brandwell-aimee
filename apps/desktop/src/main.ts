@@ -35,13 +35,22 @@ import {
   parseSetupProbeUrl,
 } from "./setup-policy.js";
 import { clearSetup, readSetup, writeSetup } from "./setup-store.js";
+import { prepareManagedUserData } from "./user-data-profile.js";
 import { browserWindowOptions, setupWindowOptions, warmWindowTtlMs } from "./window-options.js";
 
+const PERFORMANCE_USER_DATA = process.env.RAKAZO_PERFORMANCE_USER_DATA;
+if (PERFORMANCE_USER_DATA) {
+  app.setPath("userData", PERFORMANCE_USER_DATA);
+  app.setPath("sessionData", path.join(PERFORMANCE_USER_DATA, "session"));
+} else if (app.isPackaged) {
+  const managedUserData = prepareManagedUserData(app.getPath("appData"));
+  app.setPath("userData", managedUserData);
+  app.setPath("sessionData", managedUserData);
+}
 app.setName("AIMEE");
 const HAS_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
 if (!HAS_SINGLE_INSTANCE_LOCK) app.quit();
 
-const PERFORMANCE_USER_DATA = process.env.RAKAZO_PERFORMANCE_USER_DATA;
 const SERVER_CHOOSER_ENABLED = isServerChooserEnabled(app.isPackaged);
 const PROBE_TIMEOUT_MS = 8_000;
 const PROBE_RESPONSE_LIMIT_BYTES = 64 * 1024;
@@ -90,10 +99,6 @@ const desktopUpdater = new DesktopUpdateController(updaterEnvironment, async () 
 let launchUpdateCheckScheduled = false;
 
 markOnce("rk:main:module-evaluated");
-if (PERFORMANCE_USER_DATA) {
-  app.setPath("userData", PERFORMANCE_USER_DATA);
-  app.setPath("sessionData", path.join(PERFORMANCE_USER_DATA, "session"));
-}
 app.once("will-finish-launching", () => markOnce("rk:main:will-finish-launching"));
 app.once("ready", () => markOnce("rk:main:ready"));
 
