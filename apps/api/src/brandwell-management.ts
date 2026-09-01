@@ -435,6 +435,46 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     }
   });
 
+  app.post("/internal/sidekicks/:id/computer/boot", async (c) => {
+    const request = await supportSidekickComputerRequest(c, deps);
+    if (!request.ok) return c.json({ error: request.error }, request.status);
+    try {
+      return c.json(await deps.computerSupport!.boot(request.value));
+    } catch (error) {
+      return supportComputerError(c, error);
+    }
+  });
+
+  app.post("/internal/sidekicks/:id/computer/takeover", async (c) => {
+    const request = await supportSidekickComputerRequest(c, deps);
+    if (!request.ok) return c.json({ error: request.error }, request.status);
+    try {
+      return c.json(await deps.computerSupport!.takeControl(request.value));
+    } catch (error) {
+      return supportComputerError(c, error);
+    }
+  });
+
+  app.get("/internal/sidekicks/:id/computer/screen", async (c) => {
+    const request = await supportSidekickComputerRequest(c, deps, c.req.query("reason"));
+    if (!request.ok) return c.json({ error: request.error }, request.status);
+    try {
+      return c.json(await deps.computerSupport!.screen(request.value));
+    } catch (error) {
+      return supportComputerError(c, error);
+    }
+  });
+
+  app.post("/internal/sidekicks/:id/computer/release", async (c) => {
+    const request = await supportSidekickComputerRequest(c, deps);
+    if (!request.ok) return c.json({ error: request.error }, request.status);
+    try {
+      return c.json(await deps.computerSupport!.release(request.value));
+    } catch (error) {
+      return supportComputerError(c, error);
+    }
+  });
+
   app.post("/internal/workspaces/:id/skills/rollout", async (c) => {
     if (!deps.rolloutSkillBundle) {
       return c.json({ error: "AIMEE skill rollout is not configured" }, 503);
@@ -2574,6 +2614,54 @@ async function supportComputerRequest(
     value: {
       workspaceId: mapping.rakazoWorkspaceId,
       botId: mapping.primaryBotId,
+      actor: actor.value,
+      reason,
+    },
+  };
+}
+
+async function supportSidekickComputerRequest(
+  c: Context,
+  deps: BrandwellManagementDeps,
+  queryReason?: string,
+): Promise<
+  | { ok: true; value: BrandwellSupportRequest }
+  | { ok: false; error: string; status: 400 | 404 | 409 | 503 }
+> {
+  if (!deps.computerSupport) {
+    return { ok: false, error: "AIMEE computer support is not configured", status: 503 };
+  }
+  const sidekickId = c.req.param("id");
+  if (!sidekickId) return { ok: false, error: "Sidekick not found", status: 404 };
+  const sidekick = await deps.prisma.brandwellSidekick.findFirst({
+    where: {
+      OR: [{ id: sidekickId }, { brandwellSidekickId: sidekickId }],
+    },
+    include: { aiWorkspace: true },
+  });
+  if (!sidekick?.botId || !sidekick.computerId) {
+    return { ok: false, error: "Sidekick computer not found", status: 404 };
+  }
+  if (sidekick.status !== "active") {
+    return { ok: false, error: "The AIMEE Sidekick is not active", status: 409 };
+  }
+  if (
+    !sidekick.aiWorkspace ||
+    !["active", "trialing"].includes(sidekick.aiWorkspace.subscriptionStatus)
+  ) {
+    return { ok: false, error: "The AIMEE subscription is not active", status: 409 };
+  }
+  const actor = supportActor(c.req.header());
+  if (!actor.ok) return { ok: false, error: actor.error, status: 400 };
+  const body: Record<string, unknown> | null =
+    c.req.method === "GET" ? null : await c.req.json<Record<string, unknown>>().catch(() => ({}));
+  const rawReason = queryReason ?? (typeof body?.reason === "string" ? body.reason : "");
+  const reason = rawReason.trim().slice(0, 500) || undefined;
+  return {
+    ok: true,
+    value: {
+      workspaceId: sidekick.workspaceId,
+      botId: sidekick.botId,
       actor: actor.value,
       reason,
     },

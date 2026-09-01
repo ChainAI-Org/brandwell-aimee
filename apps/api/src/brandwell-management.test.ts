@@ -1683,4 +1683,89 @@ describe("BrandWell management API authentication", () => {
       reason: "Resolve the client login alert",
     });
   });
+
+  it("targets the selected Sidekick computer for audited support previews", async () => {
+    const screen = vi.fn(async () => ({
+      url: "https://ai.example.test/novnc/sidekick",
+      interactive: false,
+    }));
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {
+        brandwellSidekick: {
+          findFirst: vi.fn(async () => ({
+            id: "sidekick-1",
+            brandwellSidekickId: "portal-sidekick:17",
+            workspaceId: "workspace-1",
+            botId: "bot-sidekick-1",
+            computerId: "computer-sidekick-1",
+            status: "active",
+            aiWorkspace: { subscriptionStatus: "active" },
+          })),
+        },
+      } as unknown as PrismaClient,
+      computerSupport: {
+        boot: vi.fn(),
+        takeControl: vi.fn(),
+        screen,
+        release: vi.fn(),
+      },
+    });
+    const response = await app.request(
+      "/internal/sidekicks/portal-sidekick%3A17/computer/screen?reason=Review+the+Sidekick+computer",
+      {
+        headers: {
+          authorization: "Bearer management-secret",
+          ...OPERATOR_HEADERS,
+        },
+      },
+    );
+    expect(response.status).toBe(200);
+    expect(screen).toHaveBeenCalledWith({
+      workspaceId: "workspace-1",
+      botId: "bot-sidekick-1",
+      actor: {
+        reference: "user:42",
+        name: "Test Operator",
+        email: "operator@example.test",
+      },
+      reason: "Review the Sidekick computer",
+    });
+  });
+
+  it("does not expose paused Sidekick computers to support", async () => {
+    const screen = vi.fn();
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {
+        brandwellSidekick: {
+          findFirst: vi.fn(async () => ({
+            id: "sidekick-1",
+            workspaceId: "workspace-1",
+            botId: "bot-sidekick-1",
+            computerId: "computer-sidekick-1",
+            status: "paused",
+            aiWorkspace: { subscriptionStatus: "active" },
+          })),
+        },
+      } as unknown as PrismaClient,
+      computerSupport: {
+        boot: vi.fn(),
+        takeControl: vi.fn(),
+        screen,
+        release: vi.fn(),
+      },
+    });
+    const response = await app.request("/internal/sidekicks/sidekick-1/computer/screen", {
+      headers: {
+        authorization: "Bearer management-secret",
+        ...OPERATOR_HEADERS,
+      },
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ error: "The AIMEE Sidekick is not active" });
+    expect(screen).not.toHaveBeenCalled();
+  });
 });
