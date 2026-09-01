@@ -155,11 +155,11 @@ test("a startup storage probe does not quit before the connected app opens", asy
   await expect
     .poll(async () => {
       for (const candidate of app?.windows() ?? []) {
-        const body = await candidate
-          .locator("body")
-          .innerText()
-          .catch(() => "");
-        if (body.includes(APP_MARKER)) {
+        const appMarkerVisible = await candidate
+          .getByText(APP_MARKER)
+          .isVisible()
+          .catch(() => false);
+        if (appMarkerVisible) {
           connectedWindow = candidate;
           return true;
         }
