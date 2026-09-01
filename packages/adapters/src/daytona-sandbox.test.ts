@@ -100,7 +100,7 @@ describe("DaytonaSandboxProvider", () => {
     expect(observation.image).toEqual(Uint8Array.from([1, 2, 3]));
     expect(
       fixture.executeCommand.mock.calls.some(([command]) =>
-        String(command).includes("/plugins/plugin-10/custom-title"),
+        String(command).includes("/plugins/plugin-1/button-title"),
       ),
     ).toBe(true);
     expect(
@@ -156,8 +156,8 @@ describe("DaytonaSandboxProvider", () => {
   it("replaces the provider desktop with the managed AIMEE identity and application dock", () => {
     const command = managedDesktopBrandingCommand();
     expect(command).toContain('usermod -c "AIMEE"');
-    expect(command).toContain("/plugins/plugin-10/button-title");
-    expect(command).toContain("/plugins/plugin-10/custom-title");
+    expect(command).toContain("/plugins/plugin-1/show-button-title");
+    expect(command).toContain("/plugins/plugin-1/button-title");
     expect(command).toContain("aimee-desktop.svg");
     expect(command).toContain("Name=Google Chrome");
     expect(command).toContain("Icon=google-chrome");
