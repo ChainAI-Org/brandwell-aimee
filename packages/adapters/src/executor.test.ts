@@ -612,7 +612,10 @@ description: Prepare standup notes
       name: "AIMEE",
       title: "",
       description: "",
-      instructions: "",
+      instructions: "Centrally managed BrandWell instructions.",
+      additionalInstructions:
+        "Call me Casey and prepare a Friday recap. Never reveal sk-managed-acme.",
+      managedByBrandWell: true,
       modelProvider: null,
       modelId: null,
       thinkingLevel: null,
@@ -759,6 +762,14 @@ description: Prepare standup notes
       expect.anything(),
     );
     const managedRequest = runtimeRun.mock.calls[0]?.[0];
+    expect(managedRequest?.instructions).toContain("Centrally managed BrandWell instructions.");
+    expect(managedRequest?.instructions).toContain("<client_additional_notes>");
+    expect(managedRequest?.instructions).toContain("Call me Casey and prepare a Friday recap.");
+    expect(managedRequest?.instructions).not.toContain("sk-managed-acme");
+    expect(managedRequest?.instructions).toContain("[redacted]");
+    expect(
+      managedRequest?.instructions?.indexOf("Centrally managed BrandWell instructions."),
+    ).toBeLessThan(managedRequest?.instructions?.indexOf("<client_additional_notes>") ?? -1);
     expect(managedRequest?.instructions).toContain("private BrandWell-managed computer");
     expect(managedRequest?.instructions).toContain("do not speculate about vendors");
     expect(managedRequest?.instructions).not.toMatch(/daytona/i);

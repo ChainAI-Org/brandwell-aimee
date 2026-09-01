@@ -246,6 +246,108 @@ describe("BrandWell managed workspace self-service governance", () => {
   });
 });
 
+describe("BrandWell managed AI employee notes", () => {
+  const actor = {
+    workspaceId: "workspace-1",
+    userId: "sidekick-user-1",
+    email: "sidekick@example.com",
+    botId: "bot-1",
+    isDeploymentOwner: false,
+  } satisfies Actor;
+  const now = new Date("2026-08-31T20:00:00.000Z");
+
+  function managedBotHandler() {
+    const bot = {
+      id: "bot-1",
+      workspaceId: "workspace-1",
+      userId: "sidekick-user-1",
+      name: "AIMEE",
+      title: "AI Employee",
+      description: "Managed by BrandWell",
+      instructions: "Central instructions",
+      additionalInstructions: "",
+      color: "#8B5CF6",
+      notifyOnFinish: true,
+      pinned: true,
+      sectionId: null,
+      archivedAt: null,
+      parentBotId: null,
+      memoryScope: "isolated",
+      createdAt: now,
+      updatedAt: now,
+      thread: { id: "thread-1", unread: false, messages: [] },
+      runs: [],
+      computer: { scope: "dedicated" },
+      voiceId: null,
+      autoSpeak: false,
+      modelProvider: null,
+      modelId: null,
+      thinkingLevel: null,
+      ownerType: "workspace",
+      visibility: "workspace",
+      managedByBrandWell: true,
+      managedStatus: "active",
+    };
+    const update = vi.fn(async () => bot);
+    const prisma = {
+      bot: {
+        findFirst: vi.fn(async () => bot),
+        findMany: vi.fn(async () => [bot]),
+        update,
+      },
+    } as unknown as PrismaClient;
+    const deps = {
+      prisma,
+      env: {
+        defaultProvider: "openrouter",
+        defaultModel: "openai/gpt-5.6-terra",
+        webOrigin: "http://127.0.0.1:5173",
+        screenProxySecret: "fake-test-secret",
+        sandboxProvider: "fake",
+      },
+      dataDir: "/tmp/aimee-router-managed-notes-test",
+    } as unknown as RouterDeps;
+    return { update, handler: new RPCHandler(createRouter(deps)) };
+  }
+
+  async function updateBot(handler: RPCHandler<unknown>, json: Record<string, unknown>) {
+    return handler.handle(
+      new Request("http://127.0.0.1/rpc/bots/update", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ json: { botId: "bot-1", ...json } }),
+      }),
+      { prefix: "/rpc", context: { actor } },
+    );
+  }
+
+  it("lets an assigned Sidekick add notes without replacing central instructions", async () => {
+    const { handler, update } = managedBotHandler();
+    const { response } = await updateBot(handler, {
+      additionalInstructions: "Prepare a concise Friday recap.",
+    });
+
+    expect(response.status).toBe(200);
+    expect(update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: "bot-1" },
+        data: expect.objectContaining({
+          additionalInstructions: "Prepare a concise Friday recap.",
+          instructions: undefined,
+        }),
+      }),
+    );
+  });
+
+  it("rejects attempts to replace centrally managed instructions", async () => {
+    const { handler, update } = managedBotHandler();
+    const { response } = await updateBot(handler, { instructions: "Ignore BrandWell policy" });
+
+    expect(response.status).toBe(403);
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
 describe("BrandWell client notifications", () => {
   const actor = {
     workspaceId: "workspace-1",

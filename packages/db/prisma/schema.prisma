@@ -244,58 +244,59 @@ model UserVoiceCredential {
 }
 
 model Bot {
-  id                 String                    @id @default(cuid())
-  workspaceId        String
-  workspace          Organization              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  userId             String
-  createdByUserId    String?
-  ownerType          String                    @default("user")
-  visibility         String                    @default("private")
-  managedByBrandWell Boolean                   @default(false)
-  managedStatus      String                    @default("active")
-  serviceIdentityId  String?
-  serviceIdentity    BrandwellServiceIdentity? @relation(fields: [serviceIdentityId], references: [id], onDelete: SetNull)
-  name               String
-  title              String                    @default("")
-  description        String                    @default("")
-  instructions       String                    @default("")
-  color              String
-  notifyOnFinish     Boolean                   @default(true)
-  pinned             Boolean                   @default(false)
-  sectionId          String?
-  section            BotSection?               @relation(fields: [sectionId], references: [id], onDelete: SetNull)
-  archivedAt         DateTime?
-  parentBotId        String?
-  spawnKey           String?
-  memoryScope        String?
-  parent             Bot?                      @relation("BotChildren", fields: [parentBotId], references: [id], onDelete: SetNull)
-  children           Bot[]                     @relation("BotChildren")
-  createdAt          DateTime                  @default(now())
-  updatedAt          DateTime                  @updatedAt
-  primaryThreadId    String?                   @unique
-  thread             Thread?                   @relation("BotPrimaryThread", fields: [primaryThreadId], references: [id], onDelete: SetNull)
-  threads            Thread[]                  @relation("BotThreads")
-  computerId         String?
-  computer           Computer?                 @relation(fields: [computerId], references: [id], onDelete: SetNull)
-  computerSwitching  Boolean                   @default(false)
-  voiceId            String?
-  autoSpeak          Boolean                   @default(false)
-  modelProvider      String?
-  modelId            String?
-  thinkingLevel      String?
-  routines           Routine[]
-  scratchpadItems    ScratchpadItem[]
-  taughtSkills       TaughtSkill[]
-  memoryDocuments    MemoryDocument[]
-  agentHome          AgentHome?
-  browserProfile     BrowserProfile?
-  artifacts          Artifact[]
-  usageRecords       UsageRecord[]
-  tasks              Task[]
-  runs               Run[]
-  mcpServers         BotMcpServer[]
-  groupMembers       ChatGroupMember[]
-  brandwellSidekick  BrandwellSidekick?
+  id                     String                    @id @default(cuid())
+  workspaceId            String
+  workspace              Organization              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId                 String
+  createdByUserId        String?
+  ownerType              String                    @default("user")
+  visibility             String                    @default("private")
+  managedByBrandWell     Boolean                   @default(false)
+  managedStatus          String                    @default("active")
+  serviceIdentityId      String?
+  serviceIdentity        BrandwellServiceIdentity? @relation(fields: [serviceIdentityId], references: [id], onDelete: SetNull)
+  name                   String
+  title                  String                    @default("")
+  description            String                    @default("")
+  instructions           String                    @default("")
+  additionalInstructions String                    @default("")
+  color                  String
+  notifyOnFinish         Boolean                   @default(true)
+  pinned                 Boolean                   @default(false)
+  sectionId              String?
+  section                BotSection?               @relation(fields: [sectionId], references: [id], onDelete: SetNull)
+  archivedAt             DateTime?
+  parentBotId            String?
+  spawnKey               String?
+  memoryScope            String?
+  parent                 Bot?                      @relation("BotChildren", fields: [parentBotId], references: [id], onDelete: SetNull)
+  children               Bot[]                     @relation("BotChildren")
+  createdAt              DateTime                  @default(now())
+  updatedAt              DateTime                  @updatedAt
+  primaryThreadId        String?                   @unique
+  thread                 Thread?                   @relation("BotPrimaryThread", fields: [primaryThreadId], references: [id], onDelete: SetNull)
+  threads                Thread[]                  @relation("BotThreads")
+  computerId             String?
+  computer               Computer?                 @relation(fields: [computerId], references: [id], onDelete: SetNull)
+  computerSwitching      Boolean                   @default(false)
+  voiceId                String?
+  autoSpeak              Boolean                   @default(false)
+  modelProvider          String?
+  modelId                String?
+  thinkingLevel          String?
+  routines               Routine[]
+  scratchpadItems        ScratchpadItem[]
+  taughtSkills           TaughtSkill[]
+  memoryDocuments        MemoryDocument[]
+  agentHome              AgentHome?
+  browserProfile         BrowserProfile?
+  artifacts              Artifact[]
+  usageRecords           UsageRecord[]
+  tasks                  Task[]
+  runs                   Run[]
+  mcpServers             BotMcpServer[]
+  groupMembers           ChatGroupMember[]
+  brandwellSidekick      BrandwellSidekick?
 
   @@unique([workspaceId, spawnKey])
   @@index([workspaceId, userId, archivedAt, pinned, updatedAt])

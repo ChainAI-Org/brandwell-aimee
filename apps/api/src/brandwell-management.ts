@@ -1811,6 +1811,7 @@ function agentDto(agent: {
   title: string;
   description: string;
   instructions: string;
+  additionalInstructions: string;
   managedStatus: string;
   computerId: string | null;
   updatedAt: Date;
@@ -1821,6 +1822,7 @@ function agentDto(agent: {
     title: agent.title,
     description: agent.description,
     instructions: agent.instructions,
+    additionalInstructions: agent.additionalInstructions,
     status: agent.managedStatus,
     computerId: agent.computerId,
     updatedAt: agent.updatedAt,

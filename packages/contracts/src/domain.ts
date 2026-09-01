@@ -30,6 +30,7 @@ export const BotSchema = z.object({
   title: z.string(),
   description: z.string(),
   instructions: z.string(),
+  additionalInstructions: z.string(),
   color: z.string(),
   notifyOnFinish: z.boolean(),
   pinned: z.boolean(),
@@ -117,6 +118,7 @@ export const BOT_NAME_MAX_LENGTH = 80;
 export const BOT_TITLE_MAX_LENGTH = 500;
 export const BOT_DESCRIPTION_MAX_LENGTH = 4000;
 export const BOT_INSTRUCTIONS_MAX_LENGTH = 20000;
+export const BOT_ADDITIONAL_INSTRUCTIONS_MAX_LENGTH = 12000;
 
 export const CreateBotInput = z.object({
   name: z.string().trim().min(1).max(BOT_NAME_MAX_LENGTH),
@@ -148,6 +150,7 @@ export const UpdateBotInput = z
     title: z.string().max(BOT_TITLE_MAX_LENGTH).optional(),
     description: z.string().max(BOT_DESCRIPTION_MAX_LENGTH).optional(),
     instructions: z.string().max(BOT_INSTRUCTIONS_MAX_LENGTH).optional(),
+    additionalInstructions: z.string().max(BOT_ADDITIONAL_INSTRUCTIONS_MAX_LENGTH).optional(),
     notifyOnFinish: z.boolean().optional(),
     color: z.string().optional(),
     pinned: z.boolean().optional(),

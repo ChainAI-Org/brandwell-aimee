@@ -114,17 +114,20 @@ describe("noVNC proxy authorization", () => {
     ).toEqual({ upgrade: "websocket", "sec-websocket-key": "key" });
   });
 
-  it("does not accept cookie or site-data mutations from a bot computer", () => {
+  it("does not accept browser state or framing policy from a bot computer", () => {
     expect(
       safeProxyResponseHeaders({
         "content-type": "text/html",
         "set-cookie": ["session=attacker"],
         "clear-site-data": '"cookies"',
+        "content-security-policy": "frame-ancestors 'none'",
+        "content-security-policy-report-only": "frame-ancestors https://attacker.example",
+        "x-frame-options": "DENY",
       }),
     ).toEqual({ "content-type": "text/html" });
 
     const handshake = Buffer.from(
-      "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nSet-Cookie: session=attacker\r\n\r\nframe",
+      "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nSet-Cookie: session=attacker\r\nX-Frame-Options: DENY\r\n\r\nframe",
       "latin1",
     );
     expect(stripSensitiveHandshakeHeaders(handshake)?.toString("latin1")).toBe(

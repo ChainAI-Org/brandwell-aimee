@@ -8,7 +8,14 @@ const SENSITIVE_FORWARD_HEADERS = new Set([
   "proxy-authenticate",
   "proxy-authorization",
 ]);
-const SENSITIVE_RESPONSE_HEADERS = new Set(["clear-site-data", "set-cookie", "set-cookie2"]);
+const SENSITIVE_RESPONSE_HEADERS = new Set([
+  "clear-site-data",
+  "content-security-policy",
+  "content-security-policy-report-only",
+  "set-cookie",
+  "set-cookie2",
+  "x-frame-options",
+]);
 const SCREEN_PROXY_CIPHER = "aes-256-gcm";
 
 export function resolveNovncTarget(url: string | undefined, secret: string, now = Date.now()) {

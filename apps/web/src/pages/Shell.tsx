@@ -2016,7 +2016,7 @@ export function ShellPage() {
             >
               <BrandwellLogo className="h-[23px] w-auto" />
               <span className="text-[14px] font-semibold tracking-[-0.01em] text-[#ECECEE]">
-                BrandWell&apos;s AIMEE
+                AIMEE
               </span>
             </button>
           ) : (
@@ -5072,6 +5072,7 @@ function BotSettings({
     title?: string;
     description?: string;
     instructions?: string;
+    additionalInstructions?: string;
     computerMode: ComputerMode;
     memoryScope?: "isolated" | "shared" | null;
     autoSpeak?: boolean;
@@ -5088,6 +5089,7 @@ function BotSettings({
   const [name, setName] = useState(bot.name);
   const [title, setTitle] = useState(bot.title);
   const [description, setDescription] = useState(bot.description);
+  const [additionalInstructions, setAdditionalInstructions] = useState(bot.additionalInstructions);
   const [computerMode, setComputerMode] = useState(bot.computerMode);
   const [memoryScope, setMemoryScope] = useState(bot.memoryScope);
   const [autoSpeak, setAutoSpeak] = useState(bot.autoSpeak);
@@ -5204,6 +5206,25 @@ function BotSettings({
           className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
         />
       </label>
+      {managed ? (
+        <label className="mt-4 block text-[14px] text-[#85858A]">
+          <Trans>Additional notes for AIMEE</Trans>
+          <textarea
+            value={additionalInstructions}
+            maxLength={12000}
+            onChange={(event) => setAdditionalInstructions(event.target.value)}
+            rows={6}
+            placeholder={t`Add role context, preferences, recurring responsibilities, or working notes`}
+            className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE] outline-none focus:border-[#8B5CF6] focus:ring-2 focus:ring-[#8B5CF6]/35"
+          />
+          <span className="mt-2 block text-[12px] leading-5 text-[#777780]">
+            <Trans>
+              These notes add to BrandWell's managed instructions. They cannot change AIMEE's
+              access, model policy, approval requirements, or safety rules.
+            </Trans>
+          </span>
+        </label>
+      ) : null}
       <label className="mt-4 block text-[14px] text-[#85858A]">
         <Trans>Description</Trans>
         <textarea
@@ -5347,7 +5368,8 @@ function BotSettings({
               name,
               title,
               description,
-              instructions: description,
+              instructions: managed ? undefined : description,
+              additionalInstructions: managed ? additionalInstructions : undefined,
               computerMode,
               memoryScope,
               autoSpeak,
