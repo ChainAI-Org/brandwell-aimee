@@ -71,6 +71,19 @@ describe("createRepos.listBots", () => {
       }),
     );
   });
+
+  it("lists only the assigned employee for a managed BrandWell user", async () => {
+    const { repos, findMany } = reposFor(null);
+    await repos.listBots({ ...actor, botId: "bot-sidekick" });
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: "bot-sidekick",
+          workspaceId: "ws-1",
+        }),
+      }),
+    );
+  });
 });
 
 describe("createRepos.getBot", () => {
@@ -96,6 +109,43 @@ describe("createRepos.getBot", () => {
           id: "bot-1",
           workspaceId: "ws-1",
           OR: [{ userId: "user-1" }, { ownerType: "workspace", visibility: "workspace" }],
+          archivedAt: null,
+        },
+      }),
+    );
+  });
+
+  it("rejects a different employee for a managed BrandWell user", async () => {
+    const findFirst = vi.fn();
+    const prisma = { bot: { findFirst } };
+    const repos = createRepos(prisma as unknown as PrismaClient);
+
+    await expect(
+      repos.getBot({ ...actor, botId: "bot-sidekick" }, "bot-master"),
+    ).rejects.toBeInstanceOf(Error);
+    expect(findFirst).not.toHaveBeenCalled();
+  });
+
+  it("opens the exact employee assigned by managed BrandWell access", async () => {
+    const findFirst = vi.fn(async () => ({
+      ...baseBot,
+      userId: "system-user",
+      ownerType: "workspace",
+      visibility: "workspace",
+      managedByBrandWell: true,
+      thread: { id: "thread-1", unread: false },
+    }));
+    const prisma = { bot: { findFirst } };
+    const repos = createRepos(prisma as unknown as PrismaClient);
+
+    await expect(repos.getBot({ ...actor, botId: "bot-1" }, "bot-1")).resolves.toMatchObject({
+      id: "bot-1",
+    });
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: "bot-1",
+          workspaceId: "ws-1",
           archivedAt: null,
         },
       }),

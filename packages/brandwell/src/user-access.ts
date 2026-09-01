@@ -203,6 +203,14 @@ export async function requireBrandwellUserAccess(prisma: PrismaClient, userId: s
       403,
     );
   }
+  const botId = master?.primaryBotId ?? sidekick?.botId;
+  if (!botId) {
+    throw new BrandwellUserAccessError(
+      "AIMEE access is not active for this BrandWell user.",
+      "aimee_access_inactive",
+      403,
+    );
+  }
   assertActiveBilling(mapping.commercialStatus, mapping.subscriptionStatus);
   const membership = await prisma.member.findUnique({
     where: {
@@ -227,6 +235,7 @@ export async function requireBrandwellUserAccess(prisma: PrismaClient, userId: s
   return {
     userId: user.id,
     workspaceId: mapping.rakazoWorkspaceId,
+    botId,
     email: user.email,
     isDeploymentOwner: settings?.ownerUserId === user.id,
   };

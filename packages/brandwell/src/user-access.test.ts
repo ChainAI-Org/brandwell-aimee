@@ -12,6 +12,7 @@ function accessPrisma(input: {
   const mapping = {
     id: "mapping-1",
     rakazoWorkspaceId: "workspace-1",
+    primaryBotId: "master-bot-1",
     commercialStatus: input.commercialStatus ?? "active",
     subscriptionStatus: input.subscriptionStatus ?? "active",
   };
@@ -27,7 +28,9 @@ function accessPrisma(input: {
       findFirst: vi.fn(async () => (input.master === false ? null : mapping)),
     },
     brandwellSidekick: {
-      findFirst: vi.fn(async () => (input.sidekick ? { aiWorkspace: mapping } : null)),
+      findFirst: vi.fn(async () =>
+        input.sidekick ? { botId: "sidekick-bot-1", aiWorkspace: mapping } : null,
+      ),
     },
     member: {
       findUnique: vi.fn(async () => (input.membership === false ? null : { id: "member-1" })),
@@ -43,6 +46,7 @@ describe("BrandWell AIMEE session access", () => {
     await expect(requireBrandwellUserAccess(accessPrisma({}), "user-1")).resolves.toEqual({
       userId: "user-1",
       workspaceId: "workspace-1",
+      botId: "master-bot-1",
       email: "ada@example.com",
       isDeploymentOwner: false,
     });
@@ -51,7 +55,7 @@ describe("BrandWell AIMEE session access", () => {
   it("allows an active paid Sidekick when the user is not the master", async () => {
     await expect(
       requireBrandwellUserAccess(accessPrisma({ master: false, sidekick: true }), "user-1"),
-    ).resolves.toMatchObject({ workspaceId: "workspace-1" });
+    ).resolves.toMatchObject({ workspaceId: "workspace-1", botId: "sidekick-bot-1" });
   });
 
   it("denies an ordinary BrandWell sub-user without a paid Sidekick", async () => {
