@@ -8,35 +8,104 @@ export function renderAimeeScreenClient(nonce: string) {
     <style>
       html,
       body,
-      #screen {
+      #screen-frame {
         width: 100%;
         height: 100%;
         margin: 0;
+        border: 0;
         overflow: hidden;
         background: #090611;
       }
+
+      #screen-status {
+        position: fixed;
+        inset: 0;
+        z-index: 2;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        color: #d8cdf7;
+        background: #090611;
+        font: 500 14px/1.5 Inter, ui-sans-serif, system-ui, sans-serif;
+        text-align: center;
+      }
+
+      #screen-status[hidden] {
+        display: none;
+      }
     </style>
     <script type="module" nonce="${nonce}">
-      import RFB from "./core/rfb.js";
+      const frame = document.getElementById("screen-frame");
+      const status = document.getElementById("screen-status");
+      const providerView = new URL("./vnc.html", window.location.href);
+      providerView.search = window.location.search;
 
-      const params = new URLSearchParams(window.location.search);
-      const prefix = window.location.pathname.replace(/[^/]+$/, "");
-      const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      const socketPath = String(params.get("path") || "websockify").replace(/^\\//, "");
-      const credentials = { password: params.get("password") || "" };
-      const rfb = new RFB(
-        document.getElementById("screen"),
-        \`\${protocol}://\${window.location.host}\${prefix}\${socketPath}\`,
-        { credentials },
-      );
-      rfb.viewOnly = params.get("view_only") !== "false";
-      rfb.scaleViewport = true;
-      rfb.clipViewport = false;
-      rfb.background = "#090611";
+      function setStatus(message) {
+        status.textContent = message;
+        status.hidden = !message;
+      }
+
+      function applyAimeeSkin() {
+        const doc = frame.contentDocument;
+        if (!doc?.documentElement) return;
+        doc.title = "AIMEE computer";
+
+        const skin = doc.createElement("style");
+        skin.id = "aimee-screen-skin";
+        skin.textContent = \`
+          html, body {
+            width: 100% !important;
+            height: 100% !important;
+            margin: 0 !important;
+            overflow: hidden !important;
+            background: #090611 !important;
+          }
+          #noVNC_control_bar_anchor,
+          #noVNC_hint_anchor,
+          #noVNC_status,
+          #noVNC_connect_dlg,
+          #noVNC_fallback_error,
+          #noVNC_transition {
+            display: none !important;
+          }
+          #noVNC_container {
+            width: 100vw !important;
+            height: 100vh !important;
+            margin: 0 !important;
+            overflow: hidden !important;
+            background: #090611 !important;
+          }
+        \`;
+        doc.head.append(skin);
+
+        const providerStatus = doc.getElementById("noVNC_status");
+        const syncStatus = () => {
+          const value = providerStatus?.textContent?.trim().toLowerCase() || "";
+          const connected = value.includes("connected") && !value.includes("disconnected");
+          if (connected) setStatus("");
+          else if (value.includes("fail") || value.includes("error") || value.includes("closed")) {
+            setStatus("AIMEE is reconnecting to the computer. This can take a moment.");
+          } else {
+            setStatus("Connecting to the AIMEE computer...");
+          }
+        };
+        if (providerStatus) {
+          new MutationObserver(syncStatus).observe(providerStatus, {
+            childList: true,
+            characterData: true,
+            subtree: true,
+          });
+        }
+        syncStatus();
+      }
+
+      frame.addEventListener("load", applyAimeeSkin);
+      frame.src = providerView.toString();
     </script>
   </head>
   <body>
-    <div id="screen" aria-label="AIMEE computer"></div>
+    <div id="screen-status" role="status">Connecting to the AIMEE computer...</div>
+    <iframe id="screen-frame" title="AIMEE computer"></iframe>
   </body>
 </html>`;
 }
