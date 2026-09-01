@@ -50,6 +50,7 @@ describe("BrandWell deployment readiness gates", () => {
     expect(compose).not.toContain("fetch('http://127.0.0.1:3100/ready')");
     expect(compose).toContain("$" + "{CADDY_CONFIG_DIR:-.}:/etc/caddy-config:ro");
     expect(compose).toContain("/etc/caddy-config/Caddyfile.prod");
+    expect(compose).toMatch(/caddy:[\s\S]*?command:\s+- caddy\s+- run/);
     expect(compose).not.toContain(
       "$" + "{CADDYFILE_PATH:-./Caddyfile.prod}:/etc/caddy/Caddyfile:ro",
     );

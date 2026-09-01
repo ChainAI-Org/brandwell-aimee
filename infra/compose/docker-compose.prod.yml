@@ -212,6 +212,7 @@ services:
     environment:
       RAKAZO_HOST: ${RAKAZO_HOST:-app.example.com}
     command:
+      - caddy
       - run
       - --config
       - /etc/caddy-config/Caddyfile.prod
