@@ -63,6 +63,24 @@ describe("managed AIMEE workspace navigation", () => {
     expect(shell).not.toContain("<Trans>Read replies aloud</Trans>");
     expect(voiceSettings).toContain("<Trans>Read replies aloud</Trans>");
   });
+
+  it("keeps the dashboard within its available width and gives routines equal space", () => {
+    expect(home).toContain("overflow-x-hidden");
+    expect(home).toContain("repeat(auto-fit, minmax(min(100%, 15rem), 1fr))");
+    expect(home).toContain("repeat(auto-fit, minmax(min(100%, 20rem), 1fr))");
+    expect(home).not.toContain("lg:grid-cols-[1.25fr_.75fr]");
+    expect(home).toContain('if (state === "running") return "Ready"');
+    expect(home).toContain('"Connects when opened"');
+  });
+
+  it("shows live screen health instead of presenting saved state as a live connection", () => {
+    expect(shell).toContain("computerPanelStatusLabel(computer?.state, screenConnectionState)");
+    expect(shell).toContain("event.source === previewScreenFrame.current?.contentWindow");
+    expect(shell).toContain("event.source === openScreenFrame.current?.contentWindow");
+    expect(shell).toContain('if (connection === "connected") return t`Connected`');
+    expect(shell).toContain('if (connection === "disconnected") return t`Connection lost`');
+    expect(shell).not.toContain("computer?.state ?? active.status");
+  });
 });
 
 describe("managed AIMEE connections", () => {

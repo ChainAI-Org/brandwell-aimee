@@ -11,7 +11,10 @@ describe("managed AIMEE screen client", () => {
     expect(html).toContain("providerView.search = window.location.search");
     expect(html).toContain("#noVNC_control_bar_anchor");
     expect(html).toContain("display: none !important");
-    expect(html).toContain("AIMEE is reconnecting to the computer");
+    expect(html).toContain('window.parent.postMessage({ type: "aimee-screen-state", state }, "*")');
+    expect(html).toContain('setStatus("", "connected")');
+    expect(html).toContain('"disconnected",');
+    expect(html).toContain("The computer connection was lost");
     expect(html).not.toContain(">noVNC<");
   });
 });

@@ -130,6 +130,7 @@ import { connectMcpOauth } from "../lib/mcp-connect";
 import { revokePendingAttachmentPreviews } from "../lib/pending-attachments";
 import { markAfterPaint, markOnce } from "../lib/performance";
 import { rpc } from "../lib/rpc";
+import { readAimeeScreenStateMessage, type ScreenConnectionState } from "../lib/screen-connection";
 import {
   activeThreadRuns,
   clearActiveThreadRuns,
@@ -350,8 +351,11 @@ export function ShellPage() {
   const [runningRoutine, setRunningRoutine] = useState(false);
   const [routineError, setRoutineError] = useState<string | null>(null);
   const [screenUrl, setScreenUrl] = useState<string | null>(null);
+  const [screenConnectionState, setScreenConnectionState] = useState<ScreenConnectionState>("idle");
   const [computerOpen, setComputerOpen] = useState(false);
   const [computerError, setComputerError] = useState<string | null>(null);
+  const previewScreenFrame = useRef<HTMLIFrameElement>(null);
+  const openScreenFrame = useRef<HTMLIFrameElement>(null);
   const [shuttingDownComputer, setShuttingDownComputer] = useState(false);
   const [usage, setUsage] = useState<{
     inputTokens: number;
@@ -678,7 +682,26 @@ export function ShellPage() {
   async function refreshComputerScreen(id: string) {
     if (!computerVisible.current) return null;
     const request = ++screenRequest.current;
-    const screen = await rpc.computer.screenUrl({ botId: id }).catch(() => ({ url: null }));
+    setScreenConnectionState("connecting");
+    let screen: { url: string | null };
+    try {
+      screen = await rpc.computer.screenUrl({ botId: id });
+    } catch {
+      if (
+        request === screenRequest.current &&
+        activeBotId.current === id &&
+        computerVisible.current
+      ) {
+        setScreenUrl(null);
+        setScreenConnectionState(
+          computerRef.current?.state === "running" && computerRef.current.kind !== "desktop"
+            ? "disconnected"
+            : "idle",
+        );
+        cacheComputerFor(id, { screenUrl: null });
+      }
+      return null;
+    }
     if (
       request !== screenRequest.current ||
       activeBotId.current !== id ||
@@ -687,6 +710,13 @@ export function ShellPage() {
       return null;
     }
     setScreenUrl(screen.url);
+    setScreenConnectionState(
+      embeddableScreenUrl(screen.url)
+        ? "connecting"
+        : computerRef.current?.state === "running" && computerRef.current.kind !== "desktop"
+          ? "disconnected"
+          : "idle",
+    );
     cacheComputerFor(id, { screenUrl: screen.url });
     return screen.url;
   }
@@ -944,9 +974,11 @@ export function ShellPage() {
       // Paint the last-known computer instantly; refreshThread/refreshComputerScreen
       // below still run and reconcile with fresh data in the background.
       setScreenUrl(cached.screenUrl);
+      setScreenConnectionState(cached.screenUrl ? "connecting" : "idle");
       commitComputer(cached.computer);
     } else {
       setScreenUrl(null);
+      setScreenConnectionState("idle");
     }
     expandedHistoryThread.current = null;
     historyEpoch.current += 1;
@@ -1848,8 +1880,23 @@ export function ShellPage() {
   }, [panel, active?.id]);
 
   useEffect(() => {
+    const onScreenMessage = (event: MessageEvent<unknown>) => {
+      const fromManagedScreen =
+        event.source === previewScreenFrame.current?.contentWindow ||
+        event.source === openScreenFrame.current?.contentWindow;
+      if (!fromManagedScreen) return;
+      const message = readAimeeScreenStateMessage(event.data);
+      if (!message) return;
+      setScreenConnectionState(message.state);
+    };
+    window.addEventListener("message", onScreenMessage);
+    return () => window.removeEventListener("message", onScreenMessage);
+  }, []);
+
+  useEffect(() => {
     setComputerOpen(false);
     setComputerError(null);
+    setScreenConnectionState("idle");
   }, [active?.id]);
 
   useEffect(() => {
@@ -1867,6 +1914,7 @@ export function ShellPage() {
     if (!computerTransitionClosesPreview(previous.state, computer?.state)) return;
     screenRequest.current += 1;
     setScreenUrl(null);
+    setScreenConnectionState("idle");
     cacheComputerFor(active.id, { computer, screenUrl: null });
     setComputerOpen(false);
     setPanel((current) => (current === "computer" ? null : current));
@@ -1952,6 +2000,7 @@ export function ShellPage() {
       screenRequest.current += 1;
       commitComputer(stopped);
       setScreenUrl(null);
+      setScreenConnectionState("idle");
       cacheComputerFor(id, { computer: stopped, screenUrl: null });
       setComputerOpen(false);
       setPanel((current) => (current === "computer" ? null : current));
@@ -2685,7 +2734,7 @@ export function ShellPage() {
                   {panel === "settings" ? (
                     <Trans>Settings</Trans>
                   ) : active ? (
-                    (computer?.state ?? active.status)
+                    computerPanelStatusLabel(computer?.state, screenConnectionState)
                   ) : (
                     <Trans>Group</Trans>
                   )}
@@ -2727,6 +2776,7 @@ export function ShellPage() {
                     </div>
                   ) : computer?.state === "running" && embeddedScreenUrl ? (
                     <iframe
+                      ref={previewScreenFrame}
                       title={t`Bot screen preview`}
                       src={embeddedScreenUrl}
                       sandbox={screenIframeSandbox(embeddedScreenUrl)}
@@ -2758,9 +2808,13 @@ export function ShellPage() {
                         ? computerError
                         : computer?.busyBotName
                           ? t`${computer.busyBotName} is using it`
-                          : computer?.state === "suspended"
-                            ? t`Asleep`
-                            : computerLabel(computer?.mode, active.name)}
+                          : screenConnectionState === "disconnected"
+                            ? t`Connection lost`
+                            : screenConnectionState === "connecting"
+                              ? t`Connecting`
+                              : computer?.state === "suspended"
+                                ? t`Asleep`
+                                : computerLabel(computer?.mode, active.name)}
                   </span>
                   <div className="flex shrink-0 items-center gap-2">
                     {canShutDownComputer ? (
@@ -3458,6 +3512,7 @@ export function ShellPage() {
             ) : computer?.state === "running" && embeddedScreenUrl ? (
               <>
                 <iframe
+                  ref={openScreenFrame}
                   title={t`Bot screen`}
                   src={embeddedScreenUrl}
                   sandbox={screenIframeSandbox(embeddedScreenUrl)}
@@ -5817,6 +5872,22 @@ function computerPlaceholder(
   if (state === "suspended") return t`Computer is asleep. Take control to wake it`;
   if (state === "error") return t`Computer failed to boot`;
   return t`Computer is stopped`;
+}
+
+function computerPanelStatusLabel(
+  state: ComputerStatus["state"] | undefined,
+  connection: ScreenConnectionState,
+) {
+  if (state === "running") {
+    if (connection === "connected") return t`Connected`;
+    if (connection === "disconnected") return t`Connection lost`;
+    if (connection === "connecting") return t`Connecting`;
+    return t`Ready`;
+  }
+  if (state === "booting") return t`Waking up`;
+  if (state === "suspended") return t`Sleeping`;
+  if (state === "error") return t`Needs attention`;
+  return t`Stopped`;
 }
 
 function computerLabel(mode: ComputerStatus["mode"] | undefined, botName: string) {

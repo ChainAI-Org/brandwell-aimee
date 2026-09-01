@@ -1,3 +1,5 @@
+import { AIMEE_SCREEN_STATE_MESSAGE } from "./lib/screen-connection.js";
+
 export function renderAimeeScreenClient(nonce: string) {
   return `<!doctype html>
 <html lang="en">
@@ -40,9 +42,14 @@ export function renderAimeeScreenClient(nonce: string) {
       const providerView = new URL("./vnc.html", window.location.href);
       providerView.search = window.location.search;
 
-      function setStatus(message) {
+      function reportState(state) {
+        window.parent.postMessage({ type: "${AIMEE_SCREEN_STATE_MESSAGE}", state }, "*");
+      }
+
+      function setStatus(message, state) {
         status.textContent = message;
         status.hidden = !message;
+        reportState(state);
       }
 
       function applyAimeeSkin() {
@@ -82,11 +89,14 @@ export function renderAimeeScreenClient(nonce: string) {
         const syncStatus = () => {
           const value = providerStatus?.textContent?.trim().toLowerCase() || "";
           const connected = value.includes("connected") && !value.includes("disconnected");
-          if (connected) setStatus("");
+          if (connected) setStatus("", "connected");
           else if (value.includes("fail") || value.includes("error") || value.includes("closed")) {
-            setStatus("AIMEE is reconnecting to the computer. This can take a moment.");
+            setStatus(
+              "The computer connection was lost. AIMEE is trying to reconnect.",
+              "disconnected",
+            );
           } else {
-            setStatus("Connecting to the AIMEE computer...");
+            setStatus("Connecting to the AIMEE computer...", "connecting");
           }
         };
         if (providerStatus) {
@@ -99,6 +109,7 @@ export function renderAimeeScreenClient(nonce: string) {
         syncStatus();
       }
 
+      reportState("connecting");
       frame.addEventListener("load", applyAimeeSkin);
       frame.src = providerView.toString();
     </script>
