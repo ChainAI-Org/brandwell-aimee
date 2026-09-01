@@ -211,12 +211,20 @@ services:
     mem_limit: 256m
     environment:
       RAKAZO_HOST: ${RAKAZO_HOST:-app.example.com}
+    command:
+      - run
+      - --config
+      - /etc/caddy-config/Caddyfile.prod
+      - --adapter
+      - caddyfile
     ports:
       - "80:80"
       - "443:443"
       - "443:443/udp"
     volumes:
-      - ${CADDYFILE_PATH:-./Caddyfile.prod}:/etc/caddy/Caddyfile:ro
+      # Mount the directory, not one file. Git checkouts replace file inodes, while a directory
+      # mount keeps Caddy on the current checked-out configuration after a restart.
+      - ${CADDY_CONFIG_DIR:-.}:/etc/caddy-config:ro
       - caddydata:/data
       - caddyconfig:/config
     networks:
