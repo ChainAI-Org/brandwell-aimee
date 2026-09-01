@@ -47,6 +47,8 @@ function attachNovncProxy(server: ViteDevServer | PreviewServer, secret: string)
         res.writeHead(incoming.statusCode ?? 502, {
           ...safeProxyResponseHeaders(incoming.headers),
           "access-control-allow-origin": "*",
+          "content-security-policy":
+            "frame-ancestors 'self' https://ai.brandwell.ai https://staging-ai.brandwell.ai https://portal.brandwell.ai",
         });
         incoming.pipe(res);
       },

@@ -45,7 +45,7 @@ describe("managed AIMEE workspace navigation", () => {
     const focusTreatment =
       "outline-none focus:border-[#8B5CF6] focus:ring-2 focus:ring-[#8B5CF6]/35";
     expect(onboarding.split(focusTreatment).length - 1).toBe(3);
-    expect(shell.split(focusTreatment).length - 1).toBe(3);
+    expect(shell.split(focusTreatment).length - 1).toBe(4);
   });
 });
 

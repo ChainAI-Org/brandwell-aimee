@@ -24,6 +24,7 @@ export default function BotSettingsScreen() {
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [additionalInstructions, setAdditionalInstructions] = useState("");
   const [computerMode, setComputerMode] = useState<ComputerMode>("team");
   const [computer, setComputer] = useState<ComputerStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +41,7 @@ export default function BotSettingsScreen() {
         setName(next.name);
         setTitle(next.title);
         setDescription(next.description ?? "");
+        setAdditionalInstructions(next.additionalInstructions ?? "");
         setComputerMode(next.computerMode);
         setComputer(status);
       })
@@ -58,13 +60,19 @@ export default function BotSettingsScreen() {
         title?: string;
         description?: string;
         instructions?: string;
+        additionalInstructions?: string;
       } = { botId };
       if (profile.name !== bot.name) input.name = profile.name;
       if (profile.title !== bot.title) input.title = profile.title;
       if (profile.description !== (bot.description ?? "")) {
         input.description = profile.description;
-        // Keep instructions in sync with description (same as web BotSettings).
-        input.instructions = profile.instructions;
+        if (!bot.managedByBrandWell) {
+          // Keep self-managed bot instructions in sync with the description.
+          input.instructions = profile.instructions;
+        }
+      }
+      if (bot.managedByBrandWell && additionalInstructions !== (bot.additionalInstructions ?? "")) {
+        input.additionalInstructions = additionalInstructions;
       }
       if (!bot.managedByBrandWell && computerMode !== bot.computerMode) {
         await rpc("bots/setComputer", { botId, mode: computerMode });
@@ -127,6 +135,36 @@ export default function BotSettingsScreen() {
             color: "#ECECEE",
           }}
         />
+        {bot?.managedByBrandWell ? (
+          <>
+            <Text style={{ color: "#85858A", marginTop: 16, fontSize: 14 }}>
+              Additional notes for AIMEE
+            </Text>
+            <TextInput
+              value={additionalInstructions}
+              maxLength={12000}
+              onChangeText={setAdditionalInstructions}
+              placeholder="Add role context, preferences, recurring responsibilities, or working notes"
+              placeholderTextColor="#6C6C70"
+              multiline
+              style={{
+                marginTop: 8,
+                backgroundColor: "#1A1A1D",
+                borderRadius: 11,
+                borderWidth: 1,
+                borderColor: "#5B2A86",
+                padding: 16,
+                color: "#ECECEE",
+                minHeight: 140,
+                textAlignVertical: "top",
+              }}
+            />
+            <Text style={{ color: "#777780", fontSize: 12, lineHeight: 18, marginTop: 7 }}>
+              These notes add to BrandWell's managed instructions. They cannot change AIMEE's
+              access, model policy, approval requirements, or safety rules.
+            </Text>
+          </>
+        ) : null}
         <Text style={{ color: "#85858A", marginTop: 16, fontSize: 14 }}>Title</Text>
         <TextInput
           value={title}

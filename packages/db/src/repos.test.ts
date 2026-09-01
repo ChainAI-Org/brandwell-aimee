@@ -18,6 +18,7 @@ const baseBot = {
   title: "",
   description: "",
   instructions: "",
+  additionalInstructions: "",
   color: "#000",
   notifyOnFinish: true,
   pinned: false,

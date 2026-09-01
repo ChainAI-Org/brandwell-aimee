@@ -18,6 +18,7 @@ function mapBot(
     title: string;
     description: string;
     instructions: string;
+    additionalInstructions: string;
     color: string;
     notifyOnFinish: boolean;
     pinned: boolean;
@@ -52,6 +53,7 @@ function mapBot(
     title: bot.title,
     description: bot.description,
     instructions: bot.instructions,
+    additionalInstructions: bot.additionalInstructions,
     color: bot.color,
     notifyOnFinish: bot.notifyOnFinish,
     pinned: bot.pinned,

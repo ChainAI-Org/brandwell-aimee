@@ -182,7 +182,7 @@ export type MobileBot = Pick<
   | "managedByBrandWell"
   | "managedStatus"
 > &
-  Partial<Pick<Bot, "parentBotId">>;
+  Partial<Pick<Bot, "parentBotId" | "description" | "additionalInstructions">>;
 
 export type MobileBotSection = BotSection;
 

@@ -185,6 +185,30 @@ describe("BrandWell operator computer support", () => {
     expect(auditCreate).toHaveBeenCalled();
   });
 
+  it("keeps an external provider screen URL behind the signed AIMEE proxy", async () => {
+    const prisma = {
+      bot: { findFirst: vi.fn(async () => resource({ kind: "daytona" })) },
+      computerExecutionLease: { findUnique: vi.fn(async () => null) },
+      brandwellAuditLog: { create: vi.fn(async () => ({ id: "audit-1" })) },
+    };
+    const providerUrl =
+      "https://6080-provider-proxy.example/vnc.html?autoconnect=true&provider_token=secret";
+    const harness = deps(prisma, { screenUrl: providerUrl });
+
+    const screen = await getBrandwellSupportScreen(harness.value, {
+      workspaceId: "workspace-1",
+      botId: "bot-1",
+      actor,
+    });
+
+    expect(screen.interactive).toBe(false);
+    expect(screen.url).toMatch(
+      /^https:\/\/aimee\.example\.com\/novnc\/remote\/view\/\d+\.[A-Za-z0-9_-]+\/vnc\.html$/,
+    );
+    expect(screen.url).not.toContain("provider-proxy.example");
+    expect(screen.url).not.toContain("provider_token");
+  });
+
   it("releases only the current operator lease and closes its support session", async () => {
     const sessionUpdateMany = vi.fn(async () => ({ count: 1 }));
     const auditCreate = vi.fn(async () => ({ id: "audit-1" }));

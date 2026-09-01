@@ -600,10 +600,16 @@ export function createRouter(deps: RouterDeps) {
       update: authed.bots.update.handler(async ({ context, input }) => {
         const existing = await repos.getBot(context.actor, input.botId);
         if (existing.managedByBrandWell) {
-          await requireWorkspaceOwner(deps.prisma, context.actor);
-          if (input.modelProvider !== undefined || input.modelId !== undefined) {
+          if (
+            input.instructions !== undefined ||
+            input.memoryScope !== undefined ||
+            input.modelProvider !== undefined ||
+            input.modelId !== undefined ||
+            input.thinkingLevel !== undefined
+          ) {
             throw new ORPCError("FORBIDDEN", {
-              message: "BrandWell manages the model for this AI employee.",
+              message:
+                "BrandWell manages this AI employee's system instructions, model, memory, and computer.",
             });
           }
         }
@@ -665,6 +671,7 @@ export function createRouter(deps: RouterDeps) {
             title: input.title,
             description: input.description,
             instructions: input.instructions,
+            additionalInstructions: input.additionalInstructions,
             notifyOnFinish: input.notifyOnFinish,
             color: input.color,
             pinned: input.pinned,

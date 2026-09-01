@@ -324,7 +324,7 @@ export async function getBrandwellSupportScreen(
       deps.screenProxySecret,
       deps.webOrigin,
       undefined,
-      { proxyExternal: resource.computer.kind === "box" },
+      { proxyExternal: true },
     ),
     interactive,
   };
