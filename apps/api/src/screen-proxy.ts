@@ -3,6 +3,15 @@ import { createCipheriv, createHash, createHmac, randomBytes } from "node:crypto
 const SCREEN_PROXY_TTL_MS = 60 * 60_000;
 const SCREEN_PROXY_CIPHER = "aes-256-gcm";
 const SCREEN_PROXY_REMOTE_PREFIX = "/novnc/remote";
+const SCREEN_CLIENT_QUERY_PARAMS = [
+  "autoconnect",
+  "resize",
+  "reconnect",
+  "reconnect_delay",
+  "show_dot",
+  "shared",
+  "password",
+] as const;
 
 export interface ScreenProxyOptions {
   /** Keep provider desktop secrets server-side and enforce the view/control policy in the proxy. */
@@ -23,7 +32,8 @@ export function addScreenProxyCapability(
       const policy = parsed.searchParams.get("view_only") === "false" ? "control" : "view";
       const token = sealScreenTarget(parsed.toString(), secret, policy, expiresAt);
       const origin = new URL(proxyOrigin).origin;
-      return `${origin}${SCREEN_PROXY_REMOTE_PREFIX}/${policy}/${expiresAt}.${token}${parsed.pathname || "/"}`;
+      const clientSearch = safeScreenClientSearch(parsed, policy);
+      return `${origin}${SCREEN_PROXY_REMOTE_PREFIX}/${policy}/${expiresAt}.${token}${parsed.pathname || "/"}${clientSearch}`;
     }
     if (parsed.protocol !== "http:" || !parsed.hostname || !parsed.port) return url;
     const expiresAt = now + SCREEN_PROXY_TTL_MS;
@@ -38,6 +48,17 @@ export function addScreenProxyCapability(
   } catch {
     return url;
   }
+}
+
+function safeScreenClientSearch(parsed: URL, policy: "view" | "control") {
+  const clientParams = new URLSearchParams();
+  for (const name of SCREEN_CLIENT_QUERY_PARAMS) {
+    const value = parsed.searchParams.get(name);
+    if (value != null) clientParams.set(name, value);
+  }
+  clientParams.set("view_only", policy === "view" ? "true" : "false");
+  const query = clientParams.toString();
+  return query ? `?${query}` : "";
 }
 
 function sealScreenTarget(

@@ -26,7 +26,7 @@ describe("screen proxy capability", () => {
   it("keeps external desktop secrets behind an encrypted, policy-bound capability", () => {
     const result = new URL(
       addScreenProxyCapability(
-        "https://box.example/vnc.html?token=provider-token&view_only=true",
+        "https://box.example/vnc.html?token=provider-token&autoconnect=true&resize=scale&password=desktop-password&view_only=true",
         "secret",
         "https://app.example",
         100,
@@ -35,6 +35,11 @@ describe("screen proxy capability", () => {
     );
     expect(result.origin).toBe("https://app.example");
     expect(result.pathname).toMatch(/^\/novnc\/remote\/view\/3600100\.[\w-]+\/vnc\.html$/);
+    expect(result.searchParams.get("autoconnect")).toBe("true");
+    expect(result.searchParams.get("resize")).toBe("scale");
+    expect(result.searchParams.get("password")).toBe("desktop-password");
+    expect(result.searchParams.get("view_only")).toBe("true");
     expect(result.toString()).not.toContain("provider-token");
+    expect(result.searchParams.has("token")).toBe(false);
   });
 });
