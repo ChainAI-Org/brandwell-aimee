@@ -1,4 +1,4 @@
-{$RAKAZO_HOST:app.example.com}, ai.brandwell.ai, staging-ai.brandwell.ai {
+{$RAKAZO_HOST:app.example.com} {
 	encode zstd gzip
 
 	handle /health {
@@ -23,5 +23,61 @@
 
 	handle {
 		reverse_proxy web:5173
+	}
+}
+
+ai.brandwell.ai {
+	encode zstd gzip
+
+	handle /health {
+		reverse_proxy {$BRANDWELL_PRODUCTION_API_UPSTREAM:brandwell-aimee-production-api-1:3100}
+	}
+
+	handle /ready {
+		reverse_proxy {$BRANDWELL_PRODUCTION_API_UPSTREAM:brandwell-aimee-production-api-1:3100}
+	}
+
+	handle /api/* {
+		reverse_proxy {$BRANDWELL_PRODUCTION_API_UPSTREAM:brandwell-aimee-production-api-1:3100}
+	}
+
+	handle /rpc/* {
+		reverse_proxy {$BRANDWELL_PRODUCTION_API_UPSTREAM:brandwell-aimee-production-api-1:3100}
+	}
+
+	handle /internal/* {
+		reverse_proxy {$BRANDWELL_PRODUCTION_API_UPSTREAM:brandwell-aimee-production-api-1:3100}
+	}
+
+	handle {
+		reverse_proxy {$BRANDWELL_PRODUCTION_WEB_UPSTREAM:brandwell-aimee-production-web-1:5173}
+	}
+}
+
+staging-ai.brandwell.ai {
+	encode zstd gzip
+
+	handle /health {
+		reverse_proxy {$BRANDWELL_STAGING_API_UPSTREAM:brandwell-aimee-staging-api-1:3100}
+	}
+
+	handle /ready {
+		reverse_proxy {$BRANDWELL_STAGING_API_UPSTREAM:brandwell-aimee-staging-api-1:3100}
+	}
+
+	handle /api/* {
+		reverse_proxy {$BRANDWELL_STAGING_API_UPSTREAM:brandwell-aimee-staging-api-1:3100}
+	}
+
+	handle /rpc/* {
+		reverse_proxy {$BRANDWELL_STAGING_API_UPSTREAM:brandwell-aimee-staging-api-1:3100}
+	}
+
+	handle /internal/* {
+		reverse_proxy {$BRANDWELL_STAGING_API_UPSTREAM:brandwell-aimee-staging-api-1:3100}
+	}
+
+	handle {
+		reverse_proxy {$BRANDWELL_STAGING_WEB_UPSTREAM:brandwell-aimee-staging-web-1:5173}
 	}
 }

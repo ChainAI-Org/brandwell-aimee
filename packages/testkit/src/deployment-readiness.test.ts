@@ -15,7 +15,10 @@ describe("BrandWell deployment readiness gates", () => {
     expect(script).toContain("'\"ok\":true'");
     expect(script).toMatch(/grep -Fq .*revision.*expected_sha/);
     expect(script).toMatch(/git fetch --no-tags origin "\$\{DEPLOY_SHA\}"/);
-    expect(script).toContain("up -d --force-recreate --no-deps caddy");
+    expect(script).toContain("ensure_proxy_route");
+    expect(script).toContain("docker network connect");
+    expect(script).toContain("caddy reload --config /etc/caddy/Caddyfile");
+    expect(script).toContain("Active proxy does not use this deployment's Caddyfile");
     expect(script).not.toContain("DEFAULT_HEALTH_URL");
   });
 
@@ -43,8 +46,18 @@ describe("BrandWell deployment readiness gates", () => {
     expect(compose).toMatch(
       /worker:[\s\S]*?environment:\s+NODE_ENV: production\s+GIT_SHA: \$\{GIT_SHA:-\}/,
     );
-    expect(caddy).toMatch(/handle \/ready \{\s+reverse_proxy api:3100\s+\}/);
+    expect(caddy).toMatch(
+      /\{\$RAKAZO_HOST:app\.example\.com\}[\s\S]*?handle \/ready \{\s+reverse_proxy api:3100\s+\}/,
+    );
     expect(caddy).toContain("ai.brandwell.ai");
     expect(caddy).toContain("staging-ai.brandwell.ai");
+    expect(caddy).toContain(
+      "{$BRANDWELL_PRODUCTION_API_UPSTREAM:brandwell-aimee-production-api-1:3100}",
+    );
+    expect(caddy).toContain("{$BRANDWELL_STAGING_API_UPSTREAM:brandwell-aimee-staging-api-1:3100}");
+    expect(caddy).toContain(
+      "{$BRANDWELL_PRODUCTION_WEB_UPSTREAM:brandwell-aimee-production-web-1:5173}",
+    );
+    expect(caddy).toContain("{$BRANDWELL_STAGING_WEB_UPSTREAM:brandwell-aimee-staging-web-1:5173}");
   });
 });
