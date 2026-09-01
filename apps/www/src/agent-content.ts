@@ -1,8 +1,8 @@
-export const HOME_MARKDOWN = `# BrandWell's AIMEE
+export const HOME_MARKDOWN = `# AIMEE
 
 > Done-for-you AI employees for persistent work across your connected tools.
 
-BrandWell's AIMEE gives each AI employee a dedicated computer, sandboxed browser, managed model access, skills, and repeatable routines. AIMEE can work on a schedule and pauses for approval when a task crosses a boundary you set. BrandWell configures managed client and Sidekick workspaces through one control plane.
+AIMEE gives each AI employee a dedicated computer, sandboxed browser, managed model access, skills, and repeatable routines. AIMEE can work on a schedule and pauses for approval when a task crosses a boundary you set. BrandWell configures managed client and Sidekick workspaces through one control plane.
 
 ## Best-fit jobs
 
@@ -25,9 +25,9 @@ BrandWell's AIMEE gives each AI employee a dedicated computer, sandboxed browser
 - [Sitemap](https://aimee.brandwell.ai/sitemap-index.xml)
 `;
 
-export const ABOUT_MARKDOWN = `# About BrandWell's AIMEE
+export const ABOUT_MARKDOWN = `# About AIMEE
 
-BrandWell's AIMEE is a platform for persistent AI employees that can use a browser and shell, remember the work around a job, run routines on a schedule, and ask for approval when they reach a boundary. It is designed for practical operational work rather than one-off chat.
+AIMEE is a platform for persistent AI employees that can use a browser and shell, remember the work around a job, run routines on a schedule, and ask for approval when they reach a boundary. It is designed for practical operational work rather than one-off chat.
 
 The project started from a simple premise: useful agents should be understandable and controllable by the people who run them. AIMEE keeps routines in readable Markdown, supports multiple model providers, records actions in an audit log, and lets operators control model keys, browser sessions, and deployment infrastructure.
 
@@ -49,14 +49,14 @@ Hosted users can permanently delete their account and associated personal worksp
 
 export const PRIVACY_MARKDOWN = `# BrandWell AIMEE privacy
 
-BrandWell's AIMEE is covered by the [BrandWell Privacy Policy and Consumer Data Notice](https://brandwell.ai/privacy-policy/). That policy is the governing privacy notice and explains BrandWell's collection, use, disclosure, retention, security, and privacy-rights practices.
+AIMEE is covered by the [BrandWell Privacy Policy and Consumer Data Notice](https://brandwell.ai/privacy-policy/). That policy is the governing privacy notice and explains BrandWell's collection, use, disclosure, retention, security, and privacy-rights practices.
 
 The information AIMEE handles depends on the workspace, connected services, instructions, and features a customer uses. AIMEE may process account information, workspace content, model requests, connection data, files, browser or computer activity, support records, billing details, and the technical records needed to operate and secure the service. Connected model providers, applications, and customer-directed destinations may also process information under their own terms and notices.
 
 A third party that operates a self-hosted AIMEE deployment controls that deployment and is responsible for its own privacy practices. Use the contact methods in the [BrandWell Privacy Policy](https://brandwell.ai/privacy-policy/) for privacy requests.
 `;
 
-export const AGENT_INSTRUCTIONS = `# BrandWell's AIMEE
+export const AGENT_INSTRUCTIONS = `# AIMEE
 
 > Done-for-you AI employees with managed skills, model access, and dedicated computers.
 

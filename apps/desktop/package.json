@@ -30,7 +30,7 @@
   },
   "build": {
     "appId": "ai.brandwell.aimee.desktop",
-    "productName": "BrandWell's AIMEE",
+    "productName": "AIMEE",
     "copyright": "Copyright © BrandWell",
     "artifactName": "BrandWell-AIMEE-${version}-${os}-${arch}.${ext}",
     "directories": {

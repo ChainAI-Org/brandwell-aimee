@@ -161,7 +161,10 @@ export class DaytonaSandboxProvider implements SandboxProvider {
         envVars: {
           VNC_RESOLUTION: this.provisioning.vncResolution ?? "1280x800",
           ...(this.provisioning.locale
-            ? { LANG: this.provisioning.locale, LC_ALL: this.provisioning.locale }
+            ? {
+                LANG: this.provisioning.locale,
+                LC_ALL: this.provisioning.locale,
+              }
             : {}),
           ...(this.provisioning.timezone ? { TZ: this.provisioning.timezone } : {}),
         },
@@ -890,6 +893,8 @@ export class DaytonaSandboxProvider implements SandboxProvider {
 export function managedDesktopBrandingCommand(): string {
   return [
     'current_user="$(id -un 2>/dev/null || true)"',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: Shell parameter expansion is intentional.
+    'home_dir="${HOME:-$(getent passwd "$current_user" 2>/dev/null | cut -d: -f6)}"',
     'if test -n "$current_user" && command -v getent >/dev/null 2>&1; then',
     '  current_name="$(getent passwd "$current_user" 2>/dev/null | cut -d: -f5 | cut -d, -f1)"',
     '  if test "$current_name" != "AIMEE"; then',
@@ -900,12 +905,58 @@ export function managedDesktopBrandingCommand(): string {
     "    fi",
     "  fi",
     "fi",
+    'wallpaper_svg="$home_dir/.local/share/backgrounds/aimee-desktop.svg"',
+    'wallpaper_png="$home_dir/.local/share/backgrounds/aimee-desktop.png"',
+    'wallpaper="$wallpaper_svg"',
+    'panel_dir="$home_dir/.config/xfce4/panel"',
+    'mkdir -p "$(dirname "$wallpaper_svg")" "$panel_dir/launcher-13" "$panel_dir/launcher-14" "$panel_dir/launcher-15"',
+    `printf '%s\\n' '<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#090611"/><stop offset="0.52" stop-color="#160a29"/><stop offset="1" stop-color="#090611"/></linearGradient><radialGradient id="glow" cx="50%" cy="45%" r="48%"><stop offset="0" stop-color="#7c3aed" stop-opacity="0.33"/><stop offset="1" stop-color="#7c3aed" stop-opacity="0"/></radialGradient></defs><rect width="1440" height="900" fill="url(#bg)"/><rect width="1440" height="900" fill="url(#glow)"/><path d="M-80 660 C260 360 470 780 790 470 S1260 240 1510 510" fill="none" stroke="#8b5cf6" stroke-opacity="0.22" stroke-width="3"/><path d="M-50 760 C300 500 520 850 860 560 S1250 350 1490 620" fill="none" stroke="#ec4899" stroke-opacity="0.13" stroke-width="2"/><circle cx="720" cy="405" r="74" fill="#6d28d9" fill-opacity="0.24" stroke="#a78bfa" stroke-opacity="0.7" stroke-width="2"/><circle cx="694" cy="398" r="8" fill="#f5f3ff"/><circle cx="746" cy="398" r="8" fill="#f5f3ff"/><path d="M690 431 Q720 451 750 431" fill="none" stroke="#f5f3ff" stroke-width="5" stroke-linecap="round"/><text x="720" y="535" text-anchor="middle" fill="#f8f7ff" font-family="Inter,Arial,sans-serif" font-size="64" font-weight="700" letter-spacing="10">AIMEE</text><text x="720" y="580" text-anchor="middle" fill="#c4b5fd" font-family="Inter,Arial,sans-serif" font-size="17" font-weight="600" letter-spacing="6">YOUR AI EMPLOYEE</text></svg>' > "$wallpaper_svg"`,
+    "if command -v rsvg-convert >/dev/null 2>&1; then",
+    '  rsvg-convert -w 1440 -h 900 "$wallpaper_svg" -o "$wallpaper_png" >/dev/null 2>&1 || true',
+    "elif command -v magick >/dev/null 2>&1; then",
+    '  magick -background none "$wallpaper_svg" "$wallpaper_png" >/dev/null 2>&1 || true',
+    "elif command -v convert >/dev/null 2>&1; then",
+    '  convert -background none "$wallpaper_svg" "$wallpaper_png" >/dev/null 2>&1 || true',
+    "fi",
+    'test -s "$wallpaper_png" && wallpaper="$wallpaper_png"',
+    `printf '%s\\n' '[Desktop Entry]' 'Version=1.0' 'Type=Application' 'Name=Terminal' 'Comment=Open Terminal' 'Exec=xfce4-terminal' 'Icon=utilities-terminal' 'Terminal=false' > "$panel_dir/launcher-13/17879567031.desktop"`,
+    `printf '%s\\n' '[Desktop Entry]' 'Version=1.0' 'Type=Application' 'Name=Files' 'Comment=Open Files' 'Exec=thunar' 'Icon=system-file-manager' 'Terminal=false' > "$panel_dir/launcher-14/17879567032.desktop"`,
+    `printf '%s\\n' '[Desktop Entry]' 'Version=1.0' 'Type=Application' 'Name=Google Chrome' 'Comment=Open Google Chrome' 'Exec=google-chrome --no-first-run --no-default-browser-check --disable-session-crashed-bubble --disable-gpu --disable-dev-shm-usage --disable-extensions --password-store=basic %U' 'Icon=google-chrome' 'Terminal=false' > "$panel_dir/launcher-15/17879567033.desktop"`,
+    'panel_pid="$(pgrep -o xfce4-panel 2>/dev/null || true)"',
+    'if test -n "$panel_pid" && test -r "/proc/$panel_pid/environ"; then',
+    '  session_env="$(strings "/proc/$panel_pid/environ" 2>/dev/null || true)"',
+    '  session_display="$(printf "%s\\n" "$session_env" | sed -n "s/^DISPLAY=//p" | head -n 1)"',
+    '  session_bus="$(printf "%s\\n" "$session_env" | sed -n "s/^DBUS_SESSION_BUS_ADDRESS=//p" | head -n 1)"',
+    '  test -n "$session_display" && export DISPLAY="$session_display"',
+    '  test -n "$session_bus" && export DBUS_SESSION_BUS_ADDRESS="$session_bus"',
+    "fi",
     "if command -v xfconf-query >/dev/null 2>&1; then",
-    '  xfconf-query -c xfce4-panel -l 2>/dev/null | sed -n "s#^\\(/plugins/plugin-[0-9][0-9]*\\)$#\\1#p" | while read -r plugin; do',
-    '    test "$(xfconf-query -c xfce4-panel -p "$plugin" 2>/dev/null)" = "actions" || continue',
-    '    xfconf-query -c xfce4-panel -p "$plugin/button-title" -s 3 >/dev/null 2>&1 || xfconf-query -c xfce4-panel -p "$plugin/button-title" -n -t uint -s 3 >/dev/null 2>&1 || true',
-    '    xfconf-query -c xfce4-panel -p "$plugin/custom-title" -s "AIMEE" >/dev/null 2>&1 || xfconf-query -c xfce4-panel -p "$plugin/custom-title" -n -t string -s "AIMEE" >/dev/null 2>&1 || true',
+    "  xfconf-query -c xfce4-panel -p /plugins/plugin-10/button-title -n -t uint -s 3 >/dev/null 2>&1 || xfconf-query -c xfce4-panel -p /plugins/plugin-10/button-title -s 3 >/dev/null 2>&1 || true",
+    '  xfconf-query -c xfce4-panel -p /plugins/plugin-10/custom-title -n -t string -s "AIMEE" >/dev/null 2>&1 || xfconf-query -c xfce4-panel -p /plugins/plugin-10/custom-title -s "AIMEE" >/dev/null 2>&1 || true',
+    "  xfconf-query -c xfce4-panel -p /panels/panel-2/plugin-ids -a -t int -s 15 -t int -s 13 -t int -s 14 >/dev/null 2>&1 || true",
+    "  xfconf-query -c xfce4-panel -p /panels/panel-2/autohide-behavior -s 0 >/dev/null 2>&1 || true",
+    "  xfconf-query -c xfce4-panel -p /panels/panel-2/size -s 58 >/dev/null 2>&1 || true",
+    "  xfconf-query -c xfce4-panel -p /panels/panel-2/icon-size -n -t uint -s 42 >/dev/null 2>&1 || xfconf-query -c xfce4-panel -p /panels/panel-2/icon-size -s 42 >/dev/null 2>&1 || true",
+    "  xfconf-query -c xfce4-panel -p /panels/panel-2/background-style -n -t uint -s 1 >/dev/null 2>&1 || xfconf-query -c xfce4-panel -p /panels/panel-2/background-style -s 1 >/dev/null 2>&1 || true",
+    "  xfconf-query -c xfce4-panel -p /panels/panel-2/background-rgba -n -a -t double -s 0.055 -t double -s 0.035 -t double -s 0.10 -t double -s 0.94 >/dev/null 2>&1 || true",
+    "  xfconf-query -c xfce4-panel -p /panels/panel-2/enter-opacity -n -t uint -s 100 >/dev/null 2>&1 || xfconf-query -c xfce4-panel -p /panels/panel-2/enter-opacity -s 100 >/dev/null 2>&1 || true",
+    "  xfconf-query -c xfce4-panel -p /panels/panel-2/leave-opacity -n -t uint -s 94 >/dev/null 2>&1 || xfconf-query -c xfce4-panel -p /panels/panel-2/leave-opacity -s 94 >/dev/null 2>&1 || true",
+    "  for monitor in monitor0 monitor1; do",
+    "    for property in image-path last-image last-single-image; do",
+    '      key="/backdrop/screen0/$monitor/$property"',
+    '      xfconf-query -c xfce4-desktop -p "$key" -s "$wallpaper" >/dev/null 2>&1 || xfconf-query -c xfce4-desktop -p "$key" -n -t string -s "$wallpaper" >/dev/null 2>&1 || true',
+    "    done",
+    '    key="/backdrop/screen0/$monitor/image-style"',
+    '    xfconf-query -c xfce4-desktop -p "$key" -s 5 >/dev/null 2>&1 || xfconf-query -c xfce4-desktop -p "$key" -n -t int -s 5 >/dev/null 2>&1 || true',
     "  done",
+    "  if command -v feh >/dev/null 2>&1; then",
+    "    xfdesktop --quit >/dev/null 2>&1 || true",
+    "    pkill xfdesktop >/dev/null 2>&1 || true",
+    '    feh --no-fehbg --bg-fill "$wallpaper" >/dev/null 2>&1 || true',
+    "  else",
+    "    xfdesktop --reload >/dev/null 2>&1 || true",
+    "  fi",
+    "  xfce4-panel -r >/dev/null 2>&1 || true",
     "fi",
     "exit 0",
   ].join("\n");
@@ -995,7 +1046,10 @@ async function configurePortableBrowserProfiles(sandbox: Sandbox, root: string):
       (result) => result.exitCode === 0,
       () => false,
     );
-  if (configured) return false;
+  if (configured) {
+    await ensureChromeFirstRunComplete(sandbox, chrome);
+    return false;
+  }
   await stopDaytonaBrowsers(sandbox);
   const result = await sandbox.process.executeCommand(
     [
@@ -1009,7 +1063,17 @@ async function configurePortableBrowserProfiles(sandbox: Sandbox, root: string):
   if (result.exitCode !== 0) {
     throw new Error(result.result || "could not configure portable Daytona browser profiles");
   }
+  await ensureChromeFirstRunComplete(sandbox, chrome);
   return true;
+}
+
+async function ensureChromeFirstRunComplete(sandbox: Sandbox, chrome: string): Promise<void> {
+  const result = await sandbox.process.executeCommand(
+    `mkdir -p ${shellQuote(chrome)} && touch ${shellQuote(path.posix.join(chrome, "First Run"))}`,
+  );
+  if (result.exitCode !== 0) {
+    throw new Error(result.result || "could not suppress the managed Chrome first-run prompt");
+  }
 }
 
 async function stopDaytonaBrowsers(sandbox: Sandbox): Promise<void> {
@@ -1028,7 +1092,11 @@ async function launchDaytonaApplication(
     `export DISPLAY=${shellQuote(display)}`,
     `for app in ${candidates.map(shellQuote).join(" ")}; do`,
     '  if command -v "$app" >/dev/null 2>&1; then',
-    `    nohup "$app"${uri ? ` ${shellQuote(uri)}` : ""} >/tmp/rakazo-app.log 2>&1 &`,
+    '    case "$app" in',
+    '      google-chrome|google-chrome-stable|chromium|chromium-browser) browser_flags="--no-first-run --no-default-browser-check --disable-session-crashed-bubble --disable-gpu --disable-dev-shm-usage --disable-extensions --password-store=basic" ;;',
+    '      *) browser_flags="" ;;',
+    "    esac",
+    `    nohup "$app" $browser_flags${uri ? ` ${shellQuote(uri)}` : ""} >/tmp/rakazo-app.log 2>&1 &`,
     "    exit 0",
     "  fi",
     "done",

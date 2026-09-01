@@ -100,8 +100,11 @@ describe("DaytonaSandboxProvider", () => {
     expect(observation.image).toEqual(Uint8Array.from([1, 2, 3]));
     expect(
       fixture.executeCommand.mock.calls.some(([command]) =>
-        String(command).includes('custom-title" -s "AIMEE"'),
+        String(command).includes("/plugins/plugin-10/custom-title"),
       ),
+    ).toBe(true);
+    expect(
+      fixture.executeCommand.mock.calls.some(([command]) => String(command).includes("First Run")),
     ).toBe(true);
 
     const result = await provider.act(
@@ -129,6 +132,11 @@ describe("DaytonaSandboxProvider", () => {
         String(command).includes("export DISPLAY=':0'"),
       ),
     ).toBe(true);
+    expect(
+      fixture.executeCommand.mock.calls.some(([command]) =>
+        String(command).includes("--disable-session-crashed-bubble"),
+      ),
+    ).toBe(true);
 
     const [screen, interactiveScreen] = await Promise.all([
       provider.connectScreen(computer, { view: "stream", interactive: false }, context),
@@ -145,12 +153,18 @@ describe("DaytonaSandboxProvider", () => {
     expect(fixture.stop).toHaveBeenCalledWith(120);
   });
 
-  it("replaces the provider account label with the managed AIMEE desktop identity", () => {
+  it("replaces the provider desktop with the managed AIMEE identity and application dock", () => {
     const command = managedDesktopBrandingCommand();
     expect(command).toContain('usermod -c "AIMEE"');
-    expect(command).toContain('button-title" -s 3');
-    expect(command).toContain('custom-title" -s "AIMEE"');
-    expect(command).not.toContain('custom-title" -s "daytona"');
+    expect(command).toContain("/plugins/plugin-10/button-title");
+    expect(command).toContain("/plugins/plugin-10/custom-title");
+    expect(command).toContain("aimee-desktop.svg");
+    expect(command).toContain("Name=Google Chrome");
+    expect(command).toContain("Icon=google-chrome");
+    expect(command).toContain("--disable-extensions");
+    expect(command).toContain('feh --no-fehbg --bg-fill "$wallpaper"');
+    expect(command).toContain("/panels/panel-2/plugin-ids");
+    expect(command).not.toContain("daytona");
   });
 
   it("reconnects stopped sandboxes and replaces missing ones", async () => {
@@ -230,7 +244,10 @@ describe("DaytonaSandboxProvider", () => {
     const fixture = daytonaFixture();
     const provider = new DaytonaSandboxProvider({ apiKey: "test-key" }, fixture.client);
     const computer = await provider.provision({ botId: "bot-a", homePath: "/unused" }, context);
-    fixture.takeFullScreen.mockRejectedValueOnce({ statusCode: 500, message: "unexpected EOF" });
+    fixture.takeFullScreen.mockRejectedValueOnce({
+      statusCode: 500,
+      message: "unexpected EOF",
+    });
 
     await expect(provider.observe(computer, context)).resolves.toMatchObject({
       mimeType: "image/png",

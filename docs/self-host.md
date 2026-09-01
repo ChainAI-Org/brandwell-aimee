@@ -47,7 +47,7 @@ E2B_API_KEY=              # when SANDBOX_PROVIDER=e2b
 DAYTONA_API_KEY=          # when SANDBOX_PROVIDER=daytona
 DAYTONA_API_URL=https://app.daytona.io/api
 DAYTONA_TARGET=us
-DAYTONA_SNAPSHOT=brandwell-aimee-browser-v1
+DAYTONA_SNAPSHOT=brandwell-aimee-browser-v2
 DAYTONA_AUTO_STOP_INTERVAL=15
 DAYTONA_AUTO_ARCHIVE_INTERVAL=10080
 DAYTONA_AUTO_DELETE_INTERVAL=-1
@@ -94,7 +94,7 @@ service host.
 
 - **Docker** is the default for local use and the quickest self-hosted setup. Workspace bots share a persistent Team Computer by default; Private computers are optional. Keep the supervisor private, as the included Compose file does.
 - **E2B** runs AI employee computers away from the AIMEE host and is the recommended choice for public or multi-user production deployments. AIMEE checkpoints the portable workspace and browser-profile directory to `DATA_DIR`; the E2B disk is a runtime cache, not the durable source of truth.
-- **Daytona** provides the same remote-computer contract through Daytona sandboxes. Configure `DAYTONA_API_KEY` and optionally `DAYTONA_API_URL`, `DAYTONA_TARGET`, and `DAYTONA_SNAPSHOT`. Lifecycle settings use minutes. Keep `DAYTONA_AUTO_DELETE_INTERVAL=-1` for managed client computers, and let the application stop idle computers through both `SANDBOX_IDLE_MS` and `DAYTONA_AUTO_STOP_INTERVAL`. The BrandWell staging baseline is 2 vCPU, 4 GiB memory, and 10 GiB disk because 10 GiB is the current account limit. The `brandwell-aimee-browser-v1` snapshot includes Google Chrome Stable, a fresh per-sandbox browser profile, the ColorZilla extension, common command-line utilities, fonts, image tools, and PDF tools. Daytona's native computer-use API provides screenshots, so no screenshot extension is required.
+- **Daytona** provides the same remote-computer contract through Daytona sandboxes. Configure `DAYTONA_API_KEY` and optionally `DAYTONA_API_URL`, `DAYTONA_TARGET`, and `DAYTONA_SNAPSHOT`. Lifecycle settings use minutes. Keep `DAYTONA_AUTO_DELETE_INTERVAL=-1` for managed client computers, and let the application stop idle computers through both `SANDBOX_IDLE_MS` and `DAYTONA_AUTO_STOP_INTERVAL`. The BrandWell staging baseline is 2 vCPU, 4 GiB memory, and 10 GiB disk because 10 GiB is the current account limit. The `brandwell-aimee-browser-v2` snapshot includes Google Chrome Stable, the AIMEE desktop wallpaper dependency, common command-line utilities, fonts, image tools, and PDF tools. AIMEE creates a clean per-computer Chrome profile, launches Chrome with extensions disabled for stability, and presents a branded dock with real application icons. Daytona's native computer-use API provides screenshots, so no screenshot extension is required.
 - **Box by ASCII** provides a managed Linux desktop through `BOX_API_KEY` and optionally `BOX_API_URL`. AIMEE always creates or resumes boxes with `noEnv: true`, keeps the portable workspace under `/home/user/rakazo-home`, and refreshes a two-hour TTL. A Box currently exposes one shared desktop, so concurrent Team AI employees can still use shell and files but only one can use graphical tools at a time.
 - **Desktop provider** / **This Mac** runs commands on the API/worker host. Docker stays the default. Enable `SANDBOX_PROVIDER=desktop` deliberately for a trusted single-user host; the managed Electron app does not select it. Do not enable it on a public or shared service. macOS does not show its own permission dialog for this.
 - **Fake** is only an emulator for verification.

@@ -105,12 +105,12 @@ describe("desktop release workflow", () => {
   });
 
   it("publishes branded artifacts to the ChainAI organization update channel", () => {
-    expect(desktopPackage.build.productName).toBe("BrandWell's AIMEE");
+    expect(desktopPackage.build.productName).toBe("AIMEE");
     expect(desktopPackage.build.publish).toEqual([
       { provider: "github", owner: "ChainAI-Org", repo: "brandwell-aimee" },
     ]);
-    expect(workflow).toContain("BrandWell's AIMEE.app");
-    expect(workflow).toContain('--title "BrandWell\'s AIMEE $RELEASE_TAG"');
+    expect(workflow).toContain("AIMEE.app");
+    expect(workflow).toContain('--title "AIMEE $RELEASE_TAG"');
     expect(workflow).not.toMatch(/\bRakazo\b/);
   });
 

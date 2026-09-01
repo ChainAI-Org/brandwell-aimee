@@ -99,10 +99,18 @@ try {
   await primeWarmCache(benchmark, warmProfile);
   const warmLaunches = [];
   for (let index = 0; index < launchSamples; index += 1) {
-    warmLaunches.push(await measureLaunch(benchmark, { profile: warmProfile, clearCache: false }));
+    warmLaunches.push(
+      await measureLaunch(benchmark, {
+        profile: warmProfile,
+        clearCache: false,
+      }),
+    );
   }
 
-  const interactive = await launchDesktop(benchmark, { profile: warmProfile, clearCache: false });
+  const interactive = await launchDesktop(benchmark, {
+    profile: warmProfile,
+    clearCache: false,
+  });
   let interactions: Awaited<ReturnType<typeof measureInteractions>>;
   try {
     interactions = await measureInteractions(interactive.app, interactive.page);
@@ -270,8 +278,12 @@ async function prepareAuthenticatedProfile(benchmark: BenchmarkContext, profile:
           { cause: error },
         );
       });
-    const connectHeading = page.getByRole("heading", { name: "Connect a model" });
-    const createHeading = page.getByRole("heading", { name: "Create your first bot" });
+    const connectHeading = page.getByRole("heading", {
+      name: "Connect a model",
+    });
+    const createHeading = page.getByRole("heading", {
+      name: "Create your first bot",
+    });
     const benchmarkBot = page.getByText("Benchmark", { exact: true }).first();
     await connectHeading.or(createHeading).or(benchmarkBot).waitFor({ timeout: 20_000 });
     if (await connectHeading.isVisible().catch(() => false)) {
@@ -283,7 +295,7 @@ async function prepareAuthenticatedProfile(benchmark: BenchmarkContext, profile:
       await page.getByRole("button", { name: "Continue" }).click();
       await page.getByText("A bit of everything", { exact: true }).click();
       await page.getByText("Clear and tight", { exact: true }).click();
-      await page.getByRole("button", { name: "Open BrandWell's AIMEE" }).click();
+      await page.getByRole("button", { name: "Open AIMEE" }).click();
     }
     await waitForShell(page);
   } finally {
@@ -319,12 +331,19 @@ async function seedBenchmarkThread(prisma: PrismaClient) {
             "",
             "`pnpm check && pnpm test`",
           ].join("\n");
-    await createThreadMessage(prisma, { threadId, role, blocks: [{ kind: "text", text }] });
+    await createThreadMessage(prisma, {
+      threadId,
+      role,
+      blocks: [{ kind: "text", text }],
+    });
   }
 }
 
 async function primeWarmCache(benchmark: BenchmarkContext, profile: string) {
-  const launched = await launchDesktop(benchmark, { profile, clearCache: false });
+  const launched = await launchDesktop(benchmark, {
+    profile,
+    clearCache: false,
+  });
   await launched.app.close();
 }
 
@@ -750,7 +769,7 @@ function environmentFingerprint(versions: { electron?: string; chrome?: string }
 
 async function measureBundles() {
   const web = await directorySize(path.join(webRoot, "dist"));
-  const applications = await findNamed(path.join(desktopRoot, "out"), "BrandWell's AIMEE.app");
+  const applications = await findNamed(path.join(desktopRoot, "out"), "AIMEE.app");
   const desktop = applications[0] ? await directorySize(applications[0]) : null;
   return { web, desktop };
 }
@@ -814,7 +833,7 @@ function roundedSummary(values: number[]): NumericSummary {
 
 function renderMarkdown(report: PerformanceReport) {
   const summary = report.summary;
-  return `# BrandWell's AIMEE desktop performance: ${report.label}
+  return `# AIMEE desktop performance: ${report.label}
 
 - Commit: \`${report.environment.gitSha.slice(0, 12)}\`
 - Platform: ${report.environment.platform}/${report.environment.arch}

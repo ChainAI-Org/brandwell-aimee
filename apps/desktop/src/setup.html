@@ -6,20 +6,22 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; form-action 'none'; base-uri 'none'"
     />
-    <title>Set up BrandWell's AIMEE</title>
+    <title>Set up AIMEE</title>
     <link rel="stylesheet" href="setup.css" />
   </head>
   <body>
     <header class="titlebar">
-      <span class="titlebar-name">BrandWell's AIMEE</span>
-      <button id="quit" class="titlebar-quit" type="button" title="Quit BrandWell's AIMEE">
+      <span class="titlebar-name">AIMEE</span>
+      <button id="quit" class="titlebar-quit" type="button" title="Quit AIMEE">
         Quit
       </button>
     </header>
 
     <main class="shell">
-      <h1 id="setup-heading" class="heading">Welcome to BrandWell's AIMEE</h1>
-      <p id="setup-subheading" class="subheading">Choose which server this app should use.</p>
+      <h1 id="setup-heading" class="heading">Welcome to AIMEE</h1>
+      <p id="setup-subheading" class="subheading">
+        Choose which server this app should use.
+      </p>
 
       <form id="setup" class="card" novalidate>
         <fieldset id="server-choices" class="choices" hidden>
@@ -34,7 +36,12 @@
           </label>
 
           <label class="choice" for="mode-existing">
-            <input id="mode-existing" type="radio" name="mode" value="existing" />
+            <input
+              id="mode-existing"
+              type="radio"
+              name="mode"
+              value="existing"
+            />
             <span class="choice-body">
               <span class="choice-title">Existing instance</span>
               <span class="choice-note">A server you already run.</span>
@@ -44,8 +51,16 @@
 
         <section id="panel-new" class="panel" hidden>
           <label class="field-label" for="local-url">Local address</label>
-          <input id="local-url" class="field" type="text" spellcheck="false" autocomplete="off" />
-          <p class="hint">If it isn’t running yet, start with <code>pnpm dev</code>.</p>
+          <input
+            id="local-url"
+            class="field"
+            type="text"
+            spellcheck="false"
+            autocomplete="off"
+          />
+          <p class="hint">
+            If it isn’t running yet, start with <code>pnpm dev</code>.
+          </p>
         </section>
 
         <section id="panel-existing" class="panel" hidden>
@@ -64,10 +79,17 @@
         <p id="status" class="status" role="status" aria-live="polite"></p>
 
         <div class="actions">
-          <button id="check" class="button button-secondary" type="button" hidden>
+          <button
+            id="check"
+            class="button button-secondary"
+            type="button"
+            hidden
+          >
             Check connection
           </button>
-          <button id="continue" class="button button-primary" type="submit">Continue</button>
+          <button id="continue" class="button button-primary" type="submit">
+            Continue
+          </button>
         </div>
       </form>
 
