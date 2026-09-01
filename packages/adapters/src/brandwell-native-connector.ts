@@ -352,6 +352,176 @@ const ToolDefinitions = [
       .strict(),
   },
   {
+    name: "brandwell_visibility_list_tracked_ai_queries",
+    description:
+      "List the Company Project's tracked AI buyer questions, latest checks, plan limit, and next scheduled checks.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "list_tracked_ai_queries",
+    schema: z.object({ include_archived: z.boolean().default(false) }).strict(),
+  },
+  {
+    name: "brandwell_visibility_suggest_ai_queries",
+    description:
+      "Suggest project-bound AI buyer questions from stored Search Console, keyword, business, and citation evidence without tracking them yet.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "suggest_ai_queries",
+    schema: z.object({ limit: z.number().int().min(1).max(50).default(20) }).strict(),
+  },
+  {
+    name: "brandwell_visibility_track_ai_queries",
+    description:
+      "Add approved buyer questions to the Company Project's tracked AI query portfolio. BrandWell enforces the project plan limit.",
+    readOnly: false,
+    endpoint: "/internal/aimee/visibility/research",
+    remoteTool: "track_ai_queries",
+    schema: z
+      .object({
+        prompts: z.array(z.string().min(1).max(10_000)).min(1).max(50),
+        models: z
+          .array(z.enum(["chat_gpt", "claude", "gemini", "perplexity"]))
+          .min(1)
+          .max(4)
+          .default(["chat_gpt"]),
+      })
+      .strict(),
+  },
+  {
+    name: "brandwell_visibility_update_tracked_ai_query",
+    description:
+      "Pause, resume, archive, or change the model set for one tracked AI buyer question.",
+    readOnly: false,
+    endpoint: "/internal/aimee/visibility/research",
+    remoteTool: "update_tracked_ai_query",
+    schema: z
+      .object({
+        prompt_id: z.number().int().positive(),
+        status: z.enum(["active", "paused", "archived"]).optional(),
+        models: z
+          .array(z.enum(["chat_gpt", "claude", "gemini", "perplexity"]))
+          .min(1)
+          .max(4)
+          .optional(),
+      })
+      .strict()
+      .refine((input) => input.status !== undefined || input.models !== undefined, {
+        message: "A status or model change is required",
+      }),
+  },
+  {
+    name: "brandwell_visibility_check_tracked_ai_query",
+    description:
+      "Run an approved tracked AI buyer question now and store its model answers, brand mentions, citations, and fan-out queries.",
+    readOnly: false,
+    endpoint: "/internal/aimee/visibility/research",
+    remoteTool: "check_tracked_ai_query",
+    timeoutMs: 120_000,
+    schema: z.object({ prompt_id: z.number().int().positive() }).strict(),
+  },
+  {
+    name: "brandwell_rankwell_get_strategy",
+    description:
+      "Check one keyword or buyer question against stored Search Console rankings, keyword research, tracked AI citation gaps, and existing RankWell content before recommending a new article.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "get_rankwell_strategy",
+    schema: z.object({ keyword: z.string().min(1).max(500) }).strict(),
+  },
+  {
+    name: "brandwell_rankwell_list_briefs",
+    description: "List saved RankWell content briefs for this Company Project.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "list_rankwell_briefs",
+    schema: z
+      .object({
+        status: z.enum(["draft", "approved", "converted", "dismissed"]).optional(),
+        limit: z.number().int().min(1).max(100).default(50),
+      })
+      .strict(),
+  },
+  {
+    name: "brandwell_rankwell_create_brief",
+    description:
+      "Create an editable RankWell content brief from an approved keyword or buyer question. This does not publish content.",
+    readOnly: false,
+    endpoint: "/internal/aimee/visibility/research",
+    remoteTool: "create_rankwell_brief",
+    timeoutMs: 120_000,
+    schema: z
+      .object({
+        keyword: z.string().min(1).max(500),
+        title: z.string().min(1).max(300).optional(),
+        audience: z.string().min(1).max(500).optional(),
+        search_intent: z.string().min(1).max(80).optional(),
+        recommended_action: z
+          .enum(["new_article", "optimize_existing", "merge_pages", "no_action"])
+          .optional(),
+      })
+      .strict(),
+  },
+  {
+    name: "brandwell_rankwell_list_articles",
+    description: "List RankWell articles and drafts in this Company Project's Content Hub.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "list_rankwell_articles",
+    schema: z
+      .object({
+        status: z.string().min(1).max(20).optional(),
+        search: z.string().min(1).max(200).optional(),
+        limit: z.number().int().min(1).max(250).default(100),
+      })
+      .strict(),
+  },
+  {
+    name: "brandwell_rankwell_get_article",
+    description:
+      "Read one RankWell article with its scores, keyword evidence, sources, media, brief, and revision history.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "get_rankwell_article",
+    schema: z.object({ article_id: z.string().min(1).max(80) }).strict(),
+  },
+  {
+    name: "brandwell_rankwell_generate_article",
+    description:
+      "Generate an editable RankWell article draft from an approved brief or keyword. This does not publish content.",
+    readOnly: false,
+    endpoint: "/internal/aimee/visibility/research",
+    remoteTool: "generate_rankwell_article",
+    timeoutMs: 120_000,
+    schema: z
+      .object({
+        brief_id: z.string().min(1).max(80).optional(),
+        keyword: z.string().min(1).max(500).optional(),
+        title: z.string().min(1).max(300).optional(),
+        audience: z.string().min(1).max(500).optional(),
+        search_intent: z.string().min(1).max(80).optional(),
+        source_material: z.string().min(1).max(100_000).optional(),
+      })
+      .strict()
+      .refine((input) => Boolean(input.brief_id || input.keyword), {
+        message: "A brief ID or keyword is required",
+      }),
+  },
+  {
+    name: "brandwell_rankwell_refine_article",
+    description:
+      "Create a new revision of an existing RankWell draft from a focused editorial instruction. This does not publish content.",
+    readOnly: false,
+    endpoint: "/internal/aimee/visibility/research",
+    remoteTool: "refine_rankwell_article",
+    timeoutMs: 120_000,
+    schema: z
+      .object({
+        article_id: z.string().min(1).max(80),
+        instruction: z.string().min(1).max(2_000),
+      })
+      .strict(),
+  },
+  {
     name: "brandwell_postcards_create_campaign_draft",
     description:
       "Create an editable postcard campaign draft for this client. It cannot charge, print, mail, or activate the campaign. Manual and TrafficID campaigns default to daily batches. Intent campaigns default to the plan's included Market Refresh cadence.",

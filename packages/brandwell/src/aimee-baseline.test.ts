@@ -6,6 +6,7 @@ import {
   BRANDWELL_AIMEE_SKILLS,
   BRANDWELL_AIMEE_WELCOME,
 } from "./aimee-baseline.js";
+import { BRANDWELL_AIMEE_RANKWELL_SKILLS } from "./aimee-rankwell-skills.js";
 import { BRANDWELL_AIMEE_VISIBILITY_SKILLS } from "./aimee-visibility-skills.js";
 
 describe("AIMEE managed workspace baseline", () => {
@@ -60,11 +61,24 @@ describe("AIMEE managed workspace baseline", () => {
       "BrandWell Link Prospecting",
       "BrandWell AI Citation Analysis",
     ]);
-    expect(BRANDWELL_AIMEE_SKILLS).toHaveLength(18);
-    expect(BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION).toBe(4);
-    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.key)).size).toBe(18);
-    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.name.toLowerCase())).size).toBe(18);
+    expect(BRANDWELL_AIMEE_SKILLS).toHaveLength(20);
+    expect(BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION).toBe(5);
+    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.key)).size).toBe(20);
+    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.name.toLowerCase())).size).toBe(20);
     expect(JSON.stringify(BRANDWELL_AIMEE_VISIBILITY_SKILLS)).not.toMatch(/open[\s-]*seo/i);
+  });
+
+  it("installs project-bound RankWell and AI query portfolio workflows", () => {
+    expect(BRANDWELL_AIMEE_RANKWELL_SKILLS.map((item) => item.name)).toEqual([
+      "BrandWell AI Query Portfolio",
+      "BrandWell RankWell Content Studio",
+    ]);
+    for (const item of BRANDWELL_AIMEE_RANKWELL_SKILLS) {
+      expect(item.content).toContain("Begin with brandwell_visibility_get_project");
+      expect(item.content).toContain("brandwell_rankwell_get_strategy");
+      expect(item.content).toContain("No current RankWell tool publishes content");
+      expect(item.content).not.toMatch(/open[\s-]*seo/i);
+    }
   });
 
   it("keeps every visibility skill project-bound, cache-aware, and explicit about evidence", () => {

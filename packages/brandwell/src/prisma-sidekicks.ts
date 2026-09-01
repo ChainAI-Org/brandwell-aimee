@@ -183,8 +183,19 @@ export async function syncBrandwellWorkspaceDesiredStateWithPrisma(
         409,
       );
     }
+    const shouldRolloutSkillBundle =
+      input.skillBundleVersion === BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION &&
+      Number(mapping.skillBundleVersion ?? 1) < BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION;
+    if (shouldRolloutSkillBundle) {
+      await policyLease.renew();
+      await rolloutBrandwellSkillBundleWithPrisma(workspaceReference, prisma);
+      await policyLease.renew();
+    }
     if (input.revision === mapping.commercialRevision) {
-      return { mapping, replayed: true };
+      const currentMapping = shouldRolloutSkillBundle
+        ? await findMapping(prisma, workspaceReference)
+        : mapping;
+      return { mapping: currentMapping ?? mapping, replayed: !shouldRolloutSkillBundle };
     }
     const counted = await prisma.brandwellSidekick.count({
       where: { aiWorkspaceId: mapping.id, status: { in: COUNTED_SIDEKICK_STATES } },
