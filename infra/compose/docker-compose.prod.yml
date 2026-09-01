@@ -211,6 +211,8 @@ services:
     mem_limit: 256m
     environment:
       RAKAZO_HOST: ${RAKAZO_HOST:-app.example.com}
+    entrypoint:
+      - caddy
     command:
       - run
       - --config
