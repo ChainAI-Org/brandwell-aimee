@@ -19,6 +19,7 @@ describe("BrandWell deployment readiness gates", () => {
     expect(script).toContain("docker network connect");
     expect(script).toContain("caddy reload --config /etc/caddy/Caddyfile");
     expect(script).toContain("Active proxy does not use this deployment's Caddyfile");
+    expect(script).toContain("$" + "{HOME}/.local/state/brandwell-aimee/backups/$" + "{TARGET}");
     expect(script).not.toContain("DEFAULT_HEALTH_URL");
   });
 
@@ -32,6 +33,12 @@ describe("BrandWell deployment readiness gates", () => {
 
     expect(staging).toContain("https://staging-ai.brandwell.ai/ready");
     expect(ci).toContain("https://ai.brandwell.ai/ready");
+    expect(staging).toContain("/srv/rakazo/infra/deploy/deploy-brandwell-revision.sh");
+    expect(staging).toMatch(/deploy-brandwell-revision\.sh \\\s+staging \\\s+"\$DEPLOY_SHA"/);
+    expect(ci).toContain("/srv/rakazo/infra/deploy/deploy-brandwell-revision.sh");
+    expect(ci).toMatch(
+      /deploy-brandwell-revision\.sh \\\s+production \\\s+"\$\{\{ github\.sha \}\}"/,
+    );
     for (const workflow of [staging, ci]) {
       expect(workflow).toContain("JSON.parse");
       expect(workflow).toContain("readiness?.ok !== true");

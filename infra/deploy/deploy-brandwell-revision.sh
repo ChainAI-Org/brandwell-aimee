@@ -28,7 +28,7 @@ fi
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 ENV_FILE="${BRANDWELL_ENV_FILE:-${REPO_DIR}/.env}"
-BACKUP_ROOT="${BRANDWELL_BACKUP_ROOT:-/var/backups/brandwell-aimee-${TARGET}}"
+BACKUP_ROOT="${BRANDWELL_BACKUP_ROOT:-${HOME}/.local/state/brandwell-aimee/backups/${TARGET}}"
 READINESS_URL="${BRANDWELL_READINESS_URL:-${BRANDWELL_HEALTH_URL:-${DEFAULT_READINESS_URL}}}"
 LOCK_FILE="${BRANDWELL_DEPLOY_LOCK_FILE:-/tmp/brandwell-aimee-${TARGET}.lock}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-brandwell-aimee-${TARGET}}"

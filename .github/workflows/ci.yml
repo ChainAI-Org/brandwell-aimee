@@ -141,7 +141,10 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
-            "$SSH_USER@$SSH_HOST" deploy-brandwell-main "${{ github.sha }}"
+            "$SSH_USER@$SSH_HOST" \
+            /srv/rakazo/infra/deploy/deploy-brandwell-revision.sh \
+            production \
+            "${{ github.sha }}"
 
       - name: Verify BrandWell production readiness
         env:
