@@ -28,7 +28,7 @@ fi
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
 ENV_FILE="${BRANDWELL_ENV_FILE:-${REPO_DIR}/.env}"
-BACKUP_ROOT="${BRANDWELL_BACKUP_ROOT:-/var/backups/brandwell-aimee-${TARGET}}"
+BACKUP_ROOT="${BRANDWELL_BACKUP_ROOT:-${HOME}/.local/state/brandwell-aimee/backups/${TARGET}}"
 READINESS_URL="${BRANDWELL_READINESS_URL:-${BRANDWELL_HEALTH_URL:-${DEFAULT_READINESS_URL}}}"
 LOCK_FILE="${BRANDWELL_DEPLOY_LOCK_FILE:-/tmp/brandwell-aimee-${TARGET}.lock}"
 COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-brandwell-aimee-${TARGET}}"
@@ -113,15 +113,20 @@ ensure_proxy_route() {
     docker network connect "${app_network}" "${proxy_container}"
   fi
 
-  proxy_mount="$(docker inspect "${proxy_container}" --format '{{range .Mounts}}{{if eq .Destination "/etc/caddy/Caddyfile"}}{{.Source}}{{end}}{{end}}')"
-  if [[ "${proxy_mount}" != "${REPO_DIR}/infra/compose/Caddyfile.prod" ]]; then
+  proxy_mount="$(docker inspect "${proxy_container}" --format '{{range .Mounts}}{{if or (eq .Destination "/etc/caddy-config") (eq .Destination "/etc/caddy/Caddyfile")}}{{.Source}}{{end}}{{end}}')"
+  if [[ "${proxy_mount}" != "${REPO_DIR}/infra/compose" &&
+    "${proxy_mount}" != "${REPO_DIR}/infra/compose/Caddyfile.prod" ]]; then
     echo "Active proxy does not use this deployment's Caddyfile: ${proxy_mount:-unknown}" >&2
     return 1
   fi
 
   # One Caddy container owns ports 80 and 443 on a shared staging/production host.
-  # Reload its bind-mounted configuration after connecting it to this stack's app network.
-  docker exec "${proxy_container}" caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+  # Stream the checked-out file because a legacy single-file bind may still point at the inode
+  # from the previous Git revision until the proxy container is recreated once.
+  docker exec -i "${proxy_container}" caddy validate --config /dev/stdin --adapter caddyfile \
+    < "${REPO_DIR}/infra/compose/Caddyfile.prod"
+  docker exec -i "${proxy_container}" caddy reload --config /dev/stdin --adapter caddyfile \
+    < "${REPO_DIR}/infra/compose/Caddyfile.prod"
 }
 
 wait_for_readiness() {

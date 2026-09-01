@@ -106,7 +106,10 @@ jobs:
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
-            "$SSH_USER@$SSH_HOST" deploy-brandwell-staging "$DEPLOY_SHA"
+            "$SSH_USER@$SSH_HOST" \
+            /srv/rakazo/infra/deploy/deploy-brandwell-revision.sh \
+            staging \
+            "$DEPLOY_SHA"
       - name: Verify BrandWell staging readiness
         env:
           EXPECTED_REVISION: ${{ needs.validate.outputs.sha }}
