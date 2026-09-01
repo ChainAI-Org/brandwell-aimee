@@ -90,9 +90,38 @@ backup_running_state() {
 start_revision() {
   local revision="$1"
   GIT_SHA="${revision}" "${compose[@]}" up -d --build --remove-orphans postgres api worker web
-  # Caddy's configuration is bind-mounted, so Compose does not detect route changes.
-  # Recreate it on every release so readiness and proxy routes match the checked-out revision.
-  GIT_SHA="${revision}" "${compose[@]}" up -d --force-recreate --no-deps caddy
+  ensure_proxy_route
+}
+
+ensure_proxy_route() {
+  local proxy_container expected_proxy app_network proxy_mount
+  expected_proxy="${COMPOSE_PROJECT_NAME}-caddy-1"
+  app_network="${COMPOSE_PROJECT_NAME}_app"
+  proxy_container="$(docker ps --filter publish=80 --format '{{.Names}}' | head -n 1)"
+
+  if [[ -z "${proxy_container}" ]]; then
+    GIT_SHA="$(git rev-parse HEAD)" "${compose[@]}" up -d --no-deps caddy
+    proxy_container="${expected_proxy}"
+  fi
+
+  if ! docker network inspect "${app_network}" >/dev/null 2>&1; then
+    echo "Application network is missing: ${app_network}" >&2
+    return 1
+  fi
+  if ! docker inspect "${proxy_container}" --format '{{json .NetworkSettings.Networks}}' |
+    grep -Fq "\"${app_network}\""; then
+    docker network connect "${app_network}" "${proxy_container}"
+  fi
+
+  proxy_mount="$(docker inspect "${proxy_container}" --format '{{range .Mounts}}{{if eq .Destination "/etc/caddy/Caddyfile"}}{{.Source}}{{end}}{{end}}')"
+  if [[ "${proxy_mount}" != "${REPO_DIR}/infra/compose/Caddyfile.prod" ]]; then
+    echo "Active proxy does not use this deployment's Caddyfile: ${proxy_mount:-unknown}" >&2
+    return 1
+  fi
+
+  # One Caddy container owns ports 80 and 443 on a shared staging/production host.
+  # Reload its bind-mounted configuration after connecting it to this stack's app network.
+  docker exec "${proxy_container}" caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
 }
 
 wait_for_readiness() {
