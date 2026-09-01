@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -143,6 +143,31 @@ test("Continue verifies and remembers the instance so setup does not run again",
   const relaunched = await app.firstWindow();
   await expect(relaunched.getByText(APP_MARKER)).toBeVisible();
   await expect(relaunched.locator("#setup")).toHaveCount(0);
+});
+
+test("a startup storage probe does not quit before the connected app opens", async () => {
+  await mkdir(path.join(userData, "Local Storage"), { recursive: true });
+
+  app = await launch({ RAKAZO_WEB_URL: serverUrl });
+  let connectedWindow: ReturnType<ElectronApplication["windows"]>[number] | undefined;
+  await expect
+    .poll(async () => {
+      for (const candidate of app?.windows() ?? []) {
+        const body = await candidate
+          .locator("body")
+          .innerText()
+          .catch(() => "");
+        if (body.includes(APP_MARKER)) {
+          connectedWindow = candidate;
+          return true;
+        }
+      }
+      return false;
+    })
+    .toBe(true);
+
+  expect(connectedWindow).toBeDefined();
+  await expect(connectedWindow!.getByText(APP_MARKER)).toBeVisible();
 });
 
 test("an unreachable address is reported instead of being saved", async () => {
