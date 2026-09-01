@@ -158,6 +158,9 @@ describe("DaytonaSandboxProvider", () => {
     expect(command).toContain('usermod -c "AIMEE"');
     expect(command).toContain("/plugins/plugin-1/show-button-title");
     expect(command).toContain("/plugins/plugin-1/button-title");
+    expect(command).toContain("/plugins/plugin-1/button-icon");
+    expect(command).toContain("aimee-avatar.svg");
+    expect(command).toContain('filter id="eyeGlow"');
     expect(command).toContain("aimee-desktop.svg");
     expect(command).toContain("Name=Google Chrome");
     expect(command).toContain("Icon=google-chrome");
