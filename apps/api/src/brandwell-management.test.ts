@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   constantTimeBearerMatches,
   mountBrandwellManagementRoutes,
+  sanitizedConversationText,
   supportActor,
 } from "./brandwell-management.js";
 
@@ -104,6 +105,111 @@ describe("BrandWell management API authentication", () => {
       subscriptionStatus: "active",
       provisioningStatus: "complete",
     });
+  });
+
+  it("returns an audited, text-only conversation view for managed employees", async () => {
+    const now = new Date("2026-08-31T23:00:00.000Z");
+    const audit = vi.fn(async () => ({}));
+    const app = new Hono();
+    mountBrandwellManagementRoutes(app, {
+      token: "management-secret",
+      prisma: {
+        brandwellAiWorkspace: {
+          findFirst: vi.fn(async () => ({
+            id: "mapping-1",
+            brandwellCustomerId: "portal-client:19",
+            rakazoWorkspaceId: "workspace-1",
+            subscriptionStatus: "active",
+            rakazoWorkspace: { name: "Acme", slug: "acme" },
+          })),
+        },
+        bot: {
+          findMany: vi.fn(async () => [{ id: "bot-1", name: "AIMEE", title: "GTM Employee" }]),
+        },
+        thread: {
+          findMany: vi.fn(async () => [
+            { id: "thread-1", botId: "bot-1", title: "Buyer research", updatedAt: now },
+          ]),
+        },
+        message: {
+          findMany: vi.fn(async () => [
+            {
+              id: "message-2",
+              threadId: "thread-1",
+              seq: 2,
+              role: "bot",
+              blocks: [
+                { kind: "text", text: "I verified the live buyer list." },
+                { kind: "file", artifactId: "secret-file", name: "private.csv" },
+              ],
+              runId: "run-1",
+              createdAt: now,
+            },
+            {
+              id: "message-1",
+              threadId: "thread-1",
+              seq: 1,
+              role: "user",
+              blocks: [
+                {
+                  kind: "ask",
+                  text: "Enter the account password",
+                  input: "secret",
+                  answer: "must-not-leak",
+                },
+              ],
+              runId: null,
+              createdAt: new Date("2026-08-31T22:59:00.000Z"),
+            },
+          ]),
+        },
+        brandwellAuditLog: { create: audit },
+      } as unknown as PrismaClient,
+    });
+
+    const response = await app.request(
+      "/internal/workspaces/mapping-1/conversations?limit=50&reason=Support%20review",
+      { headers: { authorization: "Bearer management-secret", ...OPERATOR_HEADERS } },
+    );
+    expect(response.status).toBe(200);
+    const payload = await response.json();
+    expect(payload).toMatchObject({
+      messageCount: 2,
+      limited: false,
+      conversations: [
+        {
+          id: "thread-1",
+          employee: { id: "bot-1", name: "AIMEE" },
+          messages: [
+            { id: "message-1", role: "client", text: "Enter the account password" },
+            { id: "message-2", role: "aimee", text: "I verified the live buyer list." },
+          ],
+        },
+      ],
+    });
+    expect(JSON.stringify(payload)).not.toContain("must-not-leak");
+    expect(JSON.stringify(payload)).not.toContain("secret-file");
+    expect(audit).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "conversation.inspect",
+        workspaceId: "workspace-1",
+        metadata: expect.objectContaining({
+          messageCount: 2,
+          reason: "Support review",
+          operatorReference: "user:42",
+        }),
+      }),
+    });
+  });
+
+  it("never includes secret answers or attachment locations in support conversation text", () => {
+    expect(
+      sanitizedConversationText([
+        { kind: "ask", text: "Paste the one-time code", input: "secret", answer: "123456" },
+        { kind: "image", artifactId: "image-private", name: "screen.png" },
+        { kind: "bot_message_sent", toBotName: "Research", text: "Check the account" },
+      ]),
+    ).toBe("Paste the one-time code\nTo Research: Check the account");
   });
 
   it("returns each Sidekick as an AI employee with its own operational stats", async () => {

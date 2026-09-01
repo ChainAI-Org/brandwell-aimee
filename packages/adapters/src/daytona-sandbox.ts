@@ -85,6 +85,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
   private readonly preparations = new Map<string, Promise<void>>();
   private readonly desktopReady = new Set<string>();
   private readonly desktopStarts = new Map<string, Promise<void>>();
+  private readonly desktopBranded = new Set<string>();
   private readonly primaryDisplays = new Map<string, string>();
   private readonly screenPreviews = new Map<
     string,
@@ -653,16 +654,20 @@ export class DaytonaSandboxProvider implements SandboxProvider {
   }
 
   private async ensureDesktop(sandbox: Sandbox): Promise<void> {
-    if (this.desktopReady.has(sandbox.id)) return;
+    if (this.desktopReady.has(sandbox.id)) {
+      await this.ensureManagedDesktopBranding(sandbox);
+      return;
+    }
     const pending = this.desktopStarts.get(sandbox.id);
     if (pending) return pending;
     let start!: Promise<void>;
     start = sandbox.computerUse
       .start()
-      .then(() => {
+      .then(async () => {
         if (this.desktopStarts.get(sandbox.id) !== start) {
           throw new Error("Daytona desktop start was invalidated during teardown");
         }
+        await this.ensureManagedDesktopBranding(sandbox);
         this.desktopReady.add(sandbox.id);
       })
       .finally(() => {
@@ -672,6 +677,15 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       });
     this.desktopStarts.set(sandbox.id, start);
     return start;
+  }
+
+  private async ensureManagedDesktopBranding(sandbox: Sandbox): Promise<void> {
+    if (this.desktopBranded.has(sandbox.id)) return;
+    const result = await sandbox.process.executeCommand(managedDesktopBrandingCommand());
+    if (result.exitCode !== 0) {
+      throw new Error(result.result || "could not apply the managed desktop identity");
+    }
+    this.desktopBranded.add(sandbox.id);
   }
 
   private async openBrowser(sandbox: Sandbox): Promise<void> {
@@ -861,6 +875,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     this.preparations.delete(id);
     this.desktopReady.delete(id);
     this.desktopStarts.delete(id);
+    this.desktopBranded.delete(id);
     this.primaryDisplays.delete(id);
     for (const key of [...this.screenPreviews.keys()]) {
       if (key.startsWith(`${id}:`)) this.screenPreviews.delete(key);
@@ -870,6 +885,30 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     }
     this.pointerDown.delete(id);
   }
+}
+
+export function managedDesktopBrandingCommand(): string {
+  return [
+    'current_user="$(id -un 2>/dev/null || true)"',
+    'if test -n "$current_user" && command -v getent >/dev/null 2>&1; then',
+    '  current_name="$(getent passwd "$current_user" 2>/dev/null | cut -d: -f5 | cut -d, -f1)"',
+    '  if test "$current_name" != "AIMEE"; then',
+    '    if test "$(id -u)" = "0" && command -v usermod >/dev/null 2>&1; then',
+    '      usermod -c "AIMEE" "$current_user" >/dev/null 2>&1 || true',
+    "    elif command -v sudo >/dev/null 2>&1 && command -v usermod >/dev/null 2>&1; then",
+    '      sudo -n usermod -c "AIMEE" "$current_user" >/dev/null 2>&1 || true',
+    "    fi",
+    "  fi",
+    "fi",
+    "if command -v xfconf-query >/dev/null 2>&1; then",
+    '  xfconf-query -c xfce4-panel -l 2>/dev/null | sed -n "s#^\\(/plugins/plugin-[0-9][0-9]*\\)$#\\1#p" | while read -r plugin; do',
+    '    test "$(xfconf-query -c xfce4-panel -p "$plugin" 2>/dev/null)" = "actions" || continue',
+    '    xfconf-query -c xfce4-panel -p "$plugin/button-title" -s 3 >/dev/null 2>&1 || xfconf-query -c xfce4-panel -p "$plugin/button-title" -n -t uint -s 3 >/dev/null 2>&1 || true',
+    '    xfconf-query -c xfce4-panel -p "$plugin/custom-title" -s "AIMEE" >/dev/null 2>&1 || xfconf-query -c xfce4-panel -p "$plugin/custom-title" -n -t string -s "AIMEE" >/dev/null 2>&1 || true',
+    "  done",
+    "fi",
+    "exit 0",
+  ].join("\n");
 }
 
 export function isUnrecoverableDaytonaError(error: unknown): boolean {
