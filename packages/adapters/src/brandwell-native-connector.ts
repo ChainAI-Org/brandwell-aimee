@@ -315,7 +315,7 @@ const ToolDefinitions = [
   {
     name: "brandwell_visibility_get_ai_citations",
     description:
-      "Research historical AI questions, brand mentions, cited sources, and optional competitor share of voice. Results are cached for 24 hours and may use the project's research allowance on a cache miss.",
+      "Research historical AI questions, brand mentions, cited sources, and optional competitor share of voice for a brand or domain. Use the Company Project domain by default, not a buyer keyword. Results are cached for 24 hours. A fresh lookup requires explicit user approval before confirmed_cost_usd is supplied.",
     readOnly: false,
     endpoint: "/internal/aimee/visibility/research",
     remoteTool: "get_ai_citations",
@@ -326,6 +326,7 @@ const ToolDefinitions = [
         competitors: z.array(z.string().min(1).max(253)).max(10).optional(),
         location_code: z.number().int().positive().optional(),
         language_code: z.string().min(2).max(16).optional(),
+        confirmed_cost_usd: z.number().min(0).max(0.24).optional(),
       })
       .strict(),
   },
@@ -746,9 +747,10 @@ export class BrandwellNativeConnector implements ConnectorProvider {
         ),
       });
       if (!response.ok) {
+        const safeMessage = await safeBrandwellResponseError(response);
         yield {
           type: "error",
-          message: `BrandWell request failed with status ${response.status}`,
+          message: safeMessage ?? `BrandWell request failed with status ${response.status}`,
         };
         return;
       }
@@ -800,6 +802,32 @@ export class BrandwellNativeConnector implements ConnectorProvider {
     }
     return { brandwellCustomerId: mapping.brandwellCustomerId };
   }
+}
+
+async function safeBrandwellResponseError(response: Response): Promise<string | null> {
+  if (!response.headers.get("content-type")?.toLowerCase().includes("application/json"))
+    return null;
+  let payload: unknown;
+  try {
+    const text = await response.text();
+    if (!text || Buffer.byteLength(text, "utf8") > 4_096) return null;
+    payload = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const code =
+    payload && typeof payload === "object" && !Array.isArray(payload) && "code" in payload
+      ? String(payload.code ?? "")
+      : "";
+  const messages: Record<string, string> = {
+    SEO_RESEARCH_CONFIRMATION_REQUIRED:
+      "A fresh BrandWell visibility lookup requires explicit user approval before it can run.",
+    SEO_RESEARCH_LIMIT_REACHED:
+      "BrandWell visibility research has reached this Company's configured usage limit.",
+    SEO_RESEARCH_PAUSED: "BrandWell visibility research is paused for this Company Project.",
+    SEO_RESEARCH_UNAVAILABLE: "BrandWell visibility research is temporarily unavailable.",
+  };
+  return messages[code] ?? null;
 }
 
 function requestFor(

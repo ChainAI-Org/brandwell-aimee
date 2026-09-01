@@ -202,12 +202,12 @@ Workflow:
     workflow: `Goal: explain where the brand appears in AI search, which project pages earn citations, and what evidence-backed work could improve discoverability.
 
 Workflow:
-1. Call brandwell_visibility_get_project and brandwell_visibility_get_ai_citations. Use the canonical domain and saved competitors unless the user supplies a different target or comparison set.
+1. Call brandwell_visibility_get_project and brandwell_visibility_get_ai_citations. Historical citation lookup targets a brand or domain, so use the canonical domain and saved competitors unless the user supplies another brand or domain. Never pass a buyer keyword as the historical lookup target. Filter the returned questions for topic relevance instead.
 2. Explain that historical citation discovery and live prompt testing are different datasets. Report fetched time, market scope, platform coverage, missing metrics, and the exact questions and sources returned by the citation index.
 3. Rank questions and cited pages by mentions and known AI search volume. Group them by page type, topic, buyer intent, and whether the canonical domain is cited.
 4. Identify coverage gaps by comparing cited topics with the business goal, Search Console queries, saved keywords, and the project's important offers. Use brandwell_visibility_get_search_console and brandwell_visibility_list_saved_keywords when those comparisons help.
 5. When the user explicitly asks to test a current answer, propose the exact prompt and smallest useful model set, then call brandwell_visibility_explore_ai_prompt after approval. Report each model separately, including answer text, citations, fan-out queries, web-search state, and whether the brand was actually mentioned.
-6. Never infer that a historical question is continuously tracked or that a citation equals a recommendation. Never claim a prompt was tested unless the live tool returned a result in the current session.
+6. Never infer that a historical question is continuously tracked or that a citation equals a recommendation. Use the tracked AI query portfolio for keyword-level and buyer-question measurement. If a historical lookup needs a fresh paid request, explain that approval is required and do not supply confirmed_cost_usd until the user explicitly approves the current lookup. Never claim a prompt was tested unless the live tool returned a result in the current session.
 7. Return total mentions, platform mix, share of voice when competitors were supplied, top questions, top cited pages, citation gaps, source-quality observations, content or technical actions, and a prioritized measurement plan.`,
   }),
 ] as const;
