@@ -53,6 +53,7 @@ let currentTargetUrl: string | null = null;
 let setupError: string | null = null;
 let setupSaveInProgress = false;
 let openAppPromise: Promise<boolean> | null = null;
+let transientStorageProbeCount = 0;
 /** Prior app window kept until setup is persisted (or the switch is abandoned). */
 let pendingPreviousWindow: BrowserWindow | null = null;
 let quitting = false;
@@ -174,17 +175,19 @@ function defaultSessionProfileExists() {
 
 /** Page storage in the default session means a pre-partition install for this origin. */
 async function defaultSessionHasOriginData(origin: string): Promise<boolean> {
-  const probe = new BrowserWindow({
-    show: false,
-    width: 1,
-    height: 1,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-    },
-  });
+  transientStorageProbeCount += 1;
+  let probe: BrowserWindow | null = null;
   try {
+    probe = new BrowserWindow({
+      show: false,
+      width: 1,
+      height: 1,
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+      },
+    });
     await probe.loadURL(origin);
     return (await probe.webContents.executeJavaScript(`(async () => {
       if (localStorage.length > 0 || sessionStorage.length > 0) return true;
@@ -205,7 +208,8 @@ async function defaultSessionHasOriginData(origin: string): Promise<boolean> {
   } catch {
     return false;
   } finally {
-    if (!probe.isDestroyed()) probe.destroy();
+    if (probe !== null && !probe.isDestroyed()) probe.destroy();
+    transientStorageProbeCount -= 1;
   }
 }
 
@@ -1108,6 +1112,7 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
+  if (transientStorageProbeCount > 0) return;
   if (process.platform !== "darwin") app.quit();
 });
 
