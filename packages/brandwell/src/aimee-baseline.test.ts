@@ -43,7 +43,13 @@ describe("AIMEE managed workspace baseline", () => {
       BRANDWELL_AIMEE_SKILLS.find((skill) => skill.name === "BrandWell Postcard Offer Hooks")
         ?.content,
     ).toContain("exactly three hook concepts with GLM 5.3 through OpenRouter");
-    expect(BRANDWELL_AIMEE_DEFAULT_ROUTINES).toHaveLength(4);
+    expect(BRANDWELL_AIMEE_DEFAULT_ROUTINES).toHaveLength(5);
+    expect(BRANDWELL_AIMEE_DEFAULT_ROUTINES).toContainEqual(
+      expect.objectContaining({
+        name: "Review weekly content opportunities",
+        cron: "0 10 * * 1",
+      }),
+    );
   });
 
   it("installs the BrandWell visibility workflow pack without external product branding", () => {
@@ -62,7 +68,7 @@ describe("AIMEE managed workspace baseline", () => {
       "BrandWell AI Citation Analysis",
     ]);
     expect(BRANDWELL_AIMEE_SKILLS).toHaveLength(20);
-    expect(BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION).toBe(5);
+    expect(BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION).toBe(6);
     expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.key)).size).toBe(20);
     expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.name.toLowerCase())).size).toBe(20);
     expect(JSON.stringify(BRANDWELL_AIMEE_VISIBILITY_SKILLS)).not.toMatch(/open[\s-]*seo/i);

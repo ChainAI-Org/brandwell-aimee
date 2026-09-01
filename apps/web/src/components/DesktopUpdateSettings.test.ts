@@ -44,6 +44,21 @@ describe("desktop update settings", () => {
     ).toMatchObject({ actionLabel: "Try again" });
   });
 
+  it("does not offer a retry for a build that cannot update", () => {
+    expect(
+      desktopUpdateView(
+        state({
+          phase: "unsupported",
+          message: "Updates are unavailable in this test build.",
+        }),
+      ),
+    ).toMatchObject({
+      detail: "Updates are unavailable in this test build.",
+      action: null,
+      actionLabel: null,
+    });
+  });
+
   it("renders in-flight actions immediately while the preload call is pending", () => {
     expect(pendingDesktopUpdateState(state({ phase: "available" }), "download")).toMatchObject({
       phase: "downloading",
@@ -72,6 +87,6 @@ describe("desktop update settings", () => {
     ).toMatchObject({ detail: "Could not reach the update server." });
     expect(
       desktopUpdateView(state({ phase: "idle", checkedAt: null, message: null })),
-    ).toMatchObject({ detail: "Check for BrandWell AIMEE desktop updates." });
+    ).toMatchObject({ detail: "Check for AIMEE desktop updates." });
   });
 });

@@ -4,7 +4,15 @@ import { Button } from "@rakazo/ui-web";
 import { useEffect, useMemo, useState } from "react";
 import { rpc } from "../lib/rpc";
 
-export function VoiceSettingsOverlay({ onClose }: { onClose: () => void }) {
+export function VoiceSettingsOverlay({
+  autoSpeak = false,
+  onAutoSpeakChange,
+  onClose,
+}: {
+  autoSpeak?: boolean;
+  onAutoSpeakChange?: (enabled: boolean) => Promise<void>;
+  onClose: () => void;
+}) {
   const { t } = useLingui();
   const [catalog, setCatalog] = useState<VoiceCatalogEntry[]>([]);
   const [credentials, setCredentials] = useState<VoiceCredential[]>([]);
@@ -13,8 +21,9 @@ export function VoiceSettingsOverlay({ onClose }: { onClose: () => void }) {
   const [provider, setProvider] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [voiceId, setVoiceId] = useState("");
+  const [readRepliesAloud, setReadRepliesAloud] = useState(autoSpeak);
   const [loading, setLoading] = useState(true);
-  const [pending, setPending] = useState<"connect" | "voice" | "test" | null>(null);
+  const [pending, setPending] = useState<"connect" | "voice" | "test" | "auto-speak" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -49,6 +58,10 @@ export function VoiceSettingsOverlay({ onClose }: { onClose: () => void }) {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    setReadRepliesAloud(autoSpeak);
+  }, [autoSpeak]);
+
   const selected = catalog.find((entry) => entry.id === provider) ?? catalog[0];
   const credential = credentials.find((entry) => entry.provider === provider);
   const busy = pending !== null;
@@ -62,6 +75,7 @@ export function VoiceSettingsOverlay({ onClose }: { onClose: () => void }) {
     setError(null);
     setNotice(null);
     setPending("connect");
+    const connectingFirstCredential = !credential;
     try {
       await rpc.voice.connect({
         provider: selected.id,
@@ -70,9 +84,28 @@ export function VoiceSettingsOverlay({ onClose }: { onClose: () => void }) {
       });
       setApiKey("");
       await refresh(selected.id);
+      if (connectingFirstCredential && onAutoSpeakChange) {
+        await onAutoSpeakChange(true);
+        setReadRepliesAloud(true);
+      }
       setNotice(t`Connected ${selected.name}.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : t`Could not connect this voice provider`);
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function chooseReadRepliesAloud(enabled: boolean) {
+    if (!onAutoSpeakChange) return;
+    setReadRepliesAloud(enabled);
+    setPending("auto-speak");
+    setError(null);
+    try {
+      await onAutoSpeakChange(enabled);
+    } catch (err) {
+      setReadRepliesAloud(!enabled);
+      setError(err instanceof Error ? err.message : t`Could not save voice playback settings`);
     } finally {
       setPending(null);
     }
@@ -283,6 +316,22 @@ export function VoiceSettingsOverlay({ onClose }: { onClose: () => void }) {
                     >
                       {pending === "test" ? <Trans>Playing…</Trans> : <Trans>Hear a sample</Trans>}
                     </button>
+                    <label className="mt-6 flex cursor-pointer items-center gap-3 rounded-[13px] border border-[#26262A] bg-[#101012] px-4 py-3 text-[14px] text-[#C9C9CE]">
+                      <input
+                        type="checkbox"
+                        checked={readRepliesAloud}
+                        disabled={busy}
+                        onChange={(event) => void chooseReadRepliesAloud(event.target.checked)}
+                      />
+                      <span>
+                        <span className="block text-[#ECECEE]">
+                          <Trans>Read replies aloud</Trans>
+                        </span>
+                        <span className="mt-0.5 block text-[12px] text-[#777780]">
+                          <Trans>Automatically play AIMEE's replies on this device.</Trans>
+                        </span>
+                      </span>
+                    </label>
                   </>
                 ) : null}
               </>

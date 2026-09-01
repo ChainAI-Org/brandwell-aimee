@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { nextCronDateAcrossStrict } from "@rakazo/core";
 import {
   createThreadMessageInTransaction,
   ensureComputerRecord,
@@ -1414,19 +1415,65 @@ export async function rolloutBrandwellSkillBundleWithPrisma(
   if (!mapping) {
     throw new BrandwellSidekickError("BrandWell workspace not found", "workspace_not_found", 404);
   }
-  const users = await prisma.bot.findMany({
+  const bots = await prisma.bot.findMany({
     where: { workspaceId: mapping.rakazoWorkspaceId, managedByBrandWell: true, archivedAt: null },
-    select: { userId: true },
-    distinct: ["userId"],
+    select: { id: true, userId: true, serviceIdentityId: true },
   });
+  const users = [...new Set(bots.map((bot) => bot.userId))];
   const installed = [];
-  for (const { userId } of users) {
+  for (const userId of users) {
     installed.push(
       await installBrandwellSkillBundle(prisma, {
         workspaceId: mapping.rakazoWorkspaceId,
         userId,
       }),
     );
+  }
+  let routinesReconciled = 0;
+  for (const bot of bots) {
+    const existingDefaults = await prisma.routine.findMany({
+      where: {
+        workspaceId: mapping.rakazoWorkspaceId,
+        botId: bot.id,
+        name: { in: BRANDWELL_AIMEE_DEFAULT_ROUTINES.map((routine) => routine.name) },
+      },
+    });
+    const defaultsAreActive = existingDefaults.some((routine) => routine.active);
+    for (const template of BRANDWELL_AIMEE_DEFAULT_ROUTINES) {
+      const existing = existingDefaults.find((routine) => routine.name === template.name);
+      const active = existing?.active ?? defaultsAreActive;
+      const nextRunAt = active
+        ? nextCronDateAcrossStrict([template.cron], new Date(), mapping.timezone)
+        : null;
+      if (existing) {
+        await prisma.routine.update({
+          where: { id: existing.id },
+          data: {
+            prompt: template.prompt,
+            crons: [template.cron],
+            timezone: mapping.timezone,
+            nextRunAt,
+          },
+        });
+      } else {
+        await prisma.routine.create({
+          data: {
+            workspaceId: mapping.rakazoWorkspaceId,
+            botId: bot.id,
+            userId: bot.userId,
+            serviceIdentityId: bot.serviceIdentityId ?? mapping.serviceIdentityId,
+            name: template.name,
+            prompt: template.prompt,
+            crons: [template.cron],
+            timezone: mapping.timezone,
+            active,
+            notify: true,
+            nextRunAt,
+          },
+        });
+      }
+      routinesReconciled += 1;
+    }
   }
   await prisma.$transaction([
     prisma.brandwellAiWorkspace.update({
@@ -1442,6 +1489,7 @@ export async function rolloutBrandwellSkillBundleWithPrisma(
     version: BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION,
     users: users.length,
     skills: installed.reduce((sum, item) => sum + item.skillIds.length, 0),
+    routines: routinesReconciled,
   };
 }
 

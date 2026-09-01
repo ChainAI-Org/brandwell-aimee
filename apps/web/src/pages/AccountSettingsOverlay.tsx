@@ -55,13 +55,13 @@ export function AccountSettingsOverlay({
       onCloseRef.current();
     }
     window.addEventListener("keydown", handleKeyDown);
-    if (focusUsage) usageRef.current?.focus();
+    if (focusUsage && !managed) usageRef.current?.focus();
     else panelRef.current?.focus();
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       previousFocus?.focus();
     };
-  }, [focusUsage]);
+  }, [focusUsage, managed]);
 
   function chooseLocale(next: UiLocale) {
     if (next === locale) return;
@@ -173,30 +173,28 @@ export function AccountSettingsOverlay({
           ) : null}
         </section>
 
-        <div
-          ref={usageRef}
-          tabIndex={-1}
-          data-testid="usage-settings"
-          className="mt-5 rounded-[14px] border border-[#26262A] bg-[#101012] px-4 py-4 outline-none"
-        >
-          <h3 className="text-[15px] font-medium text-[#ECECEE]">
-            <Trans>Usage</Trans>
-          </h3>
-          {usage ? (
-            <p className="mt-3 text-[14px] text-[#C9C9CE]">
-              <Trans>
-                {usage.runs} runs · {usage.inputTokens + usage.outputTokens} tokens
-              </Trans>
-            </p>
-          ) : null}
-          <p className={`text-[12.5px] text-[#6C6C70] ${usage ? "mt-2" : "mt-3"}`}>
-            {managed ? (
-              "Model access and usage are included in your BrandWell AIMEE plan and managed centrally."
-            ) : (
+        {!managed ? (
+          <div
+            ref={usageRef}
+            tabIndex={-1}
+            data-testid="usage-settings"
+            className="mt-5 rounded-[14px] border border-[#26262A] bg-[#101012] px-4 py-4 outline-none"
+          >
+            <h3 className="text-[15px] font-medium text-[#ECECEE]">
+              <Trans>Usage</Trans>
+            </h3>
+            {usage ? (
+              <p className="mt-3 text-[14px] text-[#C9C9CE]">
+                <Trans>
+                  {usage.runs} runs · {usage.inputTokens + usage.outputTokens} tokens
+                </Trans>
+              </p>
+            ) : null}
+            <p className={`text-[12.5px] text-[#6C6C70] ${usage ? "mt-2" : "mt-3"}`}>
               <Trans>Model spend uses your provider keys.</Trans>
-            )}
-          </p>
-        </div>
+            </p>
+          </div>
+        ) : null}
 
         <DesktopUpdateSettings />
 

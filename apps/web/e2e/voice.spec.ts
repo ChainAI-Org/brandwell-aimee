@@ -28,6 +28,9 @@ test("voice settings connect a key, speak a reply, and open a call", async ({ pa
   await page.getByRole("button", { name: "Connect" }).click();
   await expect(page.getByText("Connected", { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/Connected · Scripted/)).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: /Read replies aloud/ })).toBeChecked();
+  const [botAfterVoiceConnect] = await rpc<Array<{ autoSpeak: boolean }>>(page, "bots/list", {});
+  expect(botAfterVoiceConnect?.autoSpeak).toBe(true);
 
   const spoken = page.waitForResponse(
     (response) => response.url().includes("/api/voice/speak") && response.ok(),
