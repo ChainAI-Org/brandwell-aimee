@@ -34,8 +34,8 @@ describe("agent content negotiation", () => {
   });
 
   it("maps canonical and trailing-slash page paths to Markdown documents", () => {
-    expect(getMarkdownDocument("/")).toContain("# BrandWell's AIMEE");
-    expect(getMarkdownDocument("/about/")).toContain("# About BrandWell's AIMEE");
+    expect(getMarkdownDocument("/")).toContain("# AIMEE");
+    expect(getMarkdownDocument("/about/")).toContain("# About AIMEE");
     expect(getMarkdownAlternate("/")).toBe("/index.md");
     expect(getMarkdownAlternate("/support/")).toBe("/support.md");
     expect(getMarkdownDocument("/missing")).toBeUndefined();
@@ -54,7 +54,9 @@ describe("agent content negotiation", () => {
 
   it("defers privacy claims to BrandWell's governing policy", () => {
     expect(PRIVACY_MARKDOWN).toContain("https://brandwell.ai/privacy-policy/");
-    expect(PRIVACY_MARKDOWN).not.toContain("does not sell personal information");
+    expect(PRIVACY_MARKDOWN).not.toContain(
+      "does not sell personal information",
+    );
   });
 
   it("keeps AIMEE product links on the dedicated canonical", () => {
@@ -64,7 +66,7 @@ describe("agent content negotiation", () => {
   });
 
   it("returns cache-safe Markdown responses and omits bodies for HEAD", async () => {
-    const response = markdownResponse("# BrandWell's AIMEE\n");
+    const response = markdownResponse("# AIMEE\n");
     expect(response.headers.get("content-type")).toBe(
       "text/markdown; charset=utf-8",
     );
@@ -72,9 +74,9 @@ describe("agent content negotiation", () => {
       '</llms.txt>; rel="describedby"; type="text/plain"',
     );
     expect(response.headers.get("vary")).toBe("Accept, Accept-Encoding");
-    await expect(response.text()).resolves.toBe("# BrandWell's AIMEE\n");
+    await expect(response.text()).resolves.toBe("# AIMEE\n");
 
-    const headResponse = markdownResponse("# BrandWell's AIMEE\n", "HEAD", 404);
+    const headResponse = markdownResponse("# AIMEE\n", "HEAD", 404);
     expect(headResponse.status).toBe(404);
     await expect(headResponse.text()).resolves.toBe("");
   });

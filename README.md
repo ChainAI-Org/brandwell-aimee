@@ -1,8 +1,8 @@
-# BrandWell's AIMEE
+# AIMEE
 
 [![GitHub stars](https://img.shields.io/github/stars/ChainAI-Org/brandwell-aimee?labelColor=black&style=for-the-badge&color=2563EB)](https://github.com/ChainAI-Org/brandwell-aimee/stargazers)
 
-![BrandWell's AIMEE, AI employees that do real work](./docs/readme-hero.png)
+![AIMEE, AI employees that do real work](./docs/readme-hero.png)
 
 AIMEE is BrandWell's platform for running persistent AI employees. It is available on the web,
 as an Electron desktop app, and through an Expo mobile app. Bring your own model and computer

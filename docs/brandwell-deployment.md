@@ -327,7 +327,7 @@ gate passed lint, typecheck, unit tests, PostgreSQL journeys, production builds,
 Web E2E, and both container image validations.
 
 Daytona account capacity is available: a full-access AIMEE API key exists, the active
-`brandwell-aimee-browser-v1` snapshot exists, a staging sandbox exists in a stopped state, and the
+`brandwell-aimee-browser-v2` snapshot exists, a staging sandbox exists in a stopped state, and the
 account has Tier 3 capacity. Daytona secrets are empty, which is acceptable because deployment
 credentials belong in the AIMEE host's secret manager, not inside sandbox images.
 

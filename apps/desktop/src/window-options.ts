@@ -13,6 +13,7 @@ function windowChrome(platform: NodeJS.Platform) {
   const mac = platform === "darwin";
   return {
     backgroundColor: "#050506",
+    title: "AIMEE",
     show: true,
     autoHideMenuBar: true,
     frame: mac,

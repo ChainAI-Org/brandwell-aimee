@@ -12,9 +12,15 @@ export interface UpdaterEnvironment {
   platform?: string;
 }
 
-export function updaterSupport(env: UpdaterEnvironment): { supported: boolean; reason: string } {
+export function updaterSupport(env: UpdaterEnvironment): {
+  supported: boolean;
+  reason: string;
+} {
   if (env.disabled === true) {
-    return { supported: false, reason: "Automatic updates are turned off for this install." };
+    return {
+      supported: false,
+      reason: "Automatic updates are turned off for this install.",
+    };
   }
   if (env.platform === "linux") {
     return {
@@ -24,7 +30,10 @@ export function updaterSupport(env: UpdaterEnvironment): { supported: boolean; r
     };
   }
   if (!env.packaged) {
-    return { supported: false, reason: "Automatic updates only run in an installed build." };
+    return {
+      supported: false,
+      reason: "Automatic updates only run in an installed build.",
+    };
   }
   return { supported: true, reason: "" };
 }
@@ -81,8 +90,7 @@ export function classifyUpdaterFailure(error: unknown): UpdaterFailure {
   if (SIGNATURE.some((needle) => text.includes(needle))) {
     return {
       kind: "signature",
-      message:
-        "This update could not be verified. Reinstall BrandWell's AIMEE from a trusted download.",
+      message: "This update could not be verified. Reinstall AIMEE from a trusted download.",
     };
   }
   return {
@@ -98,7 +106,12 @@ export type UpdaterEvent =
   | { type: "download-start" }
   | { type: "progress"; percent: number }
   | { type: "downloaded"; version: string }
-  | { type: "failed"; error: unknown; userInitiated: boolean; installFailed?: boolean };
+  | {
+      type: "failed";
+      error: unknown;
+      userInitiated: boolean;
+      installFailed?: boolean;
+    };
 
 export function reduceUpdateState(
   state: DesktopUpdateState,
@@ -151,7 +164,7 @@ export function reduceUpdateState(
         phase: "ready",
         availableVersion: event.version,
         percent: 100,
-        message: "Restart BrandWell's AIMEE to finish the update.",
+        message: "Restart AIMEE to finish the update.",
       };
     case "failed": {
       // electron-updater can emit late errors after a verified download; keep installable
@@ -188,7 +201,13 @@ export function reduceUpdateState(
           checkedAt: null,
         };
       }
-      return { ...state, phase: "error", percent: null, message: failure.message, checkedAt: now };
+      return {
+        ...state,
+        phase: "error",
+        percent: null,
+        message: failure.message,
+        checkedAt: now,
+      };
     }
   }
 }
@@ -320,12 +339,20 @@ export class DesktopUpdateController {
           }
         });
         updater.on("error", (error) =>
-          this.push({ type: "failed", error, userInitiated: this.checkWasRequested }),
+          this.push({
+            type: "failed",
+            error,
+            userInitiated: this.checkWasRequested,
+          }),
         );
         return updater;
       })
       .catch((error: unknown) => {
-        this.push({ type: "failed", error, userInitiated: this.checkWasRequested });
+        this.push({
+          type: "failed",
+          error,
+          userInitiated: this.checkWasRequested,
+        });
         if (this.updaterPromise === loading) this.updaterPromise = null;
         return null;
       });
@@ -371,7 +398,11 @@ export class DesktopUpdateController {
       await updater.checkForUpdates();
     } catch (error) {
       if (this.current.phase === "idle" || this.current.phase === "checking") {
-        this.push({ type: "failed", error, userInitiated: this.checkWasRequested });
+        this.push({
+          type: "failed",
+          error,
+          userInitiated: this.checkWasRequested,
+        });
       }
     }
     return this.current;
@@ -398,7 +429,11 @@ export class DesktopUpdateController {
       await updater.downloadUpdate();
     } catch (error) {
       if (this.state().phase === "downloading") {
-        this.push({ type: "failed", error, userInitiated: this.checkWasRequested });
+        this.push({
+          type: "failed",
+          error,
+          userInitiated: this.checkWasRequested,
+        });
       }
     }
     return this.current;
@@ -415,7 +450,12 @@ export class DesktopUpdateController {
       updater.quitAndInstall();
     } catch (error) {
       this.installStarted = false;
-      this.push({ type: "failed", error, userInitiated: true, installFailed: true });
+      this.push({
+        type: "failed",
+        error,
+        userInitiated: true,
+        installFailed: true,
+      });
     }
     return this.current;
   }

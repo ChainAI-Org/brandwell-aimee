@@ -68,7 +68,10 @@ describe("updaterSupport", () => {
 
   it("starts unsupported builds in a state that explains itself", () => {
     const state = initialUpdateState({ packaged: false, version: "0.1.0" });
-    expect(state).toMatchObject({ phase: "unsupported", currentVersion: "0.1.0" });
+    expect(state).toMatchObject({
+      phase: "unsupported",
+      currentVersion: "0.1.0",
+    });
     expect(state.message).toContain("installed build");
   });
 });
@@ -125,7 +128,7 @@ describe("reduceUpdateState", () => {
       availableVersion: "0.2.0",
       percent: 100,
     });
-    expect(state.message).toContain("Restart BrandWell's AIMEE");
+    expect(state.message).toContain("Restart AIMEE");
   });
 
   it("clamps progress to a percentage while downloading", () => {
@@ -152,7 +155,11 @@ describe("reduceUpdateState", () => {
     expect(
       apply([
         { type: "check-start" },
-        { type: "failed", error: new Error("network down"), userInitiated: true },
+        {
+          type: "failed",
+          error: new Error("network down"),
+          userInitiated: true,
+        },
         { type: "progress", percent: 50 },
       ]),
     ).toMatchObject({ phase: "error", percent: null });
@@ -164,13 +171,21 @@ describe("reduceUpdateState", () => {
       { type: "check-start" },
       { type: "not-available" },
     ]);
-    expect(state).toMatchObject({ phase: "idle", availableVersion: null, checkedAt: NOW });
+    expect(state).toMatchObject({
+      phase: "idle",
+      availableVersion: null,
+      checkedAt: NOW,
+    });
   });
 
   it("goes quiet on a missing feed instead of nagging every launch", () => {
     const state = apply([
       { type: "check-start" },
-      { type: "failed", error: new Error("HttpError: 404 Not Found"), userInitiated: false },
+      {
+        type: "failed",
+        error: new Error("HttpError: 404 Not Found"),
+        userInitiated: false,
+      },
     ]);
     expect(state.phase).toBe("unsupported");
     expect(state.message).toContain("No desktop releases");
@@ -181,9 +196,17 @@ describe("reduceUpdateState", () => {
   it("keeps a verified download when the updater emits a late failure", () => {
     const ready = apply([
       { type: "downloaded", version: "0.2.0" },
-      { type: "failed", error: new Error("socket hang up"), userInitiated: false },
+      {
+        type: "failed",
+        error: new Error("socket hang up"),
+        userInitiated: false,
+      },
     ]);
-    expect(ready).toMatchObject({ phase: "ready", availableVersion: "0.2.0", percent: 100 });
+    expect(ready).toMatchObject({
+      phase: "ready",
+      availableVersion: "0.2.0",
+      percent: 100,
+    });
   });
 
   it("lets an install failure leave the ready phase", () => {
@@ -254,7 +277,11 @@ describe("shouldCheck", () => {
   it("lets a manual check retry after an empty feed when the install supports updates", () => {
     const absent = apply([
       { type: "check-start" },
-      { type: "failed", error: new Error("HttpError: 404 Not Found"), userInitiated: false },
+      {
+        type: "failed",
+        error: new Error("HttpError: 404 Not Found"),
+        userInitiated: false,
+      },
     ]);
     expect(
       shouldCheck(absent, 1_000, 1_000, {
@@ -315,7 +342,10 @@ describe("DesktopUpdateController", () => {
     const controller = new DesktopUpdateController(packaged, async () => fake.updater, clock);
 
     await controller.check(false);
-    expect(controller.state()).toMatchObject({ phase: "available", availableVersion: "0.2.0" });
+    expect(controller.state()).toMatchObject({
+      phase: "available",
+      availableVersion: "0.2.0",
+    });
     expect(fake.updater.downloadUpdate).not.toHaveBeenCalled();
     await controller.download();
     await vi.waitFor(() => expect(controller.state().phase).toBe("ready"));
@@ -379,7 +409,11 @@ describe("DesktopUpdateController", () => {
     await controller.download();
     await controller.check(false);
 
-    expect(controller.state()).toMatchObject({ phase: "idle", message: null, checkedAt: null });
+    expect(controller.state()).toMatchObject({
+      phase: "idle",
+      message: null,
+      checkedAt: null,
+    });
   });
 
   it("does not treat later background failures as user-requested", async () => {
@@ -404,7 +438,11 @@ describe("DesktopUpdateController", () => {
     now += MIN_CHECK_INTERVAL_MS;
     await controller.check(false);
 
-    expect(controller.state()).toMatchObject({ phase: "idle", message: null, checkedAt: null });
+    expect(controller.state()).toMatchObject({
+      phase: "idle",
+      message: null,
+      checkedAt: null,
+    });
   });
 
   it("runs installation at most once", async () => {

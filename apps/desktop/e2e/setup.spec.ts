@@ -28,7 +28,9 @@ async function reserveClosedPort() {
 test.beforeAll(async () => {
   server = createServer((request, response) => {
     if (request.url === "/rpc/health" && request.method === "POST") {
-      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+      });
       response.end(JSON.stringify({ json: { ok: true, version: "0.1.0" } }));
       return;
     }
@@ -75,7 +77,7 @@ test("first run asks whether to use a local or existing instance", async () => {
   app = await launch();
   const setup = await app.firstWindow();
 
-  await expect(setup.getByRole("heading", { name: "Welcome to BrandWell's AIMEE" })).toBeVisible();
+  await expect(setup.getByRole("heading", { name: "Welcome to AIMEE" })).toBeVisible();
   await expect(setup.getByText("This computer")).toBeVisible();
   await expect(setup.getByText("Existing instance")).toBeVisible();
 
@@ -193,7 +195,9 @@ test("an unreachable address is reported instead of being saved", async () => {
 test("an HTTP error document is not accepted after a healthy probe", async () => {
   const broken = createServer((request, response) => {
     if (request.url === "/rpc/health" && request.method === "POST") {
-      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+      });
       response.end(JSON.stringify({ json: { ok: true, version: "0.1.0" } }));
       return;
     }
@@ -227,7 +231,9 @@ test("a session-pending shell skeleton is not accepted as a ready app", async ()
 <body><div id="root"><div data-rakazo-app-state="session-pending"><aside></aside><main><div>Opening your workspace…</div></main></div></div></body></html>`;
   const skeleton = createServer((request, response) => {
     if (request.url === "/rpc/health" && request.method === "POST") {
-      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+      });
       response.end(JSON.stringify({ json: { ok: true, version: "0.1.0" } }));
       return;
     }
@@ -266,7 +272,9 @@ test("a post-session ready app mount is accepted", async () => {
 <body><div id="root"><div data-rakazo-app-state="ready"><div data-testid="shell-root" data-ready="true">Workspace</div></div></div></body></html>`;
   const ready = createServer((request, response) => {
     if (request.url === "/rpc/health" && request.method === "POST") {
-      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+      });
       response.end(JSON.stringify({ json: { ok: true, version: "0.1.0" } }));
       return;
     }
@@ -312,7 +320,9 @@ test("a session-ready AIMEE welcome screen is accepted", async () => {
 <body><div id="root"><div data-rakazo-app-state="ready"><main><h1>Your AI employee, with its own computer.</h1><button>Open AIMEE</button></main></div></div></body></html>`;
   const welcome = createServer((request, response) => {
     if (request.url === "/rpc/health" && request.method === "POST") {
-      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+      });
       response.end(JSON.stringify({ json: { ok: true, version: "0.1.0" } }));
       return;
     }
@@ -359,7 +369,9 @@ test("a shell mount before workspace bootstrap is not accepted", async () => {
 <body><div id="root"><div data-rakazo-app-state="ready"><div data-testid="shell-root" data-ready="false">Workspace</div></div></div></body></html>`;
   const preBootstrap = createServer((request, response) => {
     if (request.url === "/rpc/health" && request.method === "POST") {
-      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+      });
       response.end(JSON.stringify({ json: { ok: true, version: "0.1.0" } }));
       return;
     }
@@ -396,7 +408,9 @@ test("a session-ready marker without a route surface is not accepted", async () 
 <body><div id="root"><div data-rakazo-app-state="ready" class="h-full"></div></div></body></html>`;
   const emptyReady = createServer((request, response) => {
     if (request.url === "/rpc/health" && request.method === "POST") {
-      response.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      response.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+      });
       response.end(JSON.stringify({ json: { ok: true, version: "0.1.0" } }));
       return;
     }
@@ -512,7 +526,7 @@ test("an unreachable saved server falls back to setup with a recovery message", 
   app = await launch();
   const setup = await app.firstWindow();
 
-  await expect(setup.getByRole("heading", { name: "Welcome to BrandWell's AIMEE" })).toBeVisible();
+  await expect(setup.getByRole("heading", { name: "Welcome to AIMEE" })).toBeVisible();
   await expect(setup.getByRole("radio", { name: /Existing instance/ })).toBeChecked();
   await expect(setup.locator("#server-url")).toHaveValue(closedUrl);
   await expect(setup.locator("#status")).toContainText("Could not reconnect to the saved server.");
@@ -534,7 +548,7 @@ test("the native application menu can reopen setup without exposing setup IPC to
   });
   const setup = await setupPromise;
 
-  await expect(setup.getByRole("heading", { name: "Welcome to BrandWell's AIMEE" })).toBeVisible();
+  await expect(setup.getByRole("heading", { name: "Welcome to AIMEE" })).toBeVisible();
   await expect(setup.locator("#status")).toBeEmpty();
 
   // Closing setup without saving restores the connected instance.
@@ -570,13 +584,17 @@ test("servers on the same host but different ports do not share login cookies", 
   }
 
   try {
-    app = await launch({ RAKAZO_WEB_URL: `http://127.0.0.1:${firstAddress.port}` });
+    app = await launch({
+      RAKAZO_WEB_URL: `http://127.0.0.1:${firstAddress.port}`,
+    });
     const firstWindow = await app.firstWindow();
     await expect(firstWindow.getByText("Cookie stored")).toBeVisible();
     await expect.poll(() => firstWindow.evaluate(() => document.cookie)).toContain("fake-one");
     await app.close();
 
-    app = await launch({ RAKAZO_WEB_URL: `http://127.0.0.1:${secondAddress.port}` });
+    app = await launch({
+      RAKAZO_WEB_URL: `http://127.0.0.1:${secondAddress.port}`,
+    });
     const secondWindow = await app.firstWindow();
     await expect(secondWindow.getByText("Cookies: none")).toBeVisible();
   } finally {

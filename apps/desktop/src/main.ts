@@ -37,7 +37,7 @@ import {
 import { clearSetup, readSetup, writeSetup } from "./setup-store.js";
 import { browserWindowOptions, setupWindowOptions, warmWindowTtlMs } from "./window-options.js";
 
-app.setName("BrandWell's AIMEE");
+app.setName("AIMEE");
 const HAS_SINGLE_INSTANCE_LOCK = app.requestSingleInstanceLock();
 if (!HAS_SINGLE_INSTANCE_LOCK) app.quit();
 
@@ -142,7 +142,9 @@ async function resolveSessionForTarget(targetUrl: string) {
   const origin = safeOrigin(targetUrl);
   if (origin !== null) {
     try {
-      const defaultCookies = await session.defaultSession.cookies.get({ url: origin });
+      const defaultCookies = await session.defaultSession.cookies.get({
+        url: origin,
+      });
       if (defaultCookies.length > 0) {
         await writeFile(legacyDefaultSessionFlag(partition), new Date().toISOString(), "utf8");
         return { partition: null, value: session.defaultSession };
@@ -228,6 +230,10 @@ function createWindow(url: string, partition: string | null) {
     },
   });
   mainWindow = win;
+  win.webContents.on("page-title-updated", (event) => {
+    event.preventDefault();
+    win.setTitle("AIMEE");
+  });
   const targetOrigin = safeOrigin(url);
   // OAuth flows open the provider's authorize page via window.open; give that
   // popup a normal framed window. Non-http(s) targets stay closed; other http(s)
@@ -568,6 +574,10 @@ function createSetupWindow() {
     },
   });
   setupWindow = win;
+  win.webContents.on("page-title-updated", (event) => {
+    event.preventDefault();
+    win.setTitle("AIMEE");
+  });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.once("closed", () => {
     if (setupWindow === win) setupWindow = null;

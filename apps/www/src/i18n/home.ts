@@ -64,7 +64,10 @@ export type HomeCopy = {
     viewOnGithub: string;
     openSourceValue: string;
     selfHostValue: string;
-    stats: Array<{ value: "stars" | "license" | "openSource" | "selfHost"; label: string }>;
+    stats: Array<{
+      value: "stars" | "license" | "openSource" | "selfHost";
+      label: string;
+    }>;
   };
   getStartedDialog: {
     closeLabel: string;
@@ -197,10 +200,9 @@ const KO_ROSTER: RosterBot[] = [
 
 const HOME_COPY: Record<Locale, HomeCopy> = {
   en: {
-    title: "BrandWell's AIMEE | Done-for-you AI employees",
+    title: "AIMEE | Done-for-you AI employees",
     description: SITE_DESCRIPTION,
-    ogImageAlt:
-      "BrandWell's AIMEE, done-for-you AI employees that do real work.",
+    ogImageAlt: "AIMEE, done-for-you AI employees that do real work.",
     availableLanguage: "English",
     skipToContent: "Skip to content",
     starFallback: "Star",
@@ -218,7 +220,7 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
       badge: "Apache-2.0",
       pill: "Self-hosted",
       heading: "AI teammates you actually own",
-      lead: "BrandWell's AIMEE gives every client and Sidekick an AI employee with managed model access and a dedicated computer. Give AIMEE real work and it handles the follow-through.",
+      lead: "AIMEE gives every client and Sidekick an AI employee with managed model access and a dedicated computer. Give AIMEE real work and it handles the follow-through.",
       getStarted: "Get started",
       viewOnGithub: "View on GitHub",
       setupWithAgent: "Set up with your agent",
@@ -318,8 +320,7 @@ const HOME_COPY: Record<Locale, HomeCopy> = {
     title: "BrandWell AIMEE | KI-Mitarbeiter für echte Arbeit",
     description:
       "BrandWell AIMEE bietet dauerhafte KI-Mitarbeiter, die echte Arbeit in deinen verbundenen Tools erledigen.",
-    ogImageAlt:
-      "BrandWell AIMEE, KI-Mitarbeiter für echte Arbeit.",
+    ogImageAlt: "BrandWell AIMEE, KI-Mitarbeiter für echte Arbeit.",
     availableLanguage: "German",
     skipToContent: "Zum Inhalt springen",
     starFallback: "Star",

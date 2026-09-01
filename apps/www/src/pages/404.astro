@@ -10,7 +10,7 @@ const stars = await fetchGithubStars();
 const starsLabel = stars === null ? "Star" : formatStarCount(stars);
 ---
 
-<BaseLayout title="Page not found · BrandWell's AIMEE" description="The requested AIMEE page does not exist.">
+<BaseLayout title="Page not found · AIMEE" description="The requested AIMEE page does not exist.">
   <div class="container">
     <Header starsLabel={starsLabel} />
     <main id="main" class="privacy-copy">

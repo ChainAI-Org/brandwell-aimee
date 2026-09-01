@@ -128,7 +128,7 @@
       serverChooserEnabled = state.serverChooserEnabled !== false;
       managedServerUrl = state.managedServerUrl ?? "";
       if (!serverChooserEnabled) {
-        heading.textContent = "BrandWell's AIMEE";
+        heading.textContent = "AIMEE";
         subheading.textContent = "Connect to your managed BrandWell workspace.";
         continueButton.textContent = "Retry";
         serverUrl.value = managedServerUrl;
@@ -145,7 +145,7 @@
       if (serverChooserEnabled) activeField().focus();
       else continueButton.focus();
     } catch {
-      setStatus("Setup could not start. Quit BrandWell's AIMEE and try again.", "error");
+      setStatus("Setup could not start. Quit AIMEE and try again.", "error");
       setBusy(true);
     }
   }
