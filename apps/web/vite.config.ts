@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import http from "node:http";
 import https from "node:https";
 import net from "node:net";
@@ -8,7 +9,9 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, loadEnv, type PreviewServer, type ViteDevServer } from "vite";
 import { resolveAuthSecret } from "../../packages/core/src/secrets-guard.ts";
+import { renderAimeeScreenClient } from "./src/aimee-screen-client.js";
 import {
+  isAimeeScreenClientPath,
   resolveNovncTarget,
   safeProxyHeaders,
   safeProxyResponseHeaders,
@@ -27,6 +30,23 @@ function attachNovncProxy(server: ViteDevServer | PreviewServer, secret: string)
     if (!target) {
       res.statusCode = 403;
       res.end("Invalid or expired screen capability");
+      return;
+    }
+    if (isAimeeScreenClientPath(target.path)) {
+      const nonce = randomBytes(18).toString("base64url");
+      res.writeHead(200, {
+        "cache-control": "no-store",
+        "content-security-policy": [
+          "default-src 'none'",
+          `script-src 'nonce-${nonce}' 'strict-dynamic'`,
+          "style-src 'unsafe-inline'",
+          "connect-src 'self' ws: wss:",
+          "frame-ancestors 'self' https://ai.brandwell.ai https://staging-ai.brandwell.ai https://portal.brandwell.ai",
+        ].join("; "),
+        "content-type": "text/html; charset=utf-8",
+        "x-content-type-options": "nosniff",
+      });
+      res.end(renderAimeeScreenClient(nonce));
       return;
     }
     const headers = {

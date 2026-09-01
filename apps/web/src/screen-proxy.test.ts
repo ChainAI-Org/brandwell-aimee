@@ -82,6 +82,27 @@ describe("noVNC proxy authorization", () => {
     });
   });
 
+  it("enforces the signed policy on the managed AIMEE screen client", () => {
+    const view = signedPath(49152, 2_000, "secret", "/aimee.html?view_only=false");
+    expect(resolveNovncTarget(view, "secret", 1_000)).toMatchObject({
+      path: "/aimee.html?view_only=true",
+      interactive: false,
+    });
+
+    const control = signedPath(
+      49152,
+      2_000,
+      "secret",
+      "/aimee.html?view_only=true",
+      "127.0.0.1",
+      "control",
+    );
+    expect(resolveNovncTarget(control, "secret", 1_000)).toMatchObject({
+      path: "/aimee.html?view_only=false",
+      interactive: true,
+    });
+  });
+
   it("keeps encrypted external Box targets bound to their view/control policy", () => {
     const target = "https://box.example/vnc.html?token=provider-secret&view_only=true";
     const view = remotePath(2_000, "secret", target);
