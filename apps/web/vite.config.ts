@@ -41,6 +41,7 @@ function attachNovncProxy(server: ViteDevServer | PreviewServer, secret: string)
           `script-src 'nonce-${nonce}' 'strict-dynamic'`,
           "style-src 'unsafe-inline'",
           "connect-src 'self' ws: wss:",
+          "frame-src 'self'",
           "frame-ancestors 'self' https://ai.brandwell.ai https://staging-ai.brandwell.ai https://portal.brandwell.ai",
         ].join("; "),
         "content-type": "text/html; charset=utf-8",

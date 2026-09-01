@@ -165,7 +165,11 @@ describe("DaytonaSandboxProvider", () => {
     expect(command).toContain("Name=Google Chrome");
     expect(command).toContain("Icon=google-chrome");
     expect(command).toContain("--disable-extensions");
-    expect(command).toContain('feh --no-fehbg --bg-fill "$wallpaper"');
+    expect(command).toContain("--headless=new");
+    expect(command).toContain("/desktop-icons/style");
+    expect(command).toContain("show-filesystem");
+    expect(command).toContain("nohup xfdesktop");
+    expect(command).not.toContain("feh --no-fehbg");
     expect(command).toContain(
       "/panels/panel-2/plugin-ids -a -t int -s 15 -t int -s 13 -t int -s 14",
     );
