@@ -10,6 +10,7 @@ export interface UpdaterEnvironment {
   version: string;
   disabled?: boolean;
   platform?: string;
+  updateConfigAvailable?: boolean;
 }
 
 export function updaterSupport(env: UpdaterEnvironment): {
@@ -33,6 +34,13 @@ export function updaterSupport(env: UpdaterEnvironment): {
     return {
       supported: false,
       reason: "Automatic updates only run in an installed build.",
+    };
+  }
+  if (env.updateConfigAvailable === false) {
+    return {
+      supported: false,
+      reason:
+        "Updates are unavailable in this test build. Install an official AIMEE release to receive updates.",
     };
   }
   return { supported: true, reason: "" };

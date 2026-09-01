@@ -579,6 +579,9 @@ importers:
 
   packages/brandwell:
     dependencies:
+      '@rakazo/core':
+        specifier: workspace:*
+        version: link:../core
       '@rakazo/db':
         specifier: workspace:*
         version: link:../db

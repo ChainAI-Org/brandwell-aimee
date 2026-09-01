@@ -166,7 +166,7 @@ describePostgres("BrandWell AIMEE managed lifecycle (PostgreSQL acceptance)", ()
         managedStatus: "active",
       });
       expect(bot?.thread).not.toBeNull();
-      expect(mapping.rakazoWorkspace.routines).toHaveLength(4);
+      expect(mapping.rakazoWorkspace.routines).toHaveLength(5);
       expect(mapping.rakazoWorkspace.routines.every((routine) => !routine.active)).toBe(true);
       expect(mapping.rakazoWorkspace.connections.map((item) => item.provider).sort()).toEqual([
         "brandwell-intent",

@@ -1537,7 +1537,7 @@ export function createRouter(deps: RouterDeps) {
             deps.env.screenProxySecret,
             deps.env.webOrigin,
             undefined,
-            { proxyExternal: bot.computer.kind === "box" },
+            { proxyExternal: true },
           ),
         };
       }),

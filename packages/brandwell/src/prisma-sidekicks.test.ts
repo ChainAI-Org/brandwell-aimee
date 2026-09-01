@@ -618,6 +618,8 @@ describe("BrandWell Sidekick model-key lifecycle", () => {
       commercialRevision: 7n,
       commercialStatus: "active",
       skillBundleVersion: BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION - 1,
+      timezone: "UTC",
+      serviceIdentityId: "service-1",
     };
     const createdSkills: Array<{ managedKey: string; managedVersion: number }> = [];
     const prisma = {
@@ -633,7 +635,17 @@ describe("BrandWell Sidekick model-key lifecycle", () => {
         updateMany: vi.fn(async () => ({ count: 1 })),
       },
       bot: {
-        findMany: vi.fn(async () => [{ userId: "managed-user-1" }]),
+        findMany: vi.fn(async () => [
+          { id: "bot-1", userId: "managed-user-1", serviceIdentityId: "service-1" },
+        ]),
+      },
+      routine: {
+        findMany: vi.fn(async () => []),
+        create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+          id: `routine-${String(data.name)}`,
+          ...data,
+        })),
+        update: vi.fn(),
       },
       agentSkill: {
         findFirst: vi.fn(async () => null),

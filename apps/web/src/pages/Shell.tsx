@@ -23,7 +23,6 @@ import type {
   ThinkingLevel,
   ThreadMessage,
   ThreadSnapshot,
-  VoiceInfo,
   VoiceStatus,
   WorkspaceMemoryConfig,
 } from "@rakazo/contracts";
@@ -2369,18 +2368,20 @@ export function ShellPage() {
             </div>
           ) : null}
         </div>
-        <button
-          type="button"
-          onClick={() => setPluginsOpen(true)}
-          className="mx-3 mb-1 flex items-center gap-3 rounded-[11px] px-2.5 py-2 hover:bg-[#131315]"
-        >
-          <span className="grid h-[30px] w-[30px] place-items-center rounded-full bg-[#17171A] text-[#9A9AA0]">
-            <Puzzle size={15} strokeWidth={1.7} />
-          </span>
-          <span className="text-[14.5px] text-[#C9C9CE]">
-            {managedWorkspace ? "Connections" : <Trans>Integrations</Trans>}
-          </span>
-        </button>
+        {!managedWorkspace ? (
+          <button
+            type="button"
+            onClick={() => setPluginsOpen(true)}
+            className="mx-3 mb-1 flex items-center gap-3 rounded-[11px] px-2.5 py-2 hover:bg-[#131315]"
+          >
+            <span className="grid h-[30px] w-[30px] place-items-center rounded-full bg-[#17171A] text-[#9A9AA0]">
+              <Puzzle size={15} strokeWidth={1.7} />
+            </span>
+            <span className="text-[14.5px] text-[#C9C9CE]">
+              <Trans>Integrations</Trans>
+            </span>
+          </button>
+        ) : null}
         <div className="relative">
           {menuOpen ? (
             <div className="absolute bottom-14 inset-x-3 rounded-2xl border border-[#2A2A2F] bg-[#1A1A1D] p-2 shadow-[0_22px_50px_rgba(0,0,0,.55)]">
@@ -2628,6 +2629,7 @@ export function ShellPage() {
             onClearReply={() => setReplyTarget(null)}
             mentionTargets={composerMentionTargets}
             agentSkills={agentSkills}
+            hideUsageSettings={managedWorkspace}
             onSlashOpen={refreshAgentSkills}
             onSlashAction={(action) => {
               if (action === "chat-settings") {
@@ -2640,6 +2642,7 @@ export function ShellPage() {
                 return;
               }
               if (action === "settings-usage") {
+                if (managedWorkspace) return;
                 setAccountSettingsFocusUsage(true);
                 setAccountSettingsOpen(true);
                 void rpc.usage
@@ -3290,6 +3293,12 @@ export function ShellPage() {
         ) : null}
         {voiceOpen ? (
           <VoiceSettingsOverlay
+            autoSpeak={active?.autoSpeak ?? false}
+            onAutoSpeakChange={async (autoSpeak) => {
+              if (!active) return;
+              await rpc.bots.update({ botId: active.id, autoSpeak });
+              await refreshBots();
+            }}
             onClose={() => {
               setVoiceOpen(false);
               void rpc.voice
@@ -3737,6 +3746,7 @@ const Composer = memo(function Composer({
   onClearReply,
   mentionTargets,
   agentSkills,
+  hideUsageSettings,
   onSlashOpen,
   onSlashAction,
   dictating,
@@ -3762,6 +3772,7 @@ const Composer = memo(function Composer({
   onClearReply?: () => void;
   mentionTargets?: ComposerMention[];
   agentSkills?: AgentSkillCatalogEntry[];
+  hideUsageSettings?: boolean;
   onSlashOpen?: () => void;
   onSlashAction?: (action: SlashActionId) => void;
   dictating: boolean;
@@ -3874,8 +3885,12 @@ const Composer = memo(function Composer({
   const slashActionOptions = useMemo(() => {
     if (slashQuery === null) return [];
     const query = slashQuery.trim().toLowerCase();
-    return SLASH_ACTIONS.filter((action) => !query || action.label.toLowerCase().includes(query));
-  }, [slashQuery]);
+    return SLASH_ACTIONS.filter(
+      (action) =>
+        (!hideUsageSettings || action.id !== "settings-usage") &&
+        (!query || action.label.toLowerCase().includes(query)),
+    );
+  }, [hideUsageSettings, slashQuery]);
 
   const showSlashPicker =
     slashQuery !== null &&
@@ -5092,9 +5107,6 @@ function BotSettings({
   const [additionalInstructions, setAdditionalInstructions] = useState(bot.additionalInstructions);
   const [computerMode, setComputerMode] = useState(bot.computerMode);
   const [memoryScope, setMemoryScope] = useState(bot.memoryScope);
-  const [autoSpeak, setAutoSpeak] = useState(bot.autoSpeak);
-  const [voiceId, setVoiceId] = useState(bot.voiceId ?? "");
-  const [voices, setVoices] = useState<VoiceInfo[]>([]);
   const [modelKey, setModelKey] = useState(
     bot.modelProvider && bot.modelId ? modelOptionKey(bot.modelProvider, bot.modelId) : "",
   );
@@ -5107,10 +5119,6 @@ function BotSettings({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    void rpc.voice
-      .voices({})
-      .then(setVoices)
-      .catch(() => setVoices([]));
     if (managed) {
       void rpc
         .me()
@@ -5235,126 +5243,97 @@ function BotSettings({
           className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
         />
       </label>
-      <details data-testid="bot-settings-advanced" className="group mt-5">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[14px] text-[#85858A]">
-          <span className="text-[#85858A]">
-            <Trans>Advanced</Trans>
-          </span>
-          <span aria-hidden="true" className="transition-transform group-open:rotate-90">
-            ›
-          </span>
-        </summary>
-        {managed ? (
-          <div className="mt-4 rounded-xl border border-[#342a42] bg-[#1b1721] px-3.5 py-3 text-[13px] leading-5 text-[#b9a7cc]">
-            BrandWell manages AIMEE's model, memory, and computer assignment for this workspace.
-          </div>
-        ) : (
+      {!managed ? (
+        <details data-testid="bot-settings-advanced" className="group mt-5">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-[14px] text-[#85858A]">
+            <span className="text-[#85858A]">
+              <Trans>Advanced</Trans>
+            </span>
+            <span aria-hidden="true" className="transition-transform group-open:rotate-90">
+              ›
+            </span>
+          </summary>
           <ComputerModePicker value={computerMode} onChange={setComputerMode} />
-        )}
-        <Suspense fallback={null}>
-          <ScratchpadSection botId={bot.id} />
-        </Suspense>
-        {!managed ? (
-          <label className="mt-4 block text-[14px] text-[#85858A]">
-            <Trans>Model</Trans>
-            <select
-              value={modelKey}
-              onChange={(event) => {
-                setModelKey(event.target.value);
-                setThinkingLevel("");
-              }}
-              className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
-            >
-              <option value="">
-                {t`Workspace default`}
-                {me?.defaultModel
-                  ? ` (${catalogLabel(catalog, me.defaultProvider, me.defaultModel) ?? me.defaultModel})`
-                  : ""}
-              </option>
-              {modelKey && !connectedOptions.some((option) => option.key === modelKey) ? (
-                <option value={modelKey}>
-                  {parseModelOptionKey(modelKey)?.modelId ?? modelKey}
+          <Suspense fallback={null}>
+            <ScratchpadSection botId={bot.id} />
+          </Suspense>
+          {!managed ? (
+            <label className="mt-4 block text-[14px] text-[#85858A]">
+              <Trans>Model</Trans>
+              <select
+                value={modelKey}
+                onChange={(event) => {
+                  setModelKey(event.target.value);
+                  setThinkingLevel("");
+                }}
+                className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
+              >
+                <option value="">
+                  {t`Workspace default`}
+                  {me?.defaultModel
+                    ? ` (${catalogLabel(catalog, me.defaultProvider, me.defaultModel) ?? me.defaultModel})`
+                    : ""}
                 </option>
-              ) : null}
-              {connectedOptions.map((option) => (
-                <option key={option.key} value={option.key}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        {!managed && thinkingOptions.length ? (
-          <label className="mt-4 block text-[14px] text-[#85858A]">
-            <Trans>Thinking</Trans>
-            <select
-              value={thinkingLevel}
-              onChange={(event) => setThinkingLevel(event.target.value)}
-              className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
-            >
-              <option value="">{t`Default (medium)`}</option>
-              {thinkingOptions.map((level) => (
-                <option key={level} value={level}>
-                  {thinkingLevelLabel(level)}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        {!managed && memoryProviderConfigured ? (
-          <div className="mt-4 text-[14px] text-[#85858A]">
-            <Trans>Memory scope</Trans>
-            <div className="mt-2 flex gap-2">
-              {(
-                [
-                  { value: null, label: t`Inherit default` },
-                  { value: "isolated" as const, label: t`Isolated` },
-                  { value: "shared" as const, label: t`Shared` },
-                ] satisfies Array<{ value: "isolated" | "shared" | null; label: string }>
-              ).map((option) => (
-                <button
-                  key={option.label}
-                  type="button"
-                  aria-pressed={memoryScope === option.value}
-                  onClick={() => setMemoryScope(option.value)}
-                  className={`flex-1 rounded-[11px] border px-3 py-2 text-[13px] ${
-                    memoryScope === option.value
-                      ? "border-[#4A4A50] bg-[#1A1A1D] text-[#ECECEE]"
-                      : "border-[#26262A] text-[#85858A]"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))}
+                {modelKey && !connectedOptions.some((option) => option.key === modelKey) ? (
+                  <option value={modelKey}>
+                    {parseModelOptionKey(modelKey)?.modelId ?? modelKey}
+                  </option>
+                ) : null}
+                {connectedOptions.map((option) => (
+                  <option key={option.key} value={option.key}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {!managed && thinkingOptions.length ? (
+            <label className="mt-4 block text-[14px] text-[#85858A]">
+              <Trans>Thinking</Trans>
+              <select
+                value={thinkingLevel}
+                onChange={(event) => setThinkingLevel(event.target.value)}
+                className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
+              >
+                <option value="">{t`Default (medium)`}</option>
+                {thinkingOptions.map((level) => (
+                  <option key={level} value={level}>
+                    {thinkingLevelLabel(level)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {!managed && memoryProviderConfigured ? (
+            <div className="mt-4 text-[14px] text-[#85858A]">
+              <Trans>Memory scope</Trans>
+              <div className="mt-2 flex gap-2">
+                {(
+                  [
+                    { value: null, label: t`Inherit default` },
+                    { value: "isolated" as const, label: t`Isolated` },
+                    { value: "shared" as const, label: t`Shared` },
+                  ] satisfies Array<{ value: "isolated" | "shared" | null; label: string }>
+                ).map((option) => (
+                  <button
+                    key={option.label}
+                    type="button"
+                    aria-pressed={memoryScope === option.value}
+                    onClick={() => setMemoryScope(option.value)}
+                    className={`flex-1 rounded-[11px] border px-3 py-2 text-[13px] ${
+                      memoryScope === option.value
+                        ? "border-[#4A4A50] bg-[#1A1A1D] text-[#ECECEE]"
+                        : "border-[#26262A] text-[#85858A]"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        ) : null}
-        <label className="mt-5 flex cursor-pointer items-center gap-3 text-[14px] text-[#C9C9CE]">
-          <input
-            type="checkbox"
-            checked={autoSpeak}
-            onChange={(event) => setAutoSpeak(event.target.checked)}
-          />
-          <Trans>Read replies aloud</Trans>
-        </label>
-        {voices.length ? (
-          <label className="mt-4 block text-[14px] text-[#85858A]">
-            <Trans>Voice</Trans>
-            <select
-              value={voiceId}
-              onChange={(event) => setVoiceId(event.target.value)}
-              className="mt-2 w-full rounded-[11px] border border-[#26262A] bg-transparent px-3.5 py-3 text-[#ECECEE]"
-            >
-              <option value="">{t`Account default`}</option>
-              {voices.map((voice) => (
-                <option key={voice.id} value={voice.id}>
-                  {voice.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-      </details>
+          ) : null}
+        </details>
+      ) : null}
       {error ? <p className="mt-2 text-[13px] text-[#E65707]">{error}</p> : null}
       <div className="mt-5 flex flex-col items-start gap-3">
         <button
@@ -5372,8 +5351,6 @@ function BotSettings({
               additionalInstructions: managed ? additionalInstructions : undefined,
               computerMode,
               memoryScope,
-              autoSpeak,
-              voiceId: voiceId || null,
               ...(managed
                 ? {}
                 : {

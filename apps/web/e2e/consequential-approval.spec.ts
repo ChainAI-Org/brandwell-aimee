@@ -29,9 +29,15 @@ test("actions run by default while optional confirmations live in advanced user 
 
   await settings.getByText("Advanced", { exact: true }).click();
   await expect(settings.getByRole("heading", { name: "Action confirmations" })).toBeVisible();
-  await expect(settings.getByText("No exceptions. Actions run automatically.")).toBeVisible();
-  await settings.getByRole("button", { name: "Ask before sending external email" }).click();
+  await expect(settings.getByText("No exceptions. Actions run automatically.")).toHaveCount(0);
+  const emailConfirmation = settings.getByRole("button", {
+    name: "Ask before sending external email",
+  });
+  await expect(emailConfirmation).toHaveAttribute("aria-pressed", "false");
+  await emailConfirmation.click();
+  await expect(emailConfirmation).toHaveAttribute("aria-pressed", "true");
   await expect(settings.getByText("Ask before email actions", { exact: true })).toBeVisible();
+  await expect(settings.getByLabel("Enabled")).toBeVisible();
   await captureScreenshot(page, testInfo, "52-advanced-action-confirmations");
   await settings.getByRole("button", { name: "Close user settings" }).click();
 

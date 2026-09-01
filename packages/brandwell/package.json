@@ -20,6 +20,7 @@
     "test": "vitest run --root ../.. packages/brandwell/src"
   },
   "dependencies": {
+    "@rakazo/core": "workspace:*",
     "@rakazo/db": "workspace:*"
   },
   "devDependencies": {

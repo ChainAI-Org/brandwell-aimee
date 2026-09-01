@@ -1,6 +1,7 @@
 import { t } from "@lingui/core/macro";
 import { Trans, useLingui } from "@lingui/react/macro";
 import type { ActionApprovalRule } from "@rakazo/contracts";
+import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { rpc } from "../lib/rpc";
 
@@ -84,6 +85,19 @@ export function ApprovalRulesSettings() {
     }
   }
 
+  const emailConfirmationEnabled = rules.some(
+    (rule) =>
+      rule.effect === "require_approval" &&
+      rule.matchKind === "category" &&
+      rule.matchValue === "email",
+  );
+  const purchaseConfirmationEnabled = rules.some(
+    (rule) =>
+      rule.effect === "require_approval" &&
+      rule.matchKind === "category" &&
+      rule.matchValue === "purchase",
+  );
+
   return (
     <div data-testid="action-confirmation-settings" className="pt-5">
       <h3 className="text-[15px] font-medium text-[#ECECEE]">
@@ -98,18 +112,30 @@ export function ApprovalRulesSettings() {
       <div className="mt-4 flex flex-col items-start gap-2">
         <button
           type="button"
+          aria-pressed={emailConfirmationEnabled}
           disabled={loading || savingPreset !== null}
           onClick={() => void setPreset("email")}
-          className="rounded-[11px] border border-[#26262A] px-[17px] py-2 text-[14px] text-[#C9C9CE] disabled:opacity-50"
+          className={`inline-flex items-center gap-2 rounded-[11px] border px-[17px] py-2 text-[14px] transition-colors disabled:opacity-50 ${
+            emailConfirmationEnabled
+              ? "border-[#2F6E45] bg-[#173522] text-[#79D99A]"
+              : "border-[#26262A] text-[#C9C9CE] hover:border-[#3A3A40]"
+          }`}
         >
+          {emailConfirmationEnabled ? <Check size={15} strokeWidth={2.4} /> : null}
           <Trans>Ask before sending external email</Trans>
         </button>
         <button
           type="button"
+          aria-pressed={purchaseConfirmationEnabled}
           disabled={loading || savingPreset !== null}
           onClick={() => void setPreset("purchase")}
-          className="rounded-[11px] border border-[#26262A] px-[17px] py-2 text-[14px] text-[#C9C9CE] disabled:opacity-50"
+          className={`inline-flex items-center gap-2 rounded-[11px] border px-[17px] py-2 text-[14px] transition-colors disabled:opacity-50 ${
+            purchaseConfirmationEnabled
+              ? "border-[#2F6E45] bg-[#173522] text-[#79D99A]"
+              : "border-[#26262A] text-[#C9C9CE] hover:border-[#3A3A40]"
+          }`}
         >
+          {purchaseConfirmationEnabled ? <Check size={15} strokeWidth={2.4} /> : null}
           <Trans>Ask before purchases</Trans>
         </button>
       </div>
@@ -118,18 +144,23 @@ export function ApprovalRulesSettings() {
         <p className="mt-4 text-[13px] text-[#85858A]">
           <Trans>Loading rules…</Trans>
         </p>
-      ) : rules.length === 0 ? (
-        <p className="mt-4 text-[13px] text-[#85858A]">
-          <Trans>No exceptions. Actions run automatically.</Trans>
-        </p>
-      ) : (
+      ) : rules.length > 0 ? (
         <ul className="mt-4 space-y-2">
           {rules.map((rule) => (
             <li
               key={rule.id}
-              className="flex items-center justify-between gap-3 rounded-[11px] border border-[#26262A] px-3.5 py-2.5"
+              className="flex items-center justify-between gap-3 rounded-[11px] border border-[#2F6E45] bg-[#132A1B] px-3.5 py-2.5"
             >
-              <span className="text-[13.5px] text-[#C9C9CE]">{describeRule(rule)}</span>
+              <span className="flex items-center gap-2 text-[13.5px] text-[#BCECCB]">
+                <span
+                  role="img"
+                  aria-label={t`Enabled`}
+                  className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#24613A] text-[#9BE7B2]"
+                >
+                  <Check size={13} strokeWidth={2.6} />
+                </span>
+                {describeRule(rule)}
+              </span>
               <button
                 type="button"
                 onClick={() => void removeRule(rule.id)}
@@ -140,7 +171,7 @@ export function ApprovalRulesSettings() {
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
     </div>
   );
 }

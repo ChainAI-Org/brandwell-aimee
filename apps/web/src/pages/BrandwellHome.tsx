@@ -15,7 +15,6 @@ import {
   Home,
   MessageSquare,
   Monitor,
-  Plug,
   Settings,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -191,11 +190,6 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
               icon={<Monitor size={17} />}
               label="Computer"
               onClick={() => open("computer")}
-            />
-            <HomeNavItem
-              icon={<Plug size={17} />}
-              label="Connections"
-              onClick={() => open("integrations")}
             />
             <HomeNavItem
               icon={<Settings size={17} />}

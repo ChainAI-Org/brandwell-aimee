@@ -91,6 +91,8 @@ const updaterEnvironment = {
   version: app.getVersion(),
   disabled: process.env.RAKAZO_DISABLE_AUTO_UPDATE === "1",
   platform: process.platform,
+  updateConfigAvailable:
+    !app.isPackaged || existsSync(path.join(process.resourcesPath, "app-update.yml")),
 };
 const desktopUpdater = new DesktopUpdateController(updaterEnvironment, async () => {
   const module = await import("electron-updater");

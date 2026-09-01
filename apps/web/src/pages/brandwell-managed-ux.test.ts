@@ -4,6 +4,11 @@ import { describe, expect, it } from "vitest";
 const app = readFileSync(new URL("../App.tsx", import.meta.url), "utf8");
 const home = readFileSync(new URL("./BrandwellHome.tsx", import.meta.url), "utf8");
 const shell = readFileSync(new URL("./Shell.tsx", import.meta.url), "utf8");
+const accountSettings = readFileSync(
+  new URL("./AccountSettingsOverlay.tsx", import.meta.url),
+  "utf8",
+);
+const voiceSettings = readFileSync(new URL("./VoiceSettingsOverlay.tsx", import.meta.url), "utf8");
 const connections = readFileSync(new URL("./PluginsOverlay.tsx", import.meta.url), "utf8");
 const onboarding = readFileSync(new URL("./Onboarding.tsx", import.meta.url), "utf8");
 
@@ -46,6 +51,17 @@ describe("managed AIMEE workspace navigation", () => {
       "outline-none focus:border-[#8B5CF6] focus:ring-2 focus:ring-[#8B5CF6]/35";
     expect(onboarding.split(focusTreatment).length - 1).toBe(3);
     expect(shell.split(focusTreatment).length - 1).toBe(4);
+  });
+
+  it("keeps centrally managed controls out of the customer app", () => {
+    expect(home).not.toContain('label="Connections"');
+    expect(shell).not.toContain('{managedWorkspace ? "Connections"');
+    expect(shell).toContain("hideUsageSettings={managedWorkspace}");
+    expect(accountSettings).toContain("!managed ? (");
+    expect(accountSettings).toContain('data-testid="usage-settings"');
+    expect(shell).toContain('<details data-testid="bot-settings-advanced"');
+    expect(shell).not.toContain("<Trans>Read replies aloud</Trans>");
+    expect(voiceSettings).toContain("<Trans>Read replies aloud</Trans>");
   });
 });
 

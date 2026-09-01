@@ -60,6 +60,10 @@ describe("updaterSupport", () => {
     expect(updaterSupport(packaged).supported).toBe(true);
     expect(updaterSupport({ packaged: false, version: "0.1.0" }).supported).toBe(false);
     expect(updaterSupport({ ...packaged, disabled: true }).supported).toBe(false);
+    expect(updaterSupport({ ...packaged, updateConfigAvailable: false })).toMatchObject({
+      supported: false,
+      reason: expect.stringContaining("test build"),
+    });
     expect(updaterSupport({ ...packaged, platform: "linux" })).toMatchObject({
       supported: false,
       reason: expect.stringContaining("not available on Linux"),
@@ -73,6 +77,15 @@ describe("updaterSupport", () => {
       currentVersion: "0.1.0",
     });
     expect(state.message).toContain("installed build");
+  });
+
+  it("does not run the updater when a packaged test build has no release configuration", () => {
+    const state = initialUpdateState({
+      ...packaged,
+      updateConfigAvailable: false,
+    });
+    expect(state).toMatchObject({ phase: "unsupported" });
+    expect(state.message).toContain("official AIMEE release");
   });
 });
 

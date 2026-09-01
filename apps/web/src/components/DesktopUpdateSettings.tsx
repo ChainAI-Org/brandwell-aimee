@@ -69,8 +69,8 @@ export function desktopUpdateView(state: DesktopUpdateState): DesktopUpdateView 
     case "unsupported":
       return {
         detail: state.message ?? "Updates are not available for this build.",
-        action: "check",
-        actionLabel: "Check again",
+        action: null,
+        actionLabel: null,
         activeLabel: null,
       };
     case "idle":
@@ -79,7 +79,7 @@ export function desktopUpdateView(state: DesktopUpdateState): DesktopUpdateView 
           state.message ??
           (state.checkedAt
             ? "You have the latest desktop version."
-            : "Check for BrandWell AIMEE desktop updates."),
+            : "Check for AIMEE desktop updates."),
         action: "check",
         actionLabel: "Check for updates",
         activeLabel: null,

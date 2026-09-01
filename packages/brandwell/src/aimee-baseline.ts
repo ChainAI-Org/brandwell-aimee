@@ -22,7 +22,7 @@ export const BRANDWELL_AIMEE_WELCOME = `Hi, I'm AIMEE, your BrandWell GTM-focuse
 
 Tell me what you want to grow or what you want me to work on first. I will use the BrandWell data and tools available in this workspace, bring you a clear plan, and ask before anything sends, publishes, spends, prints, or mails.`;
 
-export const BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION = 5;
+export const BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION = 6;
 
 export const BRANDWELL_AIMEE_DEFAULT_ROUTINES = [
   {
@@ -48,6 +48,12 @@ export const BRANDWELL_AIMEE_DEFAULT_ROUTINES = [
     cron: "0 16 * * *",
     prompt:
       "Summarize today's intent, identified visitors, campaign activity, replies, conversions, and items that need client attention.",
+  },
+  {
+    name: "Review weekly content opportunities",
+    cron: "0 10 * * 1",
+    prompt:
+      "Review BrandWell visibility, RankWell strategy, recent content performance, buyer questions, and search and AI visibility opportunities. Prepare a prioritized weekly content brief with evidence, recommended topics, and next actions. Do not publish anything without approval.",
   },
 ] as const;
 
