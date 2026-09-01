@@ -44,7 +44,7 @@ function resource(overrides: Record<string, unknown> = {}) {
 function deps(prisma: Record<string, unknown>, input?: { screenUrl?: string }) {
   const enqueue = vi.fn(async () => undefined);
   const connectScreen = vi.fn(async () => ({
-    url: input?.screenUrl ?? "http://127.0.0.1:6080/vnc.html",
+    url: input?.screenUrl ?? "http://127.0.0.1:6080/aimee.html",
   }));
   const setScreenControl = vi.fn(async () => undefined);
   const finalizeComputerControlRelease = vi.fn(async () => ({ runId: null }));
@@ -192,7 +192,7 @@ describe("BrandWell operator computer support", () => {
       brandwellAuditLog: { create: vi.fn(async () => ({ id: "audit-1" })) },
     };
     const providerUrl =
-      "https://6080-provider-proxy.example/vnc.html?autoconnect=true&resize=scale&provider_token=secret";
+      "https://6080-provider-proxy.example/aimee.html?autoconnect=true&resize=scale&provider_token=secret";
     const harness = deps(prisma, { screenUrl: providerUrl });
 
     const screen = await getBrandwellSupportScreen(harness.value, {
@@ -203,7 +203,7 @@ describe("BrandWell operator computer support", () => {
 
     expect(screen.interactive).toBe(false);
     const screenUrl = new URL(screen.url!);
-    expect(screenUrl.pathname).toMatch(/^\/novnc\/remote\/view\/\d+\.[A-Za-z0-9_-]+\/vnc\.html$/);
+    expect(screenUrl.pathname).toMatch(/^\/novnc\/remote\/view\/\d+\.[A-Za-z0-9_-]+\/aimee\.html$/);
     expect(screenUrl.searchParams.get("autoconnect")).toBe("true");
     expect(screenUrl.searchParams.get("resize")).toBe("scale");
     expect(screenUrl.searchParams.get("view_only")).toBe("true");

@@ -73,10 +73,18 @@ function resolveLocalTarget(match: RegExpMatchArray, secret: string, now: number
 
 export function screenPolicyPath(requestedPath: string, interactive: boolean) {
   const parsed = new URL(requestedPath, "http://screen.invalid");
-  if (parsed.pathname === "/embed.html" || parsed.pathname === "/vnc.html") {
+  if (
+    parsed.pathname === "/aimee.html" ||
+    parsed.pathname === "/embed.html" ||
+    parsed.pathname === "/vnc.html"
+  ) {
     parsed.searchParams.set("view_only", interactive ? "false" : "true");
   }
   return `${parsed.pathname}${parsed.search}`;
+}
+
+export function isAimeeScreenClientPath(requestedPath: string) {
+  return new URL(requestedPath, "http://screen.invalid").pathname === "/aimee.html";
 }
 
 function remoteTargetPath(target: URL, requestedPath: string) {

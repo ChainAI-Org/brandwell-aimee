@@ -236,7 +236,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       await this.ensureDesktop(sandbox);
       const preview = await this.screenPreview(sandbox, screenKey, layout.viewPort);
       const url = new URL(preview.url);
-      url.pathname = "/vnc.html";
+      url.pathname = "/aimee.html";
       url.searchParams.set("autoconnect", "true");
       url.searchParams.set("resize", "scale");
       url.searchParams.set("view_only", request.interactive ? "false" : "true");
@@ -256,7 +256,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       if (result.exitCode !== 0) throw new Error(result.result || "control stream failed to start");
       const preview = await this.screenPreview(sandbox, screenKey, layout.controlPort);
       const url = new URL(preview.url);
-      url.pathname = "/vnc.html";
+      url.pathname = "/aimee.html";
       url.searchParams.set("autoconnect", "true");
       url.searchParams.set("resize", "scale");
       url.searchParams.set("password", password);
@@ -268,7 +268,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     }
     const preview = await this.screenPreview(sandbox, screenKey, layout.viewPort);
     const url = new URL(preview.url);
-    url.pathname = "/vnc.html";
+    url.pathname = "/aimee.html";
     url.searchParams.set("autoconnect", "true");
     url.searchParams.set("resize", "scale");
     url.searchParams.set("view_only", "true");
@@ -911,7 +911,7 @@ export function managedDesktopBrandingCommand(): string {
     'aimee_icon="$home_dir/.local/share/icons/aimee-avatar.svg"',
     'panel_dir="$home_dir/.config/xfce4/panel"',
     'mkdir -p "$(dirname "$wallpaper_svg")" "$(dirname "$aimee_icon")" "$panel_dir/launcher-13" "$panel_dir/launcher-14" "$panel_dir/launcher-15"',
-    `printf '%s\\n' '<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#090611"/><stop offset="0.52" stop-color="#160a29"/><stop offset="1" stop-color="#090611"/></linearGradient><radialGradient id="glow" cx="50%" cy="45%" r="48%"><stop offset="0" stop-color="#7c3aed" stop-opacity="0.33"/><stop offset="1" stop-color="#7c3aed" stop-opacity="0"/></radialGradient></defs><rect width="1440" height="900" fill="url(#bg)"/><rect width="1440" height="900" fill="url(#glow)"/><path d="M-80 660 C260 360 470 780 790 470 S1260 240 1510 510" fill="none" stroke="#8b5cf6" stroke-opacity="0.22" stroke-width="3"/><path d="M-50 760 C300 500 520 850 860 560 S1250 350 1490 620" fill="none" stroke="#ec4899" stroke-opacity="0.13" stroke-width="2"/><circle cx="720" cy="405" r="74" fill="#6d28d9" fill-opacity="0.24" stroke="#a78bfa" stroke-opacity="0.7" stroke-width="2"/><circle cx="694" cy="398" r="8" fill="#f5f3ff"/><circle cx="746" cy="398" r="8" fill="#f5f3ff"/><path d="M690 431 Q720 451 750 431" fill="none" stroke="#f5f3ff" stroke-width="5" stroke-linecap="round"/><text x="720" y="535" text-anchor="middle" fill="#f8f7ff" font-family="Inter,Arial,sans-serif" font-size="64" font-weight="700" letter-spacing="10">AIMEE</text><text x="720" y="580" text-anchor="middle" fill="#c4b5fd" font-family="Inter,Arial,sans-serif" font-size="17" font-weight="600" letter-spacing="6">YOUR AI EMPLOYEE</text></svg>' > "$wallpaper_svg"`,
+    `printf '%s\\n' '<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900"><defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#090611"/><stop offset="0.52" stop-color="#160a29"/><stop offset="1" stop-color="#090611"/></linearGradient><radialGradient id="glow" cx="50%" cy="45%" r="48%"><stop offset="0" stop-color="#7c3aed" stop-opacity="0.33"/><stop offset="1" stop-color="#7c3aed" stop-opacity="0"/></radialGradient><radialGradient id="avatar" cx="35%" cy="26%" r="78%"><stop offset="0" stop-color="#c4b5fd"/><stop offset="0.55" stop-color="#7c3aed"/><stop offset="1" stop-color="#2e1065"/></radialGradient><linearGradient id="visor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#17171d"/><stop offset="1" stop-color="#030305"/></linearGradient></defs><rect width="1440" height="900" fill="url(#bg)"/><rect width="1440" height="900" fill="url(#glow)"/><path d="M-80 660 C260 360 470 780 790 470 S1260 240 1510 510" fill="none" stroke="#8b5cf6" stroke-opacity="0.22" stroke-width="3"/><path d="M-50 760 C300 500 520 850 860 560 S1250 350 1490 620" fill="none" stroke="#ec4899" stroke-opacity="0.13" stroke-width="2"/><circle cx="720" cy="405" r="74" fill="url(#avatar)"/><rect x="666" y="374" width="108" height="62" rx="31" fill="url(#visor)" stroke="#ffffff" stroke-opacity="0.15"/><path d="M674 381 C696 369 744 369 766 381" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="3"/><rect x="691" y="389" width="17" height="28" rx="8.5" fill="#ffffff"/><rect x="732" y="389" width="17" height="28" rx="8.5" fill="#ffffff"/><text x="720" y="535" text-anchor="middle" fill="#f8f7ff" font-family="Inter,Arial,sans-serif" font-size="64" font-weight="700" letter-spacing="10">AIMEE</text><text x="720" y="580" text-anchor="middle" fill="#c4b5fd" font-family="Inter,Arial,sans-serif" font-size="17" font-weight="600" letter-spacing="6">YOUR AI EMPLOYEE</text></svg>' > "$wallpaper_svg"`,
     `printf '%s\\n' '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><defs><radialGradient id="body" cx="35%" cy="26%" r="78%"><stop offset="0" stop-color="#c4b5fd"/><stop offset="0.55" stop-color="#7c3aed"/><stop offset="1" stop-color="#2e1065"/></radialGradient><linearGradient id="visor" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#17171d"/><stop offset="1" stop-color="#030305"/></linearGradient><filter id="eyeGlow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="1.6" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><circle cx="32" cy="32" r="30" fill="url(#body)"/><rect x="10" y="18" width="44" height="28" rx="14" fill="url(#visor)" stroke="#ffffff" stroke-opacity="0.15"/><path d="M13 21 C22 16 42 16 51 21" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="2"/><rect x="20" y="25" width="9" height="14" rx="4.5" fill="#ffffff" filter="url(#eyeGlow)"/><rect x="35" y="25" width="9" height="14" rx="4.5" fill="#ffffff" filter="url(#eyeGlow)"/></svg>' > "$aimee_icon"`,
     "if command -v rsvg-convert >/dev/null 2>&1; then",
     '  rsvg-convert -w 1440 -h 900 "$wallpaper_svg" -o "$wallpaper_png" >/dev/null 2>&1 || true',
@@ -933,10 +933,8 @@ export function managedDesktopBrandingCommand(): string {
     '  test -n "$session_bus" && export DBUS_SESSION_BUS_ADDRESS="$session_bus"',
     "fi",
     "if command -v xfconf-query >/dev/null 2>&1; then",
-    "  xfconf-query -c xfce4-panel -p /plugins/plugin-1/show-button-title -s true >/dev/null 2>&1 || xfconf-query -c xfce4-panel -p /plugins/plugin-1/show-button-title -n -t bool -s true >/dev/null 2>&1 || true",
-    '  xfconf-query -c xfce4-panel -p /plugins/plugin-1/button-title -s "AIMEE" >/dev/null 2>&1 || xfconf-query -c xfce4-panel -p /plugins/plugin-1/button-title -n -t string -s "AIMEE" >/dev/null 2>&1 || true',
-    '  xfconf-query -c xfce4-panel -p /plugins/plugin-1/button-icon -s "$aimee_icon" >/dev/null 2>&1 || xfconf-query -c xfce4-panel -p /plugins/plugin-1/button-icon -n -t string -s "$aimee_icon" >/dev/null 2>&1 || true',
-    "  xfconf-query -c xfce4-panel -p /plugins/plugin-1/show-button-icon -s true >/dev/null 2>&1 || xfconf-query -c xfce4-panel -p /plugins/plugin-1/show-button-icon -n -t bool -s true >/dev/null 2>&1 || true",
+    "  xfconf-query -c xfce4-panel -p /panels/panel-1 -r -R >/dev/null 2>&1 || true",
+    "  xfconf-query -c xfce4-panel -p /panels -a -t int -s 2 >/dev/null 2>&1 || true",
     "  xfconf-query -c xfce4-panel -p /panels/panel-2/plugin-ids -a -t int -s 15 -t int -s 13 -t int -s 14 >/dev/null 2>&1 || true",
     "  xfconf-query -c xfce4-panel -p /panels/panel-2/autohide-behavior -s 0 >/dev/null 2>&1 || true",
     "  xfconf-query -c xfce4-panel -p /panels/panel-2/size -s 58 >/dev/null 2>&1 || true",

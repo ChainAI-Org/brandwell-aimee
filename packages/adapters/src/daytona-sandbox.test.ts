@@ -100,7 +100,7 @@ describe("DaytonaSandboxProvider", () => {
     expect(observation.image).toEqual(Uint8Array.from([1, 2, 3]));
     expect(
       fixture.executeCommand.mock.calls.some(([command]) =>
-        String(command).includes("/plugins/plugin-1/button-title"),
+        String(command).includes("/panels/panel-1 -r -R"),
       ),
     ).toBe(true);
     expect(
@@ -142,7 +142,7 @@ describe("DaytonaSandboxProvider", () => {
       provider.connectScreen(computer, { view: "stream", interactive: false }, context),
       provider.connectScreen(computer, { view: "stream", interactive: true }, context),
     ]);
-    expect(screen.url).toContain("/vnc.html");
+    expect(screen.url).toContain("/aimee.html");
     expect(screen.url).toContain("view_only=true");
     await screen.close();
     expect(interactiveScreen.url).toContain("view_only=false");
@@ -156,9 +156,9 @@ describe("DaytonaSandboxProvider", () => {
   it("replaces the provider desktop with the managed AIMEE identity and application dock", () => {
     const command = managedDesktopBrandingCommand();
     expect(command).toContain('usermod -c "AIMEE"');
-    expect(command).toContain("/plugins/plugin-1/show-button-title");
-    expect(command).toContain("/plugins/plugin-1/button-title");
-    expect(command).toContain("/plugins/plugin-1/button-icon");
+    expect(command).toContain("/panels/panel-1 -r -R");
+    expect(command).toContain("/panels -a -t int -s 2");
+    expect(command).not.toContain("/plugins/plugin-1");
     expect(command).toContain("aimee-avatar.svg");
     expect(command).toContain('filter id="eyeGlow"');
     expect(command).toContain("aimee-desktop.svg");
@@ -166,7 +166,9 @@ describe("DaytonaSandboxProvider", () => {
     expect(command).toContain("Icon=google-chrome");
     expect(command).toContain("--disable-extensions");
     expect(command).toContain('feh --no-fehbg --bg-fill "$wallpaper"');
-    expect(command).toContain("/panels/panel-2/plugin-ids");
+    expect(command).toContain(
+      "/panels/panel-2/plugin-ids -a -t int -s 15 -t int -s 13 -t int -s 14",
+    );
     expect(command).not.toContain("daytona");
   });
 
