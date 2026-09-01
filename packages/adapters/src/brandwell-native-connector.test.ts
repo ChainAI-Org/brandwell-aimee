@@ -191,6 +191,30 @@ describe("BrandWell native connector", () => {
     );
   });
 
+  it("forwards an explicitly approved AI citation refresh confirmation", async () => {
+    let requestInit: RequestInit | undefined;
+    const connector = new BrandwellNativeConnector(activePrisma(), {
+      apiBaseUrl: "https://portal.example.test",
+      serviceToken: SERVICE_TOKEN,
+      fetch: async (_url, init) => {
+        requestInit = init;
+        return new Response(JSON.stringify({ ai_citations: { total_mentions: 12 } }));
+      },
+    });
+
+    const events = await eventsFrom(connector, "brandwell_visibility_get_ai_citations", {
+      query: "brandwell.ai",
+      confirmed_cost_usd: 0.2,
+    });
+
+    expect(events).toEqual([{ type: "result", data: { ai_citations: { total_mentions: 12 } } }]);
+    expect(JSON.parse(String(requestInit?.body))).toMatchObject({
+      tool: "get_ai_citations",
+      arguments: { query: "brandwell.ai", confirmed_cost_usd: 0.2 },
+      agent_intake_source: "aimee",
+    });
+  });
+
   it("routes RankWell drafts through the signed project mutation endpoint", async () => {
     let requestUrl: string | URL | Request | undefined;
     let requestInit: RequestInit | undefined;
@@ -396,5 +420,37 @@ describe("BrandWell native connector", () => {
     expect(events).toEqual([
       { type: "error", message: "BrandWell request failed with status 500" },
     ]);
+  });
+
+  it("turns the known research confirmation response into safe agent guidance", async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            error: "This request needs confirmation before it can run.",
+            code: "SEO_RESEARCH_CONFIRMATION_REQUIRED",
+            internal: SERVICE_TOKEN,
+          }),
+          { status: 409, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const connector = new BrandwellNativeConnector(activePrisma(), {
+      apiBaseUrl: "https://portal.example.test",
+      serviceToken: SERVICE_TOKEN,
+      fetch: fetchImpl,
+    });
+
+    const events = await eventsFrom(connector, "brandwell_visibility_get_ai_citations", {
+      query: "brandwell.ai",
+    });
+
+    expect(events).toEqual([
+      {
+        type: "error",
+        message:
+          "A fresh BrandWell visibility lookup requires explicit user approval before it can run.",
+      },
+    ]);
+    expect(JSON.stringify(events)).not.toContain(SERVICE_TOKEN);
   });
 });
