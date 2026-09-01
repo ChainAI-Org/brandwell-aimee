@@ -12,6 +12,14 @@ export function desktopBridge(): AimeeDesktop | undefined {
   return typeof window === "undefined" ? undefined : window.rakazoDesktop;
 }
 
+/** Quit the native app after the server has cleared the signed-in session. */
+export async function quitDesktopAfterLogout(): Promise<boolean> {
+  const quit = desktopBridge()?.app?.quit;
+  if (!quit) return false;
+  await quit();
+  return true;
+}
+
 /** The compact `code#state` form the manual paste flow already accepts. */
 export function desktopOAuthCode(callback: AimeeDesktopOAuthCallback) {
   return callback.state === undefined ? callback.code : `${callback.code}#${callback.state}`;
@@ -19,8 +27,8 @@ export function desktopOAuthCode(callback: AimeeDesktopOAuthCallback) {
 
 /**
  * The authorize URL carries the attempt's PKCE state, so a captured code whose
- * state differs belongs to a different attempt — a popup left open by a
- * cancelled sign-in, say — and must not be spent on the current one.
+ * state differs belongs to a different attempt, such as a popup left open by a
+ * cancelled sign-in, and must not be spent on the current one.
  */
 export function oauthStateOf(verificationUri: string): string | undefined {
   try {

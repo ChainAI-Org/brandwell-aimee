@@ -2,6 +2,9 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("rakazoDesktop", {
   platform: process.platform,
+  app: {
+    quit: () => ipcRenderer.invoke("desktop.app.quit"),
+  },
   window: {
     close: () => ipcRenderer.invoke("desktop.window.close"),
     minimize: () => ipcRenderer.invoke("desktop.window.minimize"),

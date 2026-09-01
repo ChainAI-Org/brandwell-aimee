@@ -8,6 +8,7 @@ import {
   desktopOAuthCode,
   oauthStateOf,
   onDesktopOAuthCallback,
+  quitDesktopAfterLogout,
   windowChromeKind,
 } from "./desktop.js";
 
@@ -58,6 +59,23 @@ describe("window chrome", () => {
     const welcome = readFileSync(path.join(root, "Welcome.tsx"), "utf8");
     expect(shell).not.toContain("FF5F57");
     expect(welcome).not.toContain("FF5F57");
+  });
+});
+
+describe("desktop logout", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("requests a full native quit when the desktop bridge supports it", async () => {
+    const quit = vi.fn(async () => undefined);
+    vi.stubGlobal("window", { rakazoDesktop: { ...desktop("win32"), app: { quit } } });
+
+    await expect(quitDesktopAfterLogout()).resolves.toBe(true);
+    expect(quit).toHaveBeenCalledOnce();
+  });
+
+  it("lets the browser continue to its signed-out route", async () => {
+    vi.stubGlobal("window", {});
+    await expect(quitDesktopAfterLogout()).resolves.toBe(false);
   });
 });
 

@@ -64,6 +64,12 @@ describe("managed AIMEE workspace navigation", () => {
     expect(voiceSettings).toContain("<Trans>Read replies aloud</Trans>");
   });
 
+  it("quits the native desktop after the BrandWell session signs out", () => {
+    expect(shell).toContain("authClient.signOut().then(async () =>");
+    expect(shell).toContain("quitDesktopAfterLogout().catch(() => false)");
+    expect(shell).toContain('if (!quitRequested) navigate("/")');
+  });
+
   it("keeps the dashboard within its available width and gives routines equal space", () => {
     expect(home).toContain("overflow-x-hidden");
     expect(home).toContain("repeat(auto-fit, minmax(min(100%, 15rem), 1fr))");
