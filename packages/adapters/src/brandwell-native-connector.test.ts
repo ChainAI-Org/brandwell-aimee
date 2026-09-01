@@ -105,7 +105,14 @@ describe("BrandWell native connector", () => {
     expect(
       tools.find((tool) => tool.name === "brandwell_visibility_get_domain_overview")?.readOnly,
     ).toBe(false);
-    expect(tools.filter((tool) => tool.name.startsWith("brandwell_visibility_"))).toHaveLength(18);
+    expect(tools.filter((tool) => tool.name.startsWith("brandwell_visibility_"))).toHaveLength(23);
+    expect(tools.filter((tool) => tool.name.startsWith("brandwell_rankwell_"))).toHaveLength(7);
+    expect(tools.find((tool) => tool.name === "brandwell_rankwell_get_strategy")?.readOnly).toBe(
+      true,
+    );
+    expect(
+      tools.find((tool) => tool.name === "brandwell_rankwell_generate_article")?.readOnly,
+    ).toBe(false);
   });
 
   it("routes visibility reads through the signed cached-data endpoint", async () => {
@@ -182,6 +189,42 @@ describe("BrandWell native connector", () => {
         "workspace-acme:effect-1",
       ),
     );
+  });
+
+  it("routes RankWell drafts through the signed project mutation endpoint", async () => {
+    let requestUrl: string | URL | Request | undefined;
+    let requestInit: RequestInit | undefined;
+    const connector = new BrandwellNativeConnector(activePrisma(), {
+      apiBaseUrl: "https://portal.example.test",
+      serviceToken: SERVICE_TOKEN,
+      fetch: async (url, init) => {
+        requestUrl = url;
+        requestInit = init;
+        return new Response(JSON.stringify({ article: { id: "article-1", status: "draft" } }));
+      },
+      now: () => new Date("2026-08-30T17:00:00.000Z"),
+    });
+
+    const events = await eventsFrom(connector, "brandwell_rankwell_generate_article", {
+      keyword: "intent marketing platform",
+      title: "Intent Marketing Platform Guide",
+    });
+
+    expect(events).toEqual([
+      { type: "result", data: { article: { id: "article-1", status: "draft" } } },
+    ]);
+    expect(requestUrl).toBe("https://portal.example.test/internal/aimee/visibility/research");
+    expect(requestInit?.headers).toMatchObject({
+      "x-brandwell-idempotency-key": "workspace-acme:effect-1",
+    });
+    expect(JSON.parse(String(requestInit?.body))).toEqual({
+      tool: "generate_rankwell_article",
+      arguments: {
+        keyword: "intent marketing platform",
+        title: "Intent Marketing Platform Guide",
+      },
+      agent_intake_source: "aimee",
+    });
   });
 
   it("scopes recipient intake in headers and forces agent draft intake", async () => {

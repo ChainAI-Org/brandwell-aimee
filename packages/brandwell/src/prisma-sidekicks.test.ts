@@ -611,6 +611,72 @@ describe("BrandWell Sidekick model-key lifecycle", () => {
     expect(updateKey).not.toHaveBeenCalled();
   });
 
+  it("installs the current managed skills when a same-revision desired state upgrades the bundle", async () => {
+    const mapping = {
+      id: "mapping-1",
+      rakazoWorkspaceId: "workspace-1",
+      commercialRevision: 7n,
+      commercialStatus: "active",
+      skillBundleVersion: BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION - 1,
+    };
+    const createdSkills: Array<{ managedKey: string; managedVersion: number }> = [];
+    const prisma = {
+      brandwellAiWorkspace: {
+        findFirst: vi.fn(async () => ({ ...mapping })),
+        updateMany: vi.fn(async () => ({ count: 1 })),
+        update: vi.fn(async ({ data }: { data: { skillBundleVersion: number } }) => {
+          mapping.skillBundleVersion = data.skillBundleVersion;
+          return { ...mapping };
+        }),
+      },
+      brandwellSidekick: {
+        updateMany: vi.fn(async () => ({ count: 1 })),
+      },
+      bot: {
+        findMany: vi.fn(async () => [{ userId: "managed-user-1" }]),
+      },
+      agentSkill: {
+        findFirst: vi.fn(async () => null),
+        create: vi.fn(
+          async ({ data }: { data: { managedKey: string; managedVersion: number } }) => {
+            createdSkills.push({
+              managedKey: data.managedKey,
+              managedVersion: data.managedVersion,
+            });
+            return { id: `skill-${createdSkills.length}`, ...data };
+          },
+        ),
+        update: vi.fn(),
+      },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    } as unknown as PrismaClient;
+
+    await expect(
+      syncBrandwellWorkspaceDesiredStateWithPrisma(
+        "workspace-1",
+        {
+          revision: 7n,
+          agencyId: "agency-1",
+          clientId: "client-1",
+          primaryBrandwellUserId: "brandwell-user-master",
+          status: "active",
+          plan: "aimee",
+          masterSeats: 1,
+          sidekickSeats: 1,
+          skillBundleVersion: BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION,
+        },
+        prisma,
+      ),
+    ).resolves.toMatchObject({
+      replayed: false,
+      mapping: { skillBundleVersion: BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION },
+    });
+    expect(createdSkills).toHaveLength(20);
+    expect(
+      createdSkills.every((skill) => skill.managedVersion === BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION),
+    ).toBe(true);
+  });
+
   it("does not recreate a key for a canceled Sidekick provisioning identity", async () => {
     const createKey = vi.fn();
     const prisma = {

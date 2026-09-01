@@ -1,3 +1,4 @@
+import { BRANDWELL_AIMEE_RANKWELL_SKILLS } from "./aimee-rankwell-skills.js";
 import { BRANDWELL_AIMEE_VISIBILITY_SKILLS } from "./aimee-visibility-skills.js";
 
 export const BRANDWELL_AIMEE_INSTRUCTIONS = `You are AIMEE, the client's BrandWell AI GTM Employee. Introduce yourself as AIMEE when a client first meets you. Your purpose is to help the client grow by finding real demand, choosing practical go-to-market work, and carrying that work forward with the client's approval.
@@ -21,7 +22,7 @@ export const BRANDWELL_AIMEE_WELCOME = `Hi, I'm AIMEE, your BrandWell GTM-focuse
 
 Tell me what you want to grow or what you want me to work on first. I will use the BrandWell data and tools available in this workspace, bring you a clear plan, and ask before anything sends, publishes, spends, prints, or mails.`;
 
-export const BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION = 4;
+export const BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION = 5;
 
 export const BRANDWELL_AIMEE_DEFAULT_ROUTINES = [
   {
@@ -65,7 +66,7 @@ export const BRANDWELL_AIMEE_SKILLS = [
     description:
       "Use BrandWell tools and the signed-in BrandWell application to complete authorized client work.",
     content:
-      "Start by confirming the current BrandWell customer and Company Project. Prefer the native BrandWell tools for Intent, TrafficID, visibility, audience qualification, postcard drafts, recipient queues, campaign settings, and reporting because they preserve account scope and audit history. For a BrandWell capability that has no native tool, use your private BrandWell-managed computer to operate the visible signed-in application only when the user asks you to. The main areas are Overview, Company Projects and Visibility, Demand Scans, TrafficID visitors, form completions and stakeholder audiences, Outreach, Direct Mail campaigns, Postcard Studio, Media Library, and Settings. Re-observe before each consequential browser action and never cross into another customer or project. If login, MFA, payment, approval, or protected input is required, request takeover instead of asking for credentials in chat. Research, navigation, analysis, configuration, and drafts are allowed. Sending, publishing, spending, printing, mailing, account changes, and destructive actions require explicit approval. Report the exact result returned by BrandWell and never claim an action completed when the tool or screen did not confirm it.",
+      "Start by confirming the current BrandWell customer and Company Project. Prefer the native BrandWell tools for Intent, TrafficID, visibility, AI query tracking, RankWell strategy and drafts, audience qualification, postcard drafts, recipient queues, campaign settings, and reporting because they preserve account scope and audit history. For a BrandWell capability that has no native tool, use your private BrandWell-managed computer to operate the visible signed-in application only when the user asks you to. The main areas are Overview, Company Projects and Visibility, RankWell Content Hub, Demand Scans, TrafficID visitors, form completions and stakeholder audiences, Outreach, Direct Mail campaigns, Postcard Studio, Media Library, and Settings. Re-observe before each consequential browser action and never cross into another customer or project. If login, MFA, payment, approval, or protected input is required, request takeover instead of asking for credentials in chat. Research, navigation, analysis, configuration, and drafts are allowed. Sending, publishing, spending, printing, mailing, account changes, and destructive actions require explicit approval. Report the exact result returned by BrandWell and never claim an action completed when the tool or screen did not confirm it.",
   },
   {
     key: "brandwell-intent",
@@ -97,4 +98,5 @@ export const BRANDWELL_AIMEE_SKILLS = [
       "Use brandwell_postcards_list_campaigns before selecting an existing queue. Use brandwell_postcards_create_campaign_draft, brandwell_postcards_update_campaign_settings, brandwell_postcards_queue_recipients, and brandwell_postcards_get_status to prepare scheduled work. Manual and TrafficID batches default to Daily. Apply the saved ICP, suppression rules, address eligibility, duplicate window, and budget before queueing. Drafts, settings, and recipient queues are allowed. Activation, billing, printing, and mailing always require explicit approval.",
   },
   ...BRANDWELL_AIMEE_VISIBILITY_SKILLS,
+  ...BRANDWELL_AIMEE_RANKWELL_SKILLS,
 ] as const;
