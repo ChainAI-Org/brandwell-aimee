@@ -2806,12 +2806,12 @@ export function ShellPage() {
                       ? t`You have control`
                       : computerError
                         ? computerError
-                        : screenConnectionState === "disconnected"
-                          ? t`Connection lost`
-                          : screenConnectionState === "connecting"
-                            ? t`Connecting`
-                            : computer?.busyBotName
-                              ? t`${computer.busyBotName} is using it`
+                        : computer?.busyBotName
+                          ? t`${computer.busyBotName} is using it`
+                          : screenConnectionState === "disconnected"
+                            ? t`Connection lost`
+                            : screenConnectionState === "connecting"
+                              ? t`Connecting`
                               : computer?.state === "suspended"
                                 ? t`Asleep`
                                 : computerLabel(computer?.mode, active.name)}
