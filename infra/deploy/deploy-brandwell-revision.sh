@@ -27,6 +27,24 @@ fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_DIR="$(cd -- "${SCRIPT_DIR}/../.." && pwd -P)"
+
+# Run the deploy logic from the requested revision, even when the host checkout
+# still points at the previously deployed commit.
+if [[ "${BRANDWELL_DEPLOY_SCRIPT_SHA:-}" != "${DEPLOY_SHA}" ]]; then
+  git -C "${REPO_DIR}" fetch --no-tags origin "${DEPLOY_SHA}"
+  git -C "${REPO_DIR}" cat-file -e "${DEPLOY_SHA}^{commit}"
+  TARGET_SCRIPT="$(mktemp "${SCRIPT_DIR}/.brandwell-deploy-${DEPLOY_SHA}.XXXXXX.sh")"
+  cleanup_target_script() {
+    rm -f -- "${TARGET_SCRIPT}"
+  }
+  trap cleanup_target_script EXIT
+  git -C "${REPO_DIR}" show "${DEPLOY_SHA}:infra/deploy/deploy-brandwell-revision.sh" \
+    > "${TARGET_SCRIPT}"
+  chmod 700 "${TARGET_SCRIPT}"
+  BRANDWELL_DEPLOY_SCRIPT_SHA="${DEPLOY_SHA}" bash "${TARGET_SCRIPT}" "${TARGET}" "${DEPLOY_SHA}"
+  exit 0
+fi
+
 ENV_FILE="${BRANDWELL_ENV_FILE:-${REPO_DIR}/.env}"
 BACKUP_ROOT="${BRANDWELL_BACKUP_ROOT:-${HOME}/.local/state/brandwell-aimee/backups/${TARGET}}"
 READINESS_URL="${BRANDWELL_READINESS_URL:-${BRANDWELL_HEALTH_URL:-${DEFAULT_READINESS_URL}}}"

@@ -15,6 +15,15 @@ describe("BrandWell deployment readiness gates", () => {
     expect(script).toContain("'\"ok\":true'");
     expect(script).toMatch(/grep -Fq .*revision.*expected_sha/);
     expect(script).toMatch(/git fetch --no-tags origin "\$\{DEPLOY_SHA\}"/);
+    expect(script).toMatch(
+      /if \[\[ "\$\{BRANDWELL_DEPLOY_SCRIPT_SHA:-\}" != "\$\{DEPLOY_SHA\}" \]\]/,
+    );
+    expect(script).toMatch(
+      /git -C "\$\{REPO_DIR\}" show "\$\{DEPLOY_SHA\}:infra\/deploy\/deploy-brandwell-revision\.sh"/,
+    );
+    expect(script).toMatch(
+      /BRANDWELL_DEPLOY_SCRIPT_SHA="\$\{DEPLOY_SHA\}" bash "\$\{TARGET_SCRIPT\}" "\$\{TARGET\}" "\$\{DEPLOY_SHA\}"/,
+    );
     expect(script).toContain("ensure_proxy_route");
     expect(script).toContain("docker network connect");
     expect(script).toContain("caddy validate --config /dev/stdin");
