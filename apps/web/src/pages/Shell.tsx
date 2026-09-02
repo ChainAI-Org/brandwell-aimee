@@ -1909,6 +1909,10 @@ export function ShellPage() {
       previousComputerState.current = null;
       return;
     }
+    // A route change renders once with the previous bot's computer before the new
+    // thread snapshot arrives. Do not treat that cross-bot state as a transition
+    // for the newly selected bot or it can close the computer panel incorrectly.
+    if (computer && computer.botId !== active.id) return;
     const previous = previousComputerState.current;
     previousComputerState.current = { botId: active.id, state: computer?.state };
     if (previous?.botId !== active.id) return;
@@ -1920,7 +1924,7 @@ export function ShellPage() {
     setComputerOpen(false);
     setPanel((current) => (current === "computer" ? null : current));
     autoBooted.current = null;
-  }, [active?.id, computer?.state]);
+  }, [active?.id, computer?.botId, computer?.state]);
 
   useEffect(() => {
     if (panel !== "routine") {

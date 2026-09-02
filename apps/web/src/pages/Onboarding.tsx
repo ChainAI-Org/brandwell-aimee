@@ -49,9 +49,13 @@ export function OnboardingPage() {
   });
 
   useEffect(() => {
+    // Ignore a discarded bootstrap request so it cannot move the user back to
+    // model setup after they have already advanced to bot creation.
+    let cancelled = false;
     void rpc
       .me()
       .then(async (me) => {
+        if (cancelled) return;
         if (me.brandwell) {
           navigate("/app", { replace: true });
           return;
@@ -61,6 +65,7 @@ export function OnboardingPage() {
           return;
         }
         const models = await rpc.models.list().catch(() => []);
+        if (cancelled) return;
         setCatalog(models);
         const preferred =
           models.find(
@@ -74,8 +79,11 @@ export function OnboardingPage() {
         }
         setStep("model");
       })
-      .catch(() => setStep("bot"));
+      .catch(() => {
+        if (!cancelled) setStep("bot");
+      });
     return () => {
+      cancelled = true;
       probeRequestIdRef.current += 1;
     };
   }, [navigate]);
