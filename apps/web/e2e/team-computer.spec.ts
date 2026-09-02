@@ -252,9 +252,17 @@ async function createBot(page: Page, name: string, mode: "team" | "dedicated") {
   if (mode === "dedicated") await privateComputer.click();
   await expect(mode === "team" ? team : privateComputer).toHaveAttribute("aria-pressed", "true");
   await page.getByPlaceholder("Name this bot").fill(name);
+  const created = page.waitForResponse(
+    (response) =>
+      response.url().includes("/rpc/bots/create") && response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Create", exact: true }).click();
+  expect((await created).ok()).toBe(true);
   await page.waitForURL(/\/app\/[^/]+$/);
   await expect(page.getByPlaceholder(`Message ${name}`)).toBeVisible();
+  // The create handler closes its panel after navigating. Wait for that state
+  // before another panel is opened so the late close cannot hide it.
+  await expect(page.getByTestId("side-panel")).toHaveAttribute("data-panel", "closed");
   return activeBotId(page);
 }
 
