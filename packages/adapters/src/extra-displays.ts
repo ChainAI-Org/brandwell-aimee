@@ -248,19 +248,33 @@ export function extraDisplayControlStopCommand(
   return `[ -f /tmp/rakazo/control-token-${layout.displayNumber} ] && [ "$(cat /tmp/rakazo/control-token-${layout.displayNumber})" != ${shellQuote(controlToken)} ] || { ${stop}; }`;
 }
 
-export function observeExtraDisplayCommand(layout: ExtraDisplayLayout): string {
-  const imagePath = `/tmp/rakazo/observe-${layout.displayNumber}.png`;
-  return [
-    `DISPLAY=${layout.display} xdotool getmouselocation --shell 2>/tmp/rakazo/cursor-${layout.displayNumber}.txt || true`,
-    `DISPLAY=${layout.display} scrot -o ${imagePath} 2>/dev/null || DISPLAY=${layout.display} import -window root ${imagePath}`,
-    `test -s ${imagePath}`,
-    `base64 -w0 ${imagePath} 2>/dev/null || base64 ${imagePath}`,
-    `printf '\\nCURSOR '`,
-    `tr '\\n' ' ' </tmp/rakazo/cursor-${layout.displayNumber}.txt 2>/dev/null || true`,
-  ].join("; ");
+export function extraDisplayObservationImagePath(layout: ExtraDisplayLayout): string {
+  return `/tmp/rakazo/observe-${layout.displayNumber}.png`;
 }
 
-export function parseExtraDisplayObservation(output: string): {
+export function observeExtraDisplayCommand(
+  layout: ExtraDisplayLayout,
+  includeImage = true,
+): string {
+  const imagePath = extraDisplayObservationImagePath(layout);
+  const commands = [
+    `DISPLAY=${layout.display} xdotool getmouselocation --shell 2>/tmp/rakazo/cursor-${layout.displayNumber}.txt || true`,
+    `rm -f ${imagePath}`,
+    `DISPLAY=${layout.display} scrot -o ${imagePath} 2>/dev/null || DISPLAY=${layout.display} import -window root ${imagePath}`,
+    `test -s ${imagePath}`,
+  ];
+  if (includeImage) commands.push(`base64 -w0 ${imagePath} 2>/dev/null || base64 ${imagePath}`);
+  commands.push(
+    `printf '${includeImage ? "\\n" : ""}CURSOR '`,
+    `tr '\\n' ' ' </tmp/rakazo/cursor-${layout.displayNumber}.txt 2>/dev/null || true`,
+  );
+  return commands.join("; ");
+}
+
+export function parseExtraDisplayObservation(
+  output: string,
+  capturedImage?: Uint8Array,
+): {
   image: Uint8Array;
   cursor?: { x: number; y: number };
 } {
@@ -272,7 +286,7 @@ export function parseExtraDisplayObservation(output: string): {
       .split("\n")
       .map((line) => line.trim())
       .find(Boolean) ?? "";
-  const image = Uint8Array.from(Buffer.from(base64Line, "base64"));
+  const image = capturedImage ?? Uint8Array.from(Buffer.from(base64Line, "base64"));
   if (!image.byteLength) throw new Error("extra display observation did not capture an image");
   return {
     image,

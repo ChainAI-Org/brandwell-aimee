@@ -5,7 +5,10 @@ import {
   ensureExtraDisplayCommand,
   extraDisplayControlStartCommand,
   extraDisplayLayout,
+  extraDisplayObservationImagePath,
+  observeExtraDisplayCommand,
   parseAllocatedExtraDisplay,
+  parseExtraDisplayObservation,
   parseExtraDisplayViewPassword,
   parseReleasedExtraDisplay,
   releaseExtraDisplayCommand,
@@ -51,6 +54,20 @@ describe("extra display ports", () => {
     expect(() => parseExtraDisplayViewPassword("no password\n")).toThrow(
       ComputerScreenUnavailableError,
     );
+  });
+
+  it("lets Daytona download extra-display screenshots without command-output truncation", () => {
+    const layout = extraDisplayLayout(1, ":0");
+    const command = observeExtraDisplayCommand(layout, false);
+    const image = new Uint8Array([137, 80, 78, 71]);
+
+    expect(extraDisplayObservationImagePath(layout)).toBe("/tmp/rakazo/observe-2.png");
+    expect(command).not.toContain("base64");
+    expect(command).toContain("CURSOR");
+    expect(parseExtraDisplayObservation("CURSOR X=12 Y=34", image)).toEqual({
+      image,
+      cursor: { x: 12, y: 34 },
+    });
   });
 
   it("allows slow Daytona display services to become ready and reports their failure stage", () => {

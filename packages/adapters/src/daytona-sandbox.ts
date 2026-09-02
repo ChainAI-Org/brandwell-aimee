@@ -48,6 +48,7 @@ import {
   extraDisplayControlStopCommand,
   extraDisplayInputCommand,
   extraDisplayLayout,
+  extraDisplayObservationImagePath,
   observeExtraDisplayCommand,
   parseAllocatedExtraDisplay,
   parseExtraDisplayObservation,
@@ -370,9 +371,10 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       });
     }
     await this.ensureExtraDisplay(sandbox, layout);
-    const result = await sandbox.process.executeCommand(observeExtraDisplayCommand(layout));
+    const result = await sandbox.process.executeCommand(observeExtraDisplayCommand(layout, false));
     if (result.exitCode !== 0) throw new Error(result.result || "extra display observation failed");
-    const parsed = parseExtraDisplayObservation(result.result ?? "");
+    const screenshot = await sandbox.fs.downloadFile(extraDisplayObservationImagePath(layout));
+    const parsed = parseExtraDisplayObservation(result.result ?? "", new Uint8Array(screenshot));
     return computerObservation(parsed.image, {
       mimeType: "image/png",
       width: 1280,
