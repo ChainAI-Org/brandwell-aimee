@@ -66,6 +66,7 @@ describe("extra display ports", () => {
     const control = extraDisplayControlStartCommand(layout, "control-token", "control-password");
 
     expect(view).toContain("AIMEE_SCREEN_FAILURE_STAGE");
+    expect(view).toContain("exit_code=$?");
     expect(view).toContain("seq 1 200");
     expect(control.match(/seq 1 200/g)).toHaveLength(3);
   });
