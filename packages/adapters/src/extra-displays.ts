@@ -143,7 +143,7 @@ export function ensureExtraDisplayCommand(
   return [
     "set -eu",
     'screen_stage="initialize"',
-    `trap 'exit_code=$?; if [ "$exit_code" -ne 0 ]; then printf "AIMEE_SCREEN_FAILURE_STAGE=%s\\n" "$screen_stage"; find /tmp/rakazo -maxdepth 1 -type f -name "screen-${layout.displayNumber}-*.log" -print 2>/dev/null | while IFS= read -r file; do printf "AIMEE_SCREEN_LOG=%s\\n" "$file"; tail -n 30 "$file"; done; fi; exit "$exit_code"' EXIT`,
+    `trap 'exit_code=$?; if [ "$exit_code" -ne 0 ]; then printf "AIMEE_SCREEN_FAILURE_STAGE=%s\\n" "$screen_stage"; for file in ${log}-x11vnc.log ${log}-novnc.log ${log}-xvfb.log ${log}-browser.log; do if [ -f "$file" ]; then printf "AIMEE_SCREEN_LOG=%s\\n" "$file"; tail -n 12 "$file"; fi; done; fi; exit "$exit_code"' EXIT`,
     `mkdir -p /tmp/rakazo ${fluxHome}/.fluxbox /tmp/.X11-unix ${profile}`,
     `exec 8>${shellQuote(`/tmp/rakazo/screen-${layout.displayNumber}.lock`)}`,
     "flock 8",
