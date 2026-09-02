@@ -41,7 +41,7 @@ describe("DaytonaSandboxProvider", () => {
     });
     expect(fixture.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        labels: { botId: "bot-a", rakazo: "computer" },
+        labels: { botId: "bot-a", aimee: "computer" },
         snapshot: "brandwell-aimee-browser-v1",
         envVars: {
           VNC_RESOLUTION: "1440x900",

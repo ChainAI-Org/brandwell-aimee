@@ -106,7 +106,7 @@ jobs:
       vars.BRANDWELL_PRODUCTION_DEPLOY_ENABLED == 'true'
     needs: [lint, check, build, test, test-integration, test-e2e]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     concurrency:
       group: brandwell-production
       cancel-in-progress: false
