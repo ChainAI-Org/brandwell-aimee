@@ -40,7 +40,7 @@ describe("computer screen readiness", () => {
   it("does not treat an open TCP port as ready when nothing is serving HTTP on it yet", async () => {
     // Regression test: a bare TCP accept (e.g. the Docker port mapping coming
     // up before websockify inside the container does) must not be mistaken
-    // for the screen being ready — that gap is exactly what caused
+    // for the screen being ready. That gap is exactly what caused
     // "socket hang up" in the browser.
     const server = net.createServer((socket) => socket.destroy());
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -221,6 +221,9 @@ describe("sandbox supervisor input containment", () => {
     expect(interactiveScreenCommand(false)).not.toMatch(/x11vnc -display/);
     expect(interactiveScreenCommand(true, "lease-new")).toMatch(/x11vnc -display .* -rfbport 5901/);
     expect(interactiveScreenCommand(true, "lease-new")).toMatch(/6081/);
+    expect(interactiveScreenCommand(true, "lease-new")).toContain(
+      "/bin/bash -c 'echo >/dev/tcp/127.0.0.1/6081'",
+    );
     expect(interactiveScreenCommand(true, "lease-new")).not.toMatch(/-rfbport 5900/);
     expect(interactiveScreenCommand(false, "lease-old")).toContain("!= 'lease-old'");
   });
@@ -235,6 +238,7 @@ describe("sandbox supervisor input containment", () => {
     expect(ensureScreenCommand(1)).toContain("Xvfb :2");
     expect(ensureScreenCommand(1)).toContain("rfbport 5902");
     expect(ensureScreenCommand(1)).toContain("0.0.0.0:6082");
+    expect(ensureScreenCommand(1)).toContain("/bin/bash -c 'echo >/dev/tcp/127.0.0.1/6082'");
     expect(() => nextScreenIndex(assigned, "overflow", undefined, 1)).toThrow(
       /cannot allocate another screen/,
     );

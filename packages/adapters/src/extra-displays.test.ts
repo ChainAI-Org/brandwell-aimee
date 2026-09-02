@@ -67,7 +67,11 @@ describe("extra display ports", () => {
 
     expect(view).toContain("AIMEE_SCREEN_FAILURE_STAGE");
     expect(view).toContain("exit_code=$?");
+    expect(view).toContain("/bin/bash -c 'echo >/dev/tcp/127.0.0.1/5902'");
+    expect(view).not.toContain("(echo >/dev/tcp");
     expect(view).toContain("seq 1 200");
+    expect(control).toContain("/bin/bash -c 'echo >/dev/tcp/127.0.0.1/5903'");
+    expect(control).not.toContain("(echo >/dev/tcp");
     expect(control.match(/seq 1 200/g)).toHaveLength(3);
   });
 });
