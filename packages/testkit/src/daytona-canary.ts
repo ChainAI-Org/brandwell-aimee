@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import type { AdapterContext, ComputerRef, ScreenSession } from "@rakazo/adapter-kit";
 import { DaytonaSandboxProvider, type DaytonaSandboxProviderConfig } from "@rakazo/adapters";
 
-const CANARY_TIMEOUT_MS = 8 * 60_000;
+const CANARY_TIMEOUT_MS = 12 * 60_000;
+const CANARY_CREATE_TIMEOUT_SECONDS = 5 * 60;
 
 export async function verifyLiveDaytonaProvider(
   source: NodeJS.ProcessEnv = process.env,
@@ -126,6 +127,7 @@ export function daytonaCanaryProviderConfig(
     snapshot: required(source, "DAYTONA_SNAPSHOT"),
     autoStopInterval: 0,
     autoDeleteInterval: -1,
+    createTimeoutSeconds: CANARY_CREATE_TIMEOUT_SECONDS,
     vncResolution: optional(source.DAYTONA_VNC_RESOLUTION) ?? "1440x900",
     locale: optional(source.DAYTONA_LOCALE) ?? "en_US.UTF-8",
     timezone: optional(source.DAYTONA_TIMEZONE) ?? "UTC",

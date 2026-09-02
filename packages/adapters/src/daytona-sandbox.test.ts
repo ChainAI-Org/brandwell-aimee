@@ -24,6 +24,7 @@ describe("DaytonaSandboxProvider", () => {
         autoStopInterval: 15,
         autoArchiveInterval: 10_080,
         autoDeleteInterval: -1,
+        createTimeoutSeconds: 360,
         vncResolution: "1440x900",
         locale: "en_US.UTF-8",
         timezone: "UTC",
@@ -53,7 +54,7 @@ describe("DaytonaSandboxProvider", () => {
         autoArchiveInterval: 10_080,
         autoDeleteInterval: -1,
       }),
-      { timeout: 120 },
+      { timeout: 360 },
     );
 
     const events = [];
