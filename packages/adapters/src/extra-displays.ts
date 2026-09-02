@@ -142,11 +142,14 @@ export function ensureExtraDisplayCommand(
   const passwordAuthFile = `/tmp/rakazo-view-${layout.displayNumber}.vncpass`;
   return [
     "set -eu",
+    'screen_stage="initialize"',
+    `trap 'status=$?; if [ "$status" -ne 0 ]; then printf "AIMEE_SCREEN_FAILURE_STAGE=%s\\n" "$screen_stage"; find /tmp/rakazo -maxdepth 1 -type f -name "screen-${layout.displayNumber}-*.log" -print 2>/dev/null | while IFS= read -r file; do printf "AIMEE_SCREEN_LOG=%s\\n" "$file"; tail -n 30 "$file"; done; fi; exit "$status"' EXIT`,
     `mkdir -p /tmp/rakazo ${fluxHome}/.fluxbox /tmp/.X11-unix ${profile}`,
     `exec 8>${shellQuote(`/tmp/rakazo/screen-${layout.displayNumber}.lock`)}`,
     "flock 8",
     `if [ -s ${shellQuote(passwordFile)} ]; then view_password=$(cat ${shellQuote(passwordFile)}); else umask 077; view_password=${shellQuote(viewPassword)}; printf %s "$view_password" >${shellQuote(passwordFile)}; fi`,
-    `if xdpyinfo -display ${layout.display} >/dev/null 2>&1 && (echo >/dev/tcp/127.0.0.1/${layout.viewVncPort}) >/dev/null 2>&1 && (echo >/dev/tcp/127.0.0.1/${layout.viewPort}) >/dev/null 2>&1; then printf 'RAKAZO_SCREEN_PASSWORD=%s\n' "$view_password"; exit 0; fi`,
+    `if xdpyinfo -display ${layout.display} >/dev/null 2>&1 && (echo >/dev/tcp/127.0.0.1/${layout.viewVncPort}) >/dev/null 2>&1 && (echo >/dev/tcp/127.0.0.1/${layout.viewPort}) >/dev/null 2>&1; then trap - EXIT; printf 'RAKAZO_SCREEN_PASSWORD=%s\n' "$view_password"; exit 0; fi`,
+    'screen_stage="start-x-display"',
     `if ! xdpyinfo -display ${layout.display} >/dev/null 2>&1; then`,
     `  rm -f /tmp/.X${layout.displayNumber}-lock /tmp/.X11-unix/X${layout.displayNumber} ${tokenFile}`,
     `  Xvfb ${layout.display} -screen 0 1280x800x24 -ac +extension RANDR +render -noreset >${log}-xvfb.log 2>&1 &`,
@@ -161,6 +164,7 @@ export function ensureExtraDisplayCommand(
     `    fi`,
     `  done`,
     `fi`,
+    'screen_stage="start-view-server"',
     `pkill -f '(^|/)x11vnc .* -rfbport ${layout.viewVncPort}' || true`,
     `pkill -f '^/usr/bin/python3 .*websockify.*${layout.viewPort}' || true`,
     `pkill -f 'novnc_proxy.*--listen ${layout.viewPort}' || true`,
@@ -173,7 +177,8 @@ export function ensureExtraDisplayCommand(
     `else`,
     `  exit 1`,
     `fi`,
-    `for i in $(seq 1 50); do if (echo >/dev/tcp/127.0.0.1/${layout.viewVncPort}) >/dev/null 2>&1 && (echo >/dev/tcp/127.0.0.1/${layout.viewPort}) >/dev/null 2>&1; then printf 'RAKAZO_SCREEN_PASSWORD=%s\n' "$view_password"; exit 0; fi; sleep 0.1; done`,
+    'screen_stage="wait-for-view-stream"',
+    `for i in $(seq 1 200); do if (echo >/dev/tcp/127.0.0.1/${layout.viewVncPort}) >/dev/null 2>&1 && (echo >/dev/tcp/127.0.0.1/${layout.viewPort}) >/dev/null 2>&1; then trap - EXIT; printf 'RAKAZO_SCREEN_PASSWORD=%s\n' "$view_password"; exit 0; fi; sleep 0.1; done`,
     "exit 1",
   ].join("\n");
 }
@@ -198,14 +203,14 @@ export function extraDisplayControlStartCommand(
     "set -eu",
     extraDisplayControlStopCommand(layout, controlToken),
     // Old x11vnc may outlive pkill briefly; do not store a new password until the VNC port is free.
-    `for i in $(seq 1 50); do (echo >/dev/tcp/127.0.0.1/${vncPort}) >/dev/null 2>&1 || break; sleep 0.1; done`,
+    `for i in $(seq 1 200); do (echo >/dev/tcp/127.0.0.1/${vncPort}) >/dev/null 2>&1 || break; sleep 0.1; done`,
     `if (echo >/dev/tcp/127.0.0.1/${vncPort}) >/dev/null 2>&1; then exit 1; fi`,
     `mkdir -p /tmp/rakazo`,
     `printf %s ${shellQuote(controlToken)} > ${tokenFile}`,
     `x11vnc -storepasswd ${shellQuote(password)} ${passwordFile} >/dev/null`,
     `x11vnc -bg -display ${shellQuote(layout.display)} -forever -wait 50 -shared -rfbport ${vncPort} -rfbauth ${passwordFile} 2>${log}-control-x11vnc.log`,
-    // Require the new x11vnc itself — proxy listen alone can pass with a leftover server.
-    `for i in $(seq 1 50); do (echo >/dev/tcp/127.0.0.1/${vncPort}) >/dev/null 2>&1 && break; sleep 0.1; done`,
+    // Require the new x11vnc itself. Proxy listen alone can pass with a leftover server.
+    `for i in $(seq 1 200); do (echo >/dev/tcp/127.0.0.1/${vncPort}) >/dev/null 2>&1 && break; sleep 0.1; done`,
     `if ! (echo >/dev/tcp/127.0.0.1/${vncPort}) >/dev/null 2>&1; then exit 1; fi`,
     "if command -v websockify >/dev/null 2>&1; then",
     `  (nohup websockify --web=/usr/share/novnc 0.0.0.0:${proxyPort} 127.0.0.1:${vncPort} >${log}-control-novnc.log 2>&1 &)`,
@@ -214,7 +219,7 @@ export function extraDisplayControlStartCommand(
     "else",
     "  exit 1",
     "fi",
-    `for i in $(seq 1 50); do (echo >/dev/tcp/127.0.0.1/${proxyPort}) >/dev/null 2>&1 && exit 0; sleep 0.1; done`,
+    `for i in $(seq 1 200); do (echo >/dev/tcp/127.0.0.1/${proxyPort}) >/dev/null 2>&1 && exit 0; sleep 0.1; done`,
     "exit 1",
   ].join("\n");
 }

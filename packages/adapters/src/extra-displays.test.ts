@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { ComputerScreenUnavailableError } from "./computer-screens.js";
 import {
   allocateExtraDisplayCommand,
+  ensureExtraDisplayCommand,
+  extraDisplayControlStartCommand,
   extraDisplayLayout,
   parseAllocatedExtraDisplay,
   parseExtraDisplayViewPassword,
@@ -49,5 +51,22 @@ describe("extra display ports", () => {
     expect(() => parseExtraDisplayViewPassword("no password\n")).toThrow(
       ComputerScreenUnavailableError,
     );
+  });
+
+  it("allows slow Daytona display services to become ready and reports their failure stage", () => {
+    const layout = extraDisplayLayout(1, ":0");
+    const view = ensureExtraDisplayCommand(
+      layout,
+      {
+        homeDir: "/home/daytona",
+        browserProfilesDir: "/home/daytona/aimee-home/.browser-profiles",
+      },
+      "view-password",
+    );
+    const control = extraDisplayControlStartCommand(layout, "control-token", "control-password");
+
+    expect(view).toContain("AIMEE_SCREEN_FAILURE_STAGE");
+    expect(view).toContain("seq 1 200");
+    expect(control.match(/seq 1 200/g)).toHaveLength(3);
   });
 });
