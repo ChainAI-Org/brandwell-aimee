@@ -1,31 +1,18 @@
 import assert from "node:assert/strict";
 import type { AdapterContext, ComputerRef, ScreenSession } from "@rakazo/adapter-kit";
-import { DaytonaSandboxProvider } from "@rakazo/adapters";
+import { DaytonaSandboxProvider, type DaytonaSandboxProviderConfig } from "@rakazo/adapters";
 
 const CANARY_TIMEOUT_MS = 8 * 60_000;
 
 export async function verifyLiveDaytonaProvider(
   source: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
-  const apiKey = required(source, "DAYTONA_API_KEY");
-  const snapshot = required(source, "DAYTONA_SNAPSHOT");
   const stamp = Date.now().toString(36);
   const homeBotId = `aimee-ci-${stamp}`;
   const controller = new AbortController();
   const primary = canaryContext(homeBotId, "primary", controller);
   const secondary = canaryContext(`aimee-ci-secondary-${stamp}`, "secondary", controller);
-  const sandbox = new DaytonaSandboxProvider({
-    apiKey,
-    apiUrl: optional(source.DAYTONA_API_URL),
-    target: optional(source.DAYTONA_TARGET),
-    snapshot,
-    autoStopInterval: 0,
-    autoArchiveInterval: -1,
-    autoDeleteInterval: -1,
-    vncResolution: optional(source.DAYTONA_VNC_RESOLUTION) ?? "1440x900",
-    locale: optional(source.DAYTONA_LOCALE) ?? "en_US.UTF-8",
-    timezone: optional(source.DAYTONA_TIMEZONE) ?? "UTC",
-  });
+  const sandbox = new DaytonaSandboxProvider(daytonaCanaryProviderConfig(source));
   const timeout = setTimeout(
     () => controller.abort(new Error("Daytona canary timed out")),
     CANARY_TIMEOUT_MS,
@@ -127,6 +114,22 @@ export async function verifyLiveDaytonaProvider(
       console.log("Daytona canary: destroyed the test computer");
     }
   }
+}
+
+export function daytonaCanaryProviderConfig(
+  source: NodeJS.ProcessEnv = process.env,
+): DaytonaSandboxProviderConfig {
+  return {
+    apiKey: required(source, "DAYTONA_API_KEY"),
+    apiUrl: optional(source.DAYTONA_API_URL),
+    target: optional(source.DAYTONA_TARGET),
+    snapshot: required(source, "DAYTONA_SNAPSHOT"),
+    autoStopInterval: 0,
+    autoDeleteInterval: -1,
+    vncResolution: optional(source.DAYTONA_VNC_RESOLUTION) ?? "1440x900",
+    locale: optional(source.DAYTONA_LOCALE) ?? "en_US.UTF-8",
+    timezone: optional(source.DAYTONA_TIMEZONE) ?? "UTC",
+  };
 }
 
 function canaryContext(botId: string, suffix: string, controller: AbortController) {

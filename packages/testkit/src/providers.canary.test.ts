@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { BoxSandboxProvider, E2BSandboxProvider, PiAgentRuntime } from "@rakazo/adapters";
 import { afterAll, describe, expect, it } from "vitest";
-import { verifyLiveDaytonaProvider } from "./daytona-canary.js";
+import { daytonaCanaryProviderConfig, verifyLiveDaytonaProvider } from "./daytona-canary.js";
 import { sessionCookieHeader } from "./index.js";
 
 function loadEnvFile() {
@@ -33,6 +33,19 @@ const describeDaytona = liveDaytona ? describe : describe.skip;
 const describeBox = liveBox ? describe : describe.skip;
 const describePi = livePi ? describe : describe.skip;
 const describePiApp = livePiApp ? describe : describe.skip;
+
+describe("Daytona canary configuration", () => {
+  it("omits the auto-archive interval when archive is disabled", () => {
+    const config = daytonaCanaryProviderConfig({
+      DAYTONA_API_KEY: "test-key",
+      DAYTONA_SNAPSHOT: "brandwell-aimee-browser-v1",
+    });
+
+    expect(config.autoArchiveInterval).toBeUndefined();
+    expect(config.autoStopInterval).toBe(0);
+    expect(config.autoDeleteInterval).toBe(-1);
+  });
+});
 
 describeE2b("live E2B canary", () => {
   it("provisions a desktop, runs a command, and destroys it", async () => {
