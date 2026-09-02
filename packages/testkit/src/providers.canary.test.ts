@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { BoxSandboxProvider, E2BSandboxProvider, PiAgentRuntime } from "@rakazo/adapters";
 import { afterAll, describe, expect, it } from "vitest";
+import { verifyLiveDaytonaProvider } from "./daytona-canary.js";
 import { sessionCookieHeader } from "./index.js";
 
 function loadEnvFile() {
@@ -22,11 +23,13 @@ function loadEnvFile() {
 loadEnvFile();
 
 const liveE2b = Boolean(process.env.VERIFY_PROVIDERS && process.env.E2B_API_KEY);
+const liveDaytona = Boolean(process.env.VERIFY_PROVIDERS && process.env.DAYTONA_API_KEY);
 const liveBox = Boolean(process.env.VERIFY_PROVIDERS && process.env.BOX_API_KEY);
 const livePi = Boolean(process.env.VERIFY_PROVIDERS && process.env.OPENROUTER_API_KEY);
 const livePiApp = Boolean(livePi && process.env.DATABASE_URL);
 
 const describeE2b = liveE2b ? describe : describe.skip;
+const describeDaytona = liveDaytona ? describe : describe.skip;
 const describeBox = liveBox ? describe : describe.skip;
 const describePi = livePi ? describe : describe.skip;
 const describePiApp = livePiApp ? describe : describe.skip;
@@ -57,6 +60,16 @@ describeE2b("live E2B canary", () => {
       await sandbox.destroy(computer, ctx);
     }
   }, 120_000);
+});
+
+describeDaytona("live Daytona canary", () => {
+  it(
+    "provisions two desktops, resumes persistent state, and destroys the computer",
+    async () => {
+      await verifyLiveDaytonaProvider();
+    },
+    9 * 60_000,
+  );
 });
 
 describeBox("live Box canary", () => {

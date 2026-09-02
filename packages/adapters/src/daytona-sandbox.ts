@@ -157,7 +157,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     const sandbox = await this.client.create(
       {
         ...(this.provisioning.snapshot ? { snapshot: this.provisioning.snapshot } : {}),
-        labels: { botId: request.botId, rakazo: "computer" },
+        labels: { botId: request.botId, aimee: "computer" },
         envVars: {
           VNC_RESOLUTION: this.provisioning.vncResolution ?? "1280x800",
           ...(this.provisioning.locale

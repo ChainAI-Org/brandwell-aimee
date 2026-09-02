@@ -144,12 +144,23 @@ wait_for_readiness() {
   return 1
 }
 
+verify_daytona_provider() {
+  echo "Running live Daytona acceptance against the deployed AIMEE revision."
+  "${compose[@]}" exec -T api bash -lc '
+    test -n "$DAYTONA_API_KEY"
+    test -n "$DAYTONA_SNAPSHOT"
+    pnpm test:daytona
+  '
+}
+
 backup_running_state
 git fetch --no-tags origin "${DEPLOY_SHA}"
 git cat-file -e "${DEPLOY_SHA}^{commit}"
 git checkout --detach "${DEPLOY_SHA}"
 
-if start_revision "${DEPLOY_SHA}" && wait_for_readiness "${DEPLOY_SHA}"; then
+if start_revision "${DEPLOY_SHA}" &&
+  wait_for_readiness "${DEPLOY_SHA}" &&
+  verify_daytona_provider; then
   exit 0
 fi
 

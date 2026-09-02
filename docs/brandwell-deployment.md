@@ -216,9 +216,15 @@ Provider-backed tests are explicit because they can create billable resources:
 
 ```sh
 VERIFY_PROVIDERS=1 pnpm test:canary
+pnpm test:daytona
 COMPUTER_E2E_MODEL=<vision-capable-model> pnpm test:computer
 pnpm test:e2e -- --sandbox=e2b
 ```
+
+`test:daytona` requires `DAYTONA_API_KEY` and `DAYTONA_SNAPSHOT`. It creates one real AIMEE
+computer, verifies primary and secondary desktop streams, checks stop and resume persistence, and
+destroys the computer even when an assertion fails. Production deployment runs this acceptance
+check after readiness and rolls the revision back if Daytona is not operational.
 
 ## Acceptance smoke tests
 
