@@ -163,6 +163,7 @@ export function ensureScreenCommand(index: number) {
   const fluxHome = `/tmp/fluxbox-home-${layout.displayNumber}`;
   const log = `/tmp/rakazo/screen-${layout.displayNumber}`;
   const profile = `/home/rakazo/.browser-profiles/chromium-screen-${layout.displayNumber}`;
+  const viewReady = tcpPortReadyCommand(layout.viewPort);
   return [
     `xdpyinfo -display ${layout.display} >/dev/null 2>&1 && exit 0 || true`,
     `mkdir -p /tmp/rakazo ${fluxHome}/.fluxbox /tmp/.X11-unix ${profile}`,
@@ -178,7 +179,7 @@ export function ensureScreenCommand(index: number) {
     `DISPLAY=${layout.display} HOME=/home/rakazo rakazo-browser --user-data-dir=${profile} >${log}-browser.log 2>&1 &`,
     `x11vnc -display ${layout.display} -forever -shared -viewonly -nopw -listen 127.0.0.1 -rfbport ${layout.viewVncPort} -xkb -ncache 0 >${log}-x11vnc.log 2>&1 &`,
     `websockify --heartbeat=30 --web=/usr/share/novnc 0.0.0.0:${layout.viewPort} 127.0.0.1:${layout.viewVncPort} >${log}-novnc.log 2>&1 &`,
-    `for i in $(seq 1 50); do (echo >/dev/tcp/127.0.0.1/${layout.viewPort}) >/dev/null 2>&1 && exit 0; sleep 0.1; done`,
+    `for i in $(seq 1 50); do ${viewReady} >/dev/null 2>&1 && exit 0; sleep 0.1; done`,
     "exit 1",
   ].join("\n");
 }
@@ -262,6 +263,7 @@ export function interactiveScreenCommand(
     : stopProcesses;
   if (!interactive) return stop;
   if (!controlToken) throw new Error("interactive screen requires a control token");
+  const controlReady = tcpPortReadyCommand(layout.controlPort);
   return [
     `[ -f ${tokenFile} ] && [ "$(cat ${tokenFile})" = ${shellQuote(controlToken)} ] && pgrep -f '^x11vnc .* -rfbport ${layout.controlVncPort}' >/dev/null && pgrep -f '^/usr/bin/python3 .*websockify.*${layout.controlPort}' >/dev/null && exit 0 || true`,
     stopProcesses,
@@ -269,13 +271,17 @@ export function interactiveScreenCommand(
     `export DISPLAY=${layout.display}`,
     `(x11vnc -display ${layout.display} -forever -shared -nopw -listen 127.0.0.1 -rfbport ${layout.controlVncPort} -xkb -ncache 0 >/tmp/rakazo/x11vnc-control-${layout.displayNumber}.log 2>&1 &)`,
     `(websockify --heartbeat=30 --web=/usr/share/novnc 0.0.0.0:${layout.controlPort} 127.0.0.1:${layout.controlVncPort} >/tmp/rakazo/novnc-control-${layout.displayNumber}.log 2>&1 &)`,
-    `for i in $(seq 1 50); do (echo >/dev/tcp/127.0.0.1/${layout.controlPort}) >/dev/null 2>&1 && exit 0; sleep 0.1; done`,
+    `for i in $(seq 1 50); do ${controlReady} >/dev/null 2>&1 && exit 0; sleep 0.1; done`,
     "exit 1",
   ].join("; ");
 }
 
 function shellQuote(value: string) {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function tcpPortReadyCommand(port: number | string) {
+  return `/bin/bash -c ${shellQuote(`echo >/dev/tcp/127.0.0.1/${port}`)}`;
 }
 
 export function parseObservation(output: string) {

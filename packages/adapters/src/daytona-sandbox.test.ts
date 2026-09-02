@@ -408,7 +408,11 @@ function daytonaFixture(options: { id?: string; state?: string; prepareFails?: b
     files.set(target, Buffer.from(content));
     modes.set(target, modes.get(target) ?? "0644");
   });
-  const downloadFile = vi.fn(async (target: string) => Buffer.from(files.get(target) ?? []));
+  const downloadFile = vi.fn(async (target: string) =>
+    target.startsWith("/tmp/rakazo/observe-")
+      ? Buffer.from([1, 2, 3])
+      : Buffer.from(files.get(target) ?? []),
+  );
   const listFiles = vi.fn(async (directory: string) => {
     const prefix = `${directory.replace(/\/$/, "")}/`;
     const entries = new Map<string, ReturnType<typeof fileInfo>>();
