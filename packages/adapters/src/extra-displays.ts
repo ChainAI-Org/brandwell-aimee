@@ -145,12 +145,12 @@ export function ensureExtraDisplayCommand(
   return [
     "set -eu",
     'screen_stage="initialize"',
-    `trap 'exit_code=$?; if [ "$exit_code" -ne 0 ]; then printf "AIMEE_SCREEN_FAILURE_STAGE=%s\\n" "$screen_stage"; for file in ${log}-x11vnc.log ${log}-novnc.log ${log}-xvfb.log ${log}-browser.log; do if [ -f "$file" ]; then printf "AIMEE_SCREEN_LOG=%s\\n" "$file"; tail -n 12 "$file"; fi; done; fi; exit "$exit_code"' EXIT`,
+    `trap 'exit_code=$?; flock -u 8 2>/dev/null || true; exec 8>&- 2>/dev/null || true; if [ "$exit_code" -ne 0 ]; then printf "AIMEE_SCREEN_FAILURE_STAGE=%s\\n" "$screen_stage"; for file in ${log}-x11vnc.log ${log}-novnc.log ${log}-xvfb.log ${log}-browser.log; do if [ -f "$file" ]; then printf "AIMEE_SCREEN_LOG=%s\\n" "$file"; tail -n 12 "$file"; fi; done; fi; exit "$exit_code"' EXIT`,
     `mkdir -p /tmp/rakazo ${fluxHome}/.fluxbox /tmp/.X11-unix ${profile}`,
     `exec 8>${shellQuote(`/tmp/rakazo/screen-${layout.displayNumber}.lock`)}`,
     "flock 8",
     `if [ -s ${shellQuote(passwordFile)} ]; then view_password=$(cat ${shellQuote(passwordFile)}); else umask 077; view_password=${shellQuote(viewPassword)}; printf %s "$view_password" >${shellQuote(passwordFile)}; fi`,
-    `if xdpyinfo -display ${layout.display} >/dev/null 2>&1 && ${viewVncReady} >/dev/null 2>&1 && ${viewProxyReady} >/dev/null 2>&1; then trap - EXIT; printf 'RAKAZO_SCREEN_PASSWORD=%s\n' "$view_password"; exit 0; fi`,
+    `if xdpyinfo -display ${layout.display} >/dev/null 2>&1 && ${viewVncReady} >/dev/null 2>&1 && ${viewProxyReady} >/dev/null 2>&1; then flock -u 8; exec 8>&-; trap - EXIT; printf 'RAKAZO_SCREEN_PASSWORD=%s\n' "$view_password"; exit 0; fi`,
     'screen_stage="start-x-display"',
     `if ! xdpyinfo -display ${layout.display} >/dev/null 2>&1; then`,
     `  rm -f /tmp/.X${layout.displayNumber}-lock /tmp/.X11-unix/X${layout.displayNumber} ${tokenFile}`,
@@ -180,7 +180,7 @@ export function ensureExtraDisplayCommand(
     `  exit 1`,
     `fi`,
     'screen_stage="wait-for-view-stream"',
-    `for i in $(seq 1 200); do if ${viewVncReady} >/dev/null 2>&1 && ${viewProxyReady} >/dev/null 2>&1; then trap - EXIT; printf 'RAKAZO_SCREEN_PASSWORD=%s\n' "$view_password"; exit 0; fi; sleep 0.1; done`,
+    `for i in $(seq 1 200); do if ${viewVncReady} >/dev/null 2>&1 && ${viewProxyReady} >/dev/null 2>&1; then flock -u 8; exec 8>&-; trap - EXIT; printf 'RAKAZO_SCREEN_PASSWORD=%s\n' "$view_password"; exit 0; fi; sleep 0.1; done`,
     "exit 1",
   ].join("\n");
 }

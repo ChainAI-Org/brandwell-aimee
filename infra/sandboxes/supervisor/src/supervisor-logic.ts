@@ -280,7 +280,7 @@ function shellQuote(value: string) {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
-function tcpPortReadyCommand(port: number) {
+function tcpPortReadyCommand(port: number | string) {
   return `/bin/bash -c ${shellQuote(`echo >/dev/tcp/127.0.0.1/${port}`)}`;
 }
 

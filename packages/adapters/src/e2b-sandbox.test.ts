@@ -512,10 +512,10 @@ describe("E2B computer backend", () => {
     expect(startControl).toBeDefined();
     expect(startControl).toContain("pkill -f '(^|/)x11vnc .* -rfbport 5903'");
     expect(startControl).toMatch(
-      /for i in \$\(seq 1 50\); do \(echo >\/dev\/tcp\/127\.0\.0\.1\/5903\)[\s\S]*then exit 1; fi[\s\S]*x11vnc -storepasswd/,
+      /for i in \$\(seq 1 200\); do \/bin\/bash -c 'echo >\/dev\/tcp\/127\.0\.0\.1\/5903'[\s\S]*then exit 1; fi[\s\S]*x11vnc -storepasswd/,
     );
     expect(startControl).toMatch(
-      /x11vnc -bg[\s\S]*-rfbport 5903[\s\S]*for i in \$\(seq 1 50\); do \(echo >\/dev\/tcp\/127\.0\.0\.1\/5903\)[\s\S]*then exit 1; fi[\s\S]*novnc_proxy/,
+      /x11vnc -bg[\s\S]*-rfbport 5903[\s\S]*for i in \$\(seq 1 200\); do \/bin\/bash -c 'echo >\/dev\/tcp\/127\.0\.0\.1\/5903'[\s\S]*then exit 1; fi[\s\S]*novnc_proxy/,
     );
 
     await provider.writeFile(

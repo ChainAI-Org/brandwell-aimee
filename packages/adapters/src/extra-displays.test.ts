@@ -84,6 +84,8 @@ describe("extra display ports", () => {
 
     expect(view).toContain("AIMEE_SCREEN_FAILURE_STAGE");
     expect(view).toContain("exit_code=$?");
+    expect(view.match(/flock -u 8/g)).toHaveLength(3);
+    expect(view).toContain("exec 8>&-");
     expect(view).toContain("/bin/bash -c 'echo >/dev/tcp/127.0.0.1/5902'");
     expect(view).not.toContain("(echo >/dev/tcp");
     expect(view).toContain("seq 1 200");

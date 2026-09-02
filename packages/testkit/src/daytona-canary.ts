@@ -67,12 +67,14 @@ export async function verifyLiveDaytonaProvider(
       primary.context,
     );
     screens.push({ screen: primaryScreen, context: primary.context });
+    console.log("Daytona canary: opened the primary desktop preview");
     const secondaryScreen = await sandbox.connectScreen(
       computer,
       { view: "stream", interactive: false },
       secondary.context,
     );
     screens.push({ screen: secondaryScreen, context: secondary.context });
+    console.log("Daytona canary: opened the secondary desktop preview");
     assert.notEqual(primaryScreen.url, secondaryScreen.url);
     for (const screen of [primaryScreen, secondaryScreen]) {
       assert.ok(screen.url, "Daytona did not return a desktop preview URL");
