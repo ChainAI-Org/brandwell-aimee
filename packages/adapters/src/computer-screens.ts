@@ -5,8 +5,8 @@ export const MULTI_SCREEN_UNAVAILABLE =
   "This computer provider does not support multiple screens. Desktop tools are already in use on the shared display. File and shell tools still work.";
 
 export class ComputerScreenUnavailableError extends Error {
-  constructor(message = MULTI_SCREEN_UNAVAILABLE) {
-    super(message);
+  constructor(message = MULTI_SCREEN_UNAVAILABLE, options?: ErrorOptions) {
+    super(message, options);
     this.name = "ComputerScreenUnavailableError";
   }
 }

@@ -32,6 +32,7 @@ export async function verifyLiveDaytonaProvider(
     console.log("Daytona canary: provisioned a fresh AIMEE computer");
 
     await sandbox.prepare(computer, primary.context);
+    console.log("Daytona canary: prepared the managed workspace");
     let stdout = "";
     let exitCode: number | undefined;
     for await (const event of sandbox.execute(
@@ -44,15 +45,19 @@ export async function verifyLiveDaytonaProvider(
     }
     assert.equal(exitCode, 0);
     assert.equal(stdout, "daytona-ci-ok");
+    console.log("Daytona canary: verified shell execution");
 
     await sandbox.writeFile(
       computer,
       { path: "ci/daytona.txt", content: new TextEncoder().encode("preserved") },
       primary.context,
     );
+    console.log("Daytona canary: wrote the persistence probe");
 
     const primaryObservation = await sandbox.observe(computer, primary.context);
+    console.log("Daytona canary: observed the primary desktop");
     const secondaryObservation = await sandbox.observe(computer, secondary.context);
+    console.log("Daytona canary: observed the secondary desktop");
     assert.ok(primaryObservation.image.byteLength > 0, "primary desktop screenshot was empty");
     assert.ok(secondaryObservation.image.byteLength > 0, "secondary desktop screenshot was empty");
 

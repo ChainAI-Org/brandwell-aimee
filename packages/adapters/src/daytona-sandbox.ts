@@ -832,7 +832,11 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     const allocation = await sandbox.process.executeCommand(
       allocateExtraDisplayCommand(screenKey, leaseId),
     );
-    if (allocation.exitCode !== 0) throw new ComputerScreenUnavailableError();
+    if (allocation.exitCode !== 0) {
+      throw new ComputerScreenUnavailableError(undefined, {
+        cause: daytonaDisplayCommandError("allocate", allocation),
+      });
+    }
     const index = parseAllocatedExtraDisplay(allocation.result);
     const primaryDisplay =
       index === 0
@@ -869,7 +873,11 @@ export class DaytonaSandboxProvider implements SandboxProvider {
         randomBytes(9).toString("base64url"),
       ),
     );
-    if (result.exitCode !== 0) throw new ComputerScreenUnavailableError();
+    if (result.exitCode !== 0) {
+      throw new ComputerScreenUnavailableError(undefined, {
+        cause: daytonaDisplayCommandError("start", result),
+      });
+    }
     return parseExtraDisplayViewPassword(result.result ?? "");
   }
 
@@ -891,6 +899,16 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     }
     this.pointerDown.delete(id);
   }
+}
+
+function daytonaDisplayCommandError(
+  operation: "allocate" | "start",
+  result: { exitCode: number; result?: string },
+): Error {
+  const output = result.result?.trim().slice(0, 2_000) || "no command output";
+  return new Error(
+    `Daytona display ${operation} command exited with ${result.exitCode}: ${output}`,
+  );
 }
 
 export function managedDesktopBrandingCommand(): string {
