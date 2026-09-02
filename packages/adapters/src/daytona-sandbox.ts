@@ -59,6 +59,7 @@ import {
 
 const DAYTONA_FALLBACK_DISPLAY = ":0";
 const DAYTONA_SCREEN_TTL_SECONDS = 3_600;
+const DAYTONA_CREATE_TIMEOUT_SECONDS = 5 * 60;
 const AIMEE_WORKSPACE_DIRECTORY = "aimee-home";
 const LEGACY_WORKSPACE_DIRECTORY = "rakazo-home";
 
@@ -70,6 +71,7 @@ export interface DaytonaSandboxProviderConfig extends DaytonaConfig {
   autoStopInterval?: number;
   autoArchiveInterval?: number;
   autoDeleteInterval?: number;
+  createTimeoutSeconds?: number;
   vncResolution?: string;
   locale?: string;
   timezone?: string;
@@ -106,6 +108,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       autoStopInterval: config.autoStopInterval,
       autoArchiveInterval: config.autoArchiveInterval,
       autoDeleteInterval: config.autoDeleteInterval,
+      createTimeoutSeconds: config.createTimeoutSeconds,
       vncResolution: config.vncResolution,
       locale: config.locale,
       timezone: config.timezone,
@@ -174,7 +177,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
           : { autoArchiveInterval: this.provisioning.autoArchiveInterval }),
         autoDeleteInterval: this.provisioning.autoDeleteInterval ?? -1,
       },
-      { timeout: 120 },
+      { timeout: this.provisioning.createTimeoutSeconds ?? DAYTONA_CREATE_TIMEOUT_SECONDS },
     );
     this.boxes.set(sandbox.id, sandbox);
     return this.ref(sandbox, request.botId, true);

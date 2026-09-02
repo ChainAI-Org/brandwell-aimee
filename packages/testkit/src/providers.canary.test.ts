@@ -44,6 +44,7 @@ describe("Daytona canary configuration", () => {
     expect(config.autoArchiveInterval).toBeUndefined();
     expect(config.autoStopInterval).toBe(0);
     expect(config.autoDeleteInterval).toBe(-1);
+    expect(config.createTimeoutSeconds).toBe(300);
   });
 });
 
@@ -81,7 +82,7 @@ describeDaytona("live Daytona canary", () => {
     async () => {
       await verifyLiveDaytonaProvider();
     },
-    9 * 60_000,
+    13 * 60_000,
   );
 });
 
