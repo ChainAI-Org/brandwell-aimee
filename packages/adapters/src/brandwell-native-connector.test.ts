@@ -55,7 +55,10 @@ function activePrisma() {
       })),
     },
     brandwellServiceIdentity: {
-      findUnique: vi.fn(async () => ({ workspaceId: "workspace-acme", status: "active" })),
+      findUnique: vi.fn(async () => ({
+        workspaceId: "workspace-acme",
+        status: "active",
+      })),
     },
   } as unknown as PrismaClient;
 }
@@ -106,7 +109,7 @@ describe("BrandWell native connector", () => {
       tools.find((tool) => tool.name === "brandwell_visibility_get_domain_overview")?.readOnly,
     ).toBe(false);
     expect(tools.filter((tool) => tool.name.startsWith("brandwell_visibility_"))).toHaveLength(23);
-    expect(tools.filter((tool) => tool.name.startsWith("brandwell_rankwell_"))).toHaveLength(7);
+    expect(tools.filter((tool) => tool.name.startsWith("brandwell_rankwell_"))).toHaveLength(9);
     expect(tools.find((tool) => tool.name === "brandwell_rankwell_get_strategy")?.readOnly).toBe(
       true,
     );
@@ -168,7 +171,10 @@ describe("BrandWell native connector", () => {
     });
 
     expect(events).toEqual([
-      { type: "result", data: { domain_overview: { domain: "competitor.example" } } },
+      {
+        type: "result",
+        data: { domain_overview: { domain: "competitor.example" } },
+      },
     ]);
     expect(requestUrl).toBe("https://portal.example.test/internal/aimee/visibility/research");
     expect(requestInit?.headers).toMatchObject({
@@ -215,7 +221,7 @@ describe("BrandWell native connector", () => {
     });
   });
 
-  it("routes RankWell drafts through the signed project mutation endpoint", async () => {
+  it("queues RankWell writing with a deterministic retry key through the signed project endpoint", async () => {
     let requestUrl: string | URL | Request | undefined;
     let requestInit: RequestInit | undefined;
     const connector = new BrandwellNativeConnector(activePrisma(), {
@@ -224,7 +230,11 @@ describe("BrandWell native connector", () => {
       fetch: async (url, init) => {
         requestUrl = url;
         requestInit = init;
-        return new Response(JSON.stringify({ article: { id: "article-1", status: "draft" } }));
+        return new Response(
+          JSON.stringify({
+            job: { id: "job-1", article_id: "article-1", status: "queued" },
+          }),
+        );
       },
       now: () => new Date("2026-08-30T17:00:00.000Z"),
     });
@@ -235,7 +245,12 @@ describe("BrandWell native connector", () => {
     });
 
     expect(events).toEqual([
-      { type: "result", data: { article: { id: "article-1", status: "draft" } } },
+      {
+        type: "result",
+        data: {
+          job: { id: "job-1", article_id: "article-1", status: "queued" },
+        },
+      },
     ]);
     expect(requestUrl).toBe("https://portal.example.test/internal/aimee/visibility/research");
     expect(requestInit?.headers).toMatchObject({
@@ -246,9 +261,108 @@ describe("BrandWell native connector", () => {
       arguments: {
         keyword: "intent marketing platform",
         title: "Intent Marketing Platform Guide",
+        request_key: `aimee:${createHash("sha256").update("workspace-acme:effect-1").digest("hex")}`,
       },
       agent_intake_source: "aimee",
     });
+  });
+
+  it("tracks a queued article through scoped read tools without starting more paid work", async () => {
+    const requests: Array<{
+      body: Record<string, unknown>;
+      headers: Record<string, string>;
+    }> = [];
+    const connector = new BrandwellNativeConnector(activePrisma(), {
+      apiBaseUrl: "https://portal.example.test",
+      serviceToken: SERVICE_TOKEN,
+      fetch: async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        requests.push({
+          body,
+          headers: init?.headers as Record<string, string>,
+        });
+        return Response.json(
+          body.tool === "list_rankwell_generation_jobs"
+            ? {
+                jobs: [
+                  {
+                    id: "job-1",
+                    article_id: "article-1",
+                    status: "running",
+                    phase: "writing",
+                  },
+                ],
+              }
+            : {
+                job: {
+                  id: "job-1",
+                  article_id: "article-1",
+                  status: "completed",
+                  phase: "completed",
+                },
+              },
+        );
+      },
+    });
+    const listed = await eventsFrom(connector, "brandwell_rankwell_list_generation_jobs", {
+      limit: 10,
+    });
+    const finished = await eventsFrom(connector, "brandwell_rankwell_get_generation_job", {
+      job_id: "job-1",
+    });
+    expect(listed).toMatchObject([{ type: "result", data: { jobs: [{ phase: "writing" }] } }]);
+    expect(finished).toMatchObject([
+      {
+        type: "result",
+        data: { job: { article_id: "article-1", status: "completed" } },
+      },
+    ]);
+    expect(requests.map((request) => request.body.tool)).toEqual([
+      "list_rankwell_generation_jobs",
+      "get_rankwell_generation_job",
+    ]);
+    for (const request of requests) {
+      expect(request.headers["x-brandwell-workspace-id"]).toBe("workspace-acme");
+      expect(request.headers).not.toHaveProperty("x-brandwell-idempotency-key");
+    }
+  });
+
+  it("preserves explicit retry identity and article options and rejects unsupported options before dispatch", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    const connector = new BrandwellNativeConnector(activePrisma(), {
+      apiBaseUrl: "https://portal.example.test",
+      serviceToken: SERVICE_TOKEN,
+      fetch: async (_url, init) => {
+        bodies.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+        return Response.json(
+          {
+            job: { id: "job-retry", article_id: "article-1", status: "queued" },
+          },
+          { status: 202 },
+        );
+      },
+    });
+    const args = {
+      article_id: "article-1",
+      request_key: "approved-retry-001",
+      article_options: { feature_image: true, word_count: 1800 },
+    };
+    await eventsFrom(connector, "brandwell_rankwell_generate_article", args);
+    await eventsFrom(connector, "brandwell_rankwell_generate_article", args);
+    expect(bodies[0]?.arguments).toEqual(args);
+    expect(bodies[1]).toEqual(bodies[0]);
+    for (const invalid of [
+      { request_key: "short" },
+      { article_options: { deep_research: true } },
+      { article_options: { publish: true } },
+    ]) {
+      const events = await eventsFrom(connector, "brandwell_rankwell_generate_article", {
+        ...args,
+        ...invalid,
+      });
+      expect(events.some((event) => event.type === "error")).toBe(true);
+    }
+    expect(bodies).toHaveLength(2);
   });
 
   it("scopes recipient intake in headers and forces agent draft intake", async () => {
@@ -386,7 +500,10 @@ describe("BrandWell native connector", () => {
     });
 
     expect(events).toEqual([
-      { type: "result", data: { schedule_updated: true, agent_can_activate: false } },
+      {
+        type: "result",
+        data: { schedule_updated: true, agent_can_activate: false },
+      },
     ]);
     expect(requestUrl).toBe(
       "https://portal.example.test/internal/aimee/postcards/campaigns/campaign-acme/settings",
@@ -407,7 +524,9 @@ describe("BrandWell native connector", () => {
   it("never returns an upstream error body or service token", async () => {
     const fetchImpl = vi.fn(
       async () =>
-        new Response(`${SERVICE_TOKEN} internal stack and customer data`, { status: 500 }),
+        new Response(`${SERVICE_TOKEN} internal stack and customer data`, {
+          status: 500,
+        }),
     );
     const connector = new BrandwellNativeConnector(activePrisma(), {
       apiBaseUrl: "https://portal.example.test",

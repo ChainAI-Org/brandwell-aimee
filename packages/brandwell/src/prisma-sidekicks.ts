@@ -10,6 +10,7 @@ import {
 import {
   BRANDWELL_AIMEE_DEFAULT_ROUTINES,
   BRANDWELL_AIMEE_INSTRUCTIONS,
+  BRANDWELL_AIMEE_MIN_SKILL_BUNDLE_VERSION,
   BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION,
 } from "./aimee-baseline.js";
 import { BRANDWELL_BRAND } from "./brand-config.js";
@@ -151,7 +152,7 @@ export async function syncBrandwellWorkspaceDesiredStateWithPrisma(
     );
   }
   if (
-    input.skillBundleVersion < BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION - 1 ||
+    input.skillBundleVersion < BRANDWELL_AIMEE_MIN_SKILL_BUNDLE_VERSION ||
     input.skillBundleVersion > BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION
   ) {
     throw new BrandwellSidekickError(

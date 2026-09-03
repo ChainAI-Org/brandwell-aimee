@@ -41,6 +41,26 @@ const CampaignReferenceSchema = z
   .string()
   .regex(/^[A-Za-z0-9_-]{1,120}$/, "Campaign reference is invalid");
 
+const RankwellArticleOptionsSchema = z
+  .object({
+    language: z.string().min(1).max(80).optional(),
+    location: z.string().min(1).max(120).optional(),
+    word_count: z.number().int().min(200).max(6_000).optional(),
+    table_of_contents: z.boolean().optional(),
+    faq: z.boolean().optional(),
+    key_takeaways: z.boolean().optional(),
+    click_to_share: z.boolean().optional(),
+    click_to_share_x: z.boolean().optional(),
+    click_to_share_linkedin: z.boolean().optional(),
+    use_brand_voice: z.boolean().optional(),
+    feature_image: z.boolean().optional(),
+    inline_images: z.boolean().optional(),
+    inline_image_count: z.number().int().min(0).max(10).optional(),
+    image_style: z.string().max(200).optional(),
+    image_instructions: z.string().max(1_000).optional(),
+  })
+  .strict();
+
 const ToolDefinitions = [
   {
     name: "brandwell_intent_search",
@@ -486,26 +506,63 @@ const ToolDefinitions = [
     schema: z.object({ article_id: z.string().min(1).max(80) }).strict(),
   },
   {
+    name: "brandwell_rankwell_list_generation_jobs",
+    description:
+      "Read saved article generation jobs, phases, warnings, failures, and article IDs for this Company Project. Use this before retrying an uncertain request.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "list_rankwell_generation_jobs",
+    schema: z.object({ limit: z.number().int().min(1).max(50).default(20) }).strict(),
+  },
+  {
+    name: "brandwell_rankwell_get_generation_job",
+    description:
+      "Track one saved article generation job through research, writing, images, and SEO review. A queued or running job is not a finished article.",
+    readOnly: true,
+    endpoint: "/internal/aimee/visibility/read",
+    remoteTool: "get_rankwell_generation_job",
+    schema: z.object({ job_id: z.string().min(1).max(80) }).strict(),
+  },
+  {
     name: "brandwell_rankwell_generate_article",
     description:
-      "Generate an editable RankWell article draft from an approved brief or keyword. This does not publish content.",
+      "Queue an editable RankWell article from an approved brief, keyword, source, or existing empty article. Returns a saved job and article ID immediately. Track the job before reporting completion. This uses one article credit and never publishes.",
     readOnly: false,
     endpoint: "/internal/aimee/visibility/research",
     remoteTool: "generate_rankwell_article",
-    timeoutMs: 120_000,
     schema: z
       .object({
+        article_id: z.string().min(1).max(80).optional(),
         brief_id: z.string().min(1).max(80).optional(),
         keyword: z.string().min(1).max(500).optional(),
         title: z.string().min(1).max(300).optional(),
         audience: z.string().min(1).max(500).optional(),
         search_intent: z.string().min(1).max(80).optional(),
         source_material: z.string().min(1).max(100_000).optional(),
+        source_url: z.string().url().max(10_000).optional(),
+        source_type: z.string().min(1).max(30).optional(),
+        context: z.string().max(5_000).optional(),
+        article_options: RankwellArticleOptionsSchema.optional(),
+        request_key: z
+          .string()
+          .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/)
+          .optional(),
       })
       .strict()
-      .refine((input) => Boolean(input.brief_id || input.keyword), {
-        message: "A brief ID or keyword is required",
-      }),
+      .refine(
+        (input) =>
+          Boolean(
+            input.article_id ||
+              input.brief_id ||
+              input.keyword ||
+              input.title ||
+              input.source_url ||
+              input.source_material,
+          ),
+        {
+          message: "An article, brief, keyword, title, or source is required",
+        },
+      ),
   },
   {
     name: "brandwell_rankwell_refine_article",
@@ -687,7 +744,10 @@ export class BrandwellNativeConnector implements ConnectorProvider {
   async *execute(call: ConnectorCall, context: AdapterContext): AsyncIterable<ConnectorEvent> {
     const scope = await this.resolveScope(context);
     if (!scope) {
-      yield { type: "error", message: "BrandWell tools are unavailable for this workspace" };
+      yield {
+        type: "error",
+        message: "BrandWell tools are unavailable for this workspace",
+      };
       return;
     }
     const definition = ToolDefinitions.find((tool) => tool.name === call.tool);
@@ -697,6 +757,11 @@ export class BrandwellNativeConnector implements ConnectorProvider {
     }
     try {
       const parsed = definition.schema.parse(call.args) as Record<string, unknown>;
+      if (definition.name === "brandwell_rankwell_generate_article" && !parsed.request_key) {
+        parsed.request_key = `aimee:${createHash("sha256")
+          .update(`${context.workspaceId}:${call.executionId}`)
+          .digest("hex")}`;
+      }
       const { endpoint, body } = requestFor(definition, parsed);
       const serialized = JSON.stringify({
         ...body,
@@ -756,16 +821,25 @@ export class BrandwellNativeConnector implements ConnectorProvider {
       }
       const contentLength = Number(response.headers.get("content-length") ?? 0);
       if (contentLength > MAX_RESPONSE_BYTES) {
-        yield { type: "error", message: "BrandWell response exceeded the safe size limit" };
+        yield {
+          type: "error",
+          message: "BrandWell response exceeded the safe size limit",
+        };
         return;
       }
       const text = await response.text();
       if (Buffer.byteLength(text, "utf8") > MAX_RESPONSE_BYTES) {
-        yield { type: "error", message: "BrandWell response exceeded the safe size limit" };
+        yield {
+          type: "error",
+          message: "BrandWell response exceeded the safe size limit",
+        };
         return;
       }
       const data = text ? JSON.parse(text) : { ok: true };
-      yield { type: "result", data: redactConnectorPayload(data, [this.serviceToken]) };
+      yield {
+        type: "result",
+        data: redactConnectorPayload(data, [this.serviceToken]),
+      };
     } catch (error) {
       yield {
         type: "error",

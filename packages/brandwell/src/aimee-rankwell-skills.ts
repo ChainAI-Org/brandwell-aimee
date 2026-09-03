@@ -9,7 +9,10 @@ RankWell data and safety rules:
 - Creating a brief, drafting an article, and refining a draft are allowed only when the user asks for that work. These actions create editable BrandWell records and never publish.
 - Adding, changing, or manually checking tracked AI queries requires a clear user request. BrandWell enforces the plan limit and project budget. Never reveal internal provider names, shared credentials, balances, or internal cost.
 - Publishing, WordPress changes, outreach, payments, and other external effects require explicit approval and a confirmed native tool or visible BrandWell result. No current RankWell tool publishes content.
-- After every write, read the returned record and report its BrandWell ID, draft status, score, evidence gaps, and the next review step. Never claim completion without the returned result.`;
+- Article generation returns a durable job. Read brandwell_rankwell_get_generation_job using its job ID until completed, failed, or interrupted. Report the current phase while it runs. Do not report an article as written while its job is queued or running.
+- After a timeout or uncertain response, use brandwell_rankwell_list_generation_jobs before retrying. Preserve an explicit request_key when retrying the same request. Never start duplicate paid work to check status.
+- Keyword targets and usage ranges come from BrandWell's NLP service. Preserve the returned targets and counts. Do not substitute a generated keyword list.
+- After completion, read the article and report its BrandWell ID, draft status, SEO score, keyword coverage, featured image, evidence gaps, and next review step. Keep saved draft text and image warnings distinct. Never claim completion without the returned result.`;
 
 function skill(input: { key: string; name: string; description: string; workflow: string }) {
   return {
@@ -49,7 +52,7 @@ Workflow:
 2. Call brandwell_rankwell_get_strategy for the exact keyword or buyer question. Review all four checks: Search Console ownership, keyword demand, tracked AI citation gaps, and existing RankWell content.
 3. If the strategy says merge pages, stop before drafting and return the competing URLs, intent evidence, content to preserve, destination recommendation, and verification plan. If it says optimize existing, identify the current page or RankWell article and propose focused changes. If it says no action, explain why.
 4. If a new article is supported and the user asks to proceed, call brandwell_rankwell_create_brief. Report its title, audience, intent, outline, evidence, and BrandWell brief ID for review.
-5. When the user asks for the draft, call brandwell_rankwell_generate_article with the approved brief ID or keyword. Then call brandwell_rankwell_get_article and report the draft ID, status, target and secondary keywords, SEO score, brand voice score, current ranking evidence, sources, and open recommendations.
+5. When the user asks for the draft, call brandwell_rankwell_generate_article with the approved brief ID or keyword and any requested article_options. Read the returned job with brandwell_rankwell_get_generation_job. Once completed, call brandwell_rankwell_get_article and report the draft ID, status, target, priority and secondary keywords, SEO score, featured image, current ranking evidence, sources, and open recommendations. If generation fails, inspect saved work before offering a retry of that article_id.
 6. Use brandwell_rankwell_refine_article only for a focused user-requested change. Read the returned article afterward and report the new revision and changed score. Never overwrite the user's intent or invent sources.
 7. Use brandwell_rankwell_list_briefs and brandwell_rankwell_list_articles to locate existing work before creating duplicates. Leave every result in draft or review status. Publishing is a separate approval-gated integration.`,
   }),

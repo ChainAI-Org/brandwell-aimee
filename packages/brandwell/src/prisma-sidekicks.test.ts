@@ -576,40 +576,49 @@ describe("BrandWell Sidekick model-key lifecycle", () => {
     expect(harness.stop).not.toHaveBeenCalled();
   });
 
-  it("accepts the prior skill bundle during rollout and still acquires the policy lease", async () => {
-    const updateKey = vi.fn();
-    const prisma = {
-      brandwellAiWorkspace: {
-        findFirst: vi.fn(async () => ({
-          id: "mapping-1",
-          rakazoWorkspaceId: "workspace-1",
-          commercialRevision: 1n,
-          commercialStatus: "active",
-        })),
-        updateMany: vi.fn(async () => ({ count: 0 })),
-      },
-    } as unknown as PrismaClient;
-
-    await expect(
-      syncBrandwellWorkspaceDesiredStateWithPrisma(
-        "workspace-1",
-        {
-          revision: 2n,
-          agencyId: "agency-1",
-          clientId: "client-1",
-          primaryBrandwellUserId: "brandwell-user-master",
-          status: "paused",
-          plan: "aimee",
-          masterSeats: 1,
-          sidekickSeats: 1,
-          skillBundleVersion: BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION - 1,
+  it.each([
+    [4, "skill_bundle_unavailable"],
+    [5, "model_policy_busy"],
+    [6, "model_policy_busy"],
+    [7, "model_policy_busy"],
+    [8, "skill_bundle_unavailable"],
+  ] as const)(
+    "validates rollout compatibility for skill bundle %s",
+    async (skillBundleVersion, expectedCode) => {
+      const updateKey = vi.fn();
+      const prisma = {
+        brandwellAiWorkspace: {
+          findFirst: vi.fn(async () => ({
+            id: "mapping-1",
+            rakazoWorkspaceId: "workspace-1",
+            commercialRevision: 1n,
+            commercialStatus: "active",
+          })),
+          updateMany: vi.fn(async () => ({ count: 0 })),
         },
-        prisma,
-        { updateKey },
-      ),
-    ).rejects.toMatchObject({ code: "model_policy_busy", statusCode: 409 });
-    expect(updateKey).not.toHaveBeenCalled();
-  });
+      } as unknown as PrismaClient;
+
+      await expect(
+        syncBrandwellWorkspaceDesiredStateWithPrisma(
+          "workspace-1",
+          {
+            revision: 2n,
+            agencyId: "agency-1",
+            clientId: "client-1",
+            primaryBrandwellUserId: "brandwell-user-master",
+            status: "paused",
+            plan: "aimee",
+            masterSeats: 1,
+            sidekickSeats: 1,
+            skillBundleVersion,
+          },
+          prisma,
+          { updateKey },
+        ),
+      ).rejects.toMatchObject({ code: expectedCode, statusCode: 409 });
+      expect(updateKey).not.toHaveBeenCalled();
+    },
+  );
 
   it("installs the current managed skills when a same-revision desired state upgrades the bundle", async () => {
     const mapping = {
