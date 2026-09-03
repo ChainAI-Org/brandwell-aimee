@@ -68,7 +68,7 @@ describe("AIMEE managed workspace baseline", () => {
       "BrandWell AI Citation Analysis",
     ]);
     expect(BRANDWELL_AIMEE_SKILLS).toHaveLength(20);
-    expect(BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION).toBe(6);
+    expect(BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION).toBe(7);
     expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.key)).size).toBe(20);
     expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.name.toLowerCase())).size).toBe(20);
     expect(JSON.stringify(BRANDWELL_AIMEE_VISIBILITY_SKILLS)).not.toMatch(/open[\s-]*seo/i);
@@ -82,6 +82,8 @@ describe("AIMEE managed workspace baseline", () => {
     for (const item of BRANDWELL_AIMEE_RANKWELL_SKILLS) {
       expect(item.content).toContain("Begin with brandwell_visibility_get_project");
       expect(item.content).toContain("brandwell_rankwell_get_strategy");
+      expect(item.content).toContain("brandwell_rankwell_get_generation_job");
+      expect(item.content).toContain("brandwell_rankwell_list_generation_jobs");
       expect(item.content).toContain("No current RankWell tool publishes content");
       expect(item.content).not.toMatch(/open[\s-]*seo/i);
     }
