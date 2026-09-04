@@ -81,7 +81,9 @@ export async function deliverPendingBrandwellClientNotifications(
         where: { organizationId: row.workspaceId },
         select: { userId: true },
       });
-      const userIds = members.map((member) => member.userId);
+      const userIds = members
+        .map((member) => member.userId)
+        .filter((id) => !row.targetUserIds?.length || row.targetUserIds.includes(id));
       const preferences = userIds.length
         ? await prisma.notificationPreference.findMany({
             where: { workspaceId: row.workspaceId, userId: { in: userIds } },

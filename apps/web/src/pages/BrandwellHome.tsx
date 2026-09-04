@@ -1,4 +1,4 @@
-import { BRANDWELL_BRAND } from "@brandwell/aimee/brand-config";
+import { BRANDWELL_BRAND, brandwellOutreachNotificationUrl } from "@brandwell/aimee/brand-config";
 import type {
   Bot,
   BrandwellClientNotification,
@@ -155,6 +155,13 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
 
   const openNotice = async (notice: BrandwellClientNotification) => {
     if (!state) return;
+    const outreachUrl = brandwellOutreachNotificationUrl(notice.actionTarget);
+    if (outreachUrl) {
+      window.open(outreachUrl, "_blank", "noopener,noreferrer");
+      if (!notice.readAt)
+        void rpc.notifications.markRead({ notificationId: notice.id }).catch(() => undefined);
+      return;
+    }
     if (!notice.readAt) {
       await rpc.notifications.markRead({ notificationId: notice.id }).catch(() => undefined);
     }

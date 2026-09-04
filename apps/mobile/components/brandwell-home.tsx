@@ -1,4 +1,4 @@
-import { BRANDWELL_BRAND } from "@brandwell/aimee/brand-config";
+import { BRANDWELL_BRAND, brandwellOutreachNotificationUrl } from "@brandwell/aimee/brand-config";
 import type {
   BrandwellClientNotification,
   ComputerStatus,
@@ -10,6 +10,7 @@ import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -521,6 +522,11 @@ async function openClientNotification(
   }
   const botId = notice.botId || fallbackBotId;
   const target = notice.actionTarget || "";
+  const outreachUrl = brandwellOutreachNotificationUrl(target);
+  if (outreachUrl) {
+    await Linking.openURL(outreachUrl);
+    return;
+  }
   if (target.startsWith("/computer")) {
     router.push({ pathname: "/computer", params: { botId } });
     return;

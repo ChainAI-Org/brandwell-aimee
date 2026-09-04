@@ -403,7 +403,11 @@ describe("BrandWell client notifications", () => {
     expect(response.status).toBe(200);
     expect(findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { workspaceId: "workspace-1", resolvedAt: null },
+        where: {
+          workspaceId: "workspace-1",
+          resolvedAt: null,
+          OR: [{ targetUserIds: { isEmpty: true } }, { targetUserIds: { has: "client-user-1" } }],
+        },
       }),
     );
     await expect(response.json()).resolves.toEqual({
@@ -438,7 +442,11 @@ describe("BrandWell client notifications", () => {
     );
     expect(response.status).toBe(200);
     expect(findFirst).toHaveBeenCalledWith({
-      where: { id: "notice-1", workspaceId: "workspace-1" },
+      where: {
+        id: "notice-1",
+        workspaceId: "workspace-1",
+        OR: [{ targetUserIds: { isEmpty: true } }, { targetUserIds: { has: "client-user-1" } }],
+      },
     });
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
