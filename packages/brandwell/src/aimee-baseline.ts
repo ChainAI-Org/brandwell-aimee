@@ -23,7 +23,7 @@ export const BRANDWELL_AIMEE_WELCOME = `Hi, I'm AIMEE, your BrandWell GTM-focuse
 
 Tell me what you want to grow or what you want me to work on first. I will use the BrandWell data and tools available in this workspace, bring you a clear plan, and ask before anything sends, publishes, spends, prints, or mails.`;
 
-export const BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION = 8;
+export const BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION = 9;
 // Portal versions 5 through 7 remain compatible during the version 8 rollout.
 export const BRANDWELL_AIMEE_MIN_SKILL_BUNDLE_VERSION = 5;
 

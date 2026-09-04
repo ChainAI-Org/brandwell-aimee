@@ -582,7 +582,8 @@ describe("BrandWell Sidekick model-key lifecycle", () => {
     [6, "model_policy_busy"],
     [7, "model_policy_busy"],
     [8, "model_policy_busy"],
-    [9, "skill_bundle_unavailable"],
+    [9, "model_policy_busy"],
+    [BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION + 1, "skill_bundle_unavailable"],
   ] as const)(
     "validates rollout compatibility for skill bundle %s",
     async (skillBundleVersion, expectedCode) => {

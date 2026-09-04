@@ -69,7 +69,7 @@ describe("AIMEE managed workspace baseline", () => {
       "BrandWell AI Citation Analysis",
     ]);
     expect(BRANDWELL_AIMEE_SKILLS).toHaveLength(21);
-    expect(BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION).toBe(8);
+    expect(BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION).toBe(9);
     expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.key)).size).toBe(21);
     expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.name.toLowerCase())).size).toBe(21);
     expect(JSON.stringify(BRANDWELL_AIMEE_VISIBILITY_SKILLS)).not.toMatch(/open[\s-]*seo/i);
