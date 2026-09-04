@@ -581,7 +581,8 @@ describe("BrandWell Sidekick model-key lifecycle", () => {
     [5, "model_policy_busy"],
     [6, "model_policy_busy"],
     [7, "model_policy_busy"],
-    [8, "skill_bundle_unavailable"],
+    [8, "model_policy_busy"],
+    [9, "skill_bundle_unavailable"],
   ] as const)(
     "validates rollout compatibility for skill bundle %s",
     async (skillBundleVersion, expectedCode) => {
@@ -692,7 +693,7 @@ describe("BrandWell Sidekick model-key lifecycle", () => {
       replayed: false,
       mapping: { skillBundleVersion: BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION },
     });
-    expect(createdSkills).toHaveLength(20);
+    expect(createdSkills).toHaveLength(21);
     expect(
       createdSkills.every((skill) => skill.managedVersion === BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION),
     ).toBe(true);
