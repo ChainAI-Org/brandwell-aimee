@@ -1027,6 +1027,79 @@ describe("BrandWell management API authentication", () => {
     );
   });
 
+  it.each([
+    {
+      ids: ["portal-owner"],
+      members: [{ id: "internal-owner", brandwellUserId: "portal-owner" }],
+      status: 200,
+    },
+    { ids: ["foreign-owner"], members: [], status: 409 },
+    { ids: ["portal-owner", "portal-owner"], members: [], status: 400 },
+    { ids: [], members: [], status: 400 },
+  ])(
+    "scopes explicit notification targets to workspace membership ($status)",
+    async ({ ids, members, status }) => {
+      const findMembers = vi.fn(async () => members);
+      const create = vi.fn(async ({ data }) => ({
+        id: "notice-targeted",
+        ...data,
+        createdAt: new Date(),
+      }));
+      const app = new Hono();
+      mountBrandwellManagementRoutes(app, {
+        token: "management-secret",
+        prisma: {
+          brandwellAiWorkspace: {
+            findFirst: vi.fn(async () => ({
+              id: "mapping-1",
+              rakazoWorkspaceId: "workspace-1",
+              rakazoWorkspace: { name: "Acme", slug: "acme" },
+            })),
+          },
+          user: { findMany: findMembers },
+          brandwellClientNotification: { findUnique: vi.fn(async () => null) },
+          $transaction: vi.fn(async (callback) =>
+            callback({
+              brandwellClientNotification: { create },
+              brandwellAuditLog: { create: vi.fn() },
+            }),
+          ),
+        } as unknown as PrismaClient,
+      });
+      const response = await app.request("/internal/workspaces/mapping-1/notify-client", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer management-secret",
+          "content-type": "application/json",
+          "x-idempotency-key": "outreach-target-0001",
+          ...OPERATOR_HEADERS,
+        },
+        body: JSON.stringify({
+          title: "Campaign engagement",
+          body: "A contact clicked the campaign link.",
+          targetBrandwellUserIds: ids,
+        }),
+      });
+      expect(response.status).toBe(status);
+      if (status === 200) {
+        expect(findMembers).toHaveBeenCalledWith({
+          where: {
+            brandwellUserId: { in: ids },
+            members: { some: { organizationId: "workspace-1" } },
+          },
+          select: { id: true, brandwellUserId: true },
+        });
+        expect(create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ targetUserIds: ["internal-owner"] }),
+          }),
+        );
+      } else {
+        expect(create).not.toHaveBeenCalled();
+      }
+    },
+  );
+
   it("rejects operator mutations that cannot be attributed to a person", async () => {
     const findFirst = vi.fn();
     const app = new Hono();

@@ -20,3 +20,11 @@ export const BRANDWELL_BRAND = {
 } as const;
 
 export type BrandwellBrandConfig = typeof BRANDWELL_BRAND;
+
+export function brandwellOutreachNotificationUrl(target: unknown): string | null {
+  if (typeof target !== "string" || !target.startsWith("/outreach?")) return null;
+  const params = new URLSearchParams(target.slice("/outreach?".length));
+  const clientId = params.get("client_id");
+  if (!clientId || !/^[1-9][0-9]{0,18}$/.test(clientId)) return null;
+  return `${BRANDWELL_BRAND.portalUrl}/#/outreach?client_id=${clientId}&workflows=open`;
+}

@@ -8,7 +8,9 @@ import {
   BrandwellSidekickError,
   type BrandwellSidekickProvisioningInput,
   type BrandwellWorkspaceDesiredStateInput,
+  brandwellOutreachFollowupPrompt,
   brandwellPlatformModelDefault,
+  parseBrandwellOutreachFollowup,
 } from "@brandwell/aimee";
 import {
   type JobPublisher,
@@ -1394,6 +1396,160 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     return c.json({ ok: true, runId: run.id, status: "queued" });
   });
 
+  app.post("/internal/workspaces/:id/outreach-followup", async (c) => {
+    if (!deps.jobs) return c.json({ error: "AIMEE job execution is not configured" }, 503);
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
+    const key = managementIdempotencyKey(c.req.header("x-idempotency-key"));
+    if (!key.ok) return c.json({ error: key.error }, 400);
+    const input = parseBrandwellOutreachFollowup(await c.req.json().catch(() => null));
+    if (!input.ok) return c.json({ error: input.error }, 400);
+    const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
+    if (
+      !mapping ||
+      !["active", "trialing"].includes(mapping.subscriptionStatus) ||
+      !["active", "trialing"].includes(mapping.commercialStatus)
+    ) {
+      return c.json({ error: "Active AIMEE workspace not found" }, 404);
+    }
+    const user = await deps.prisma.user.findFirst({
+      where: {
+        brandwellUserId: input.value.targetBrandwellUserId,
+        members: { some: { organizationId: mapping.rakazoWorkspaceId } },
+      },
+      select: { id: true },
+    });
+    if (!user)
+      return c.json({ error: "The assigned user must have current AIMEE workspace access" }, 409);
+    let botId =
+      mapping.primaryBrandwellUserId === input.value.targetBrandwellUserId
+        ? mapping.primaryBotId
+        : null;
+    if (!botId) {
+      const seat = await deps.prisma.brandwellSidekick.findFirst({
+        where: {
+          aiWorkspaceId: mapping.id,
+          workspaceId: mapping.rakazoWorkspaceId,
+          brandwellUserId: input.value.targetBrandwellUserId,
+          userId: user.id,
+          status: "active",
+        },
+        select: { botId: true },
+      });
+      botId = seat?.botId ?? null;
+    }
+    if (!botId) return c.json({ error: "The assigned user has no active AI employee" }, 409);
+    const bot = await deps.prisma.bot.findFirst({
+      where: {
+        id: botId,
+        workspaceId: mapping.rakazoWorkspaceId,
+        managedByBrandWell: true,
+        managedStatus: "active",
+        archivedAt: null,
+      },
+      select: {
+        id: true,
+        workspaceId: true,
+        userId: true,
+        serviceIdentityId: true,
+        thread: { select: { id: true } },
+      },
+    });
+    if (!bot?.thread || !bot.serviceIdentityId)
+      return c.json({ error: "The AI employee is not ready" }, 409);
+    const prompt = brandwellOutreachFollowupPrompt(input.value);
+    const clientNonce = `brandwell-outreach:${key.value}`;
+    const where = { workspaceId: bot.workspaceId, clientNonce };
+    const select = {
+      id: true,
+      botId: true,
+      taskId: true,
+      status: true,
+      task: { select: { prompt: true } },
+    } as const;
+    let run = await deps.prisma.run.findFirst({ where, select });
+    let replayed = Boolean(run);
+    if (!run) {
+      try {
+        run = await deps.prisma.$transaction(async (tx) => {
+          const prior = await tx.run.findFirst({ where, select });
+          if (prior) {
+            replayed = true;
+            return prior;
+          }
+          const task = await tx.task.create({
+            data: {
+              workspaceId: bot.workspaceId,
+              botId: bot.id,
+              threadId: bot.thread!.id,
+              userId: bot.userId,
+              prompt,
+              status: "queued",
+            },
+          });
+          const created = await tx.run.create({
+            data: {
+              workspaceId: bot.workspaceId,
+              botId: bot.id,
+              threadId: bot.thread!.id,
+              userId: bot.userId,
+              taskId: task.id,
+              serviceIdentityId: bot.serviceIdentityId,
+              status: "queued",
+              trigger: "brandwell_outreach_review",
+              clientNonce,
+            },
+            select,
+          });
+          await tx.brandwellAuditLog.create({
+            data: {
+              workspaceId: bot.workspaceId,
+              actorType: "brandwell_operator",
+              action: "outreach.followup.prepare",
+              resourceType: "run",
+              resourceId: created.id,
+              metadata: {
+                targetBrandwellUserId: input.value.targetBrandwellUserId,
+                ...operatorAuditMetadata(operator.value),
+              },
+            },
+          });
+          return created;
+        });
+      } catch (error) {
+        run = await deps.prisma.run.findFirst({ where, select });
+        if (!run) throw error;
+        replayed = true;
+      }
+    }
+    if (run.botId !== bot.id || run.task.prompt !== prompt)
+      return c.json(
+        { error: "This follow-up identity was already used with different details" },
+        409,
+      );
+    if (run.status === "queued") {
+      try {
+        await deps.jobs.enqueue(runContinueJob(run.id));
+      } catch {
+        return c.json(
+          {
+            error: "The task is saved but its worker dispatch needs a retry",
+            runId: run.id,
+            accepted: true,
+          },
+          503,
+        );
+      }
+    }
+    return c.json({
+      taskId: run.taskId,
+      runId: run.id,
+      botId: run.botId,
+      status: run.status,
+      replayed,
+    });
+  });
+
   app.post("/internal/workspaces/:id/notify-client", async (c) => {
     const operator = supportActor(c.req.header());
     if (!operator.ok) return c.json({ error: operator.error }, 400);
@@ -1404,6 +1560,24 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     const body = await c.req.json<Record<string, unknown>>().catch(() => null);
     const input = clientNotificationInput(body);
     if (!input.ok) return c.json({ error: input.error }, 400);
+    const targets = input.value.targetBrandwellUserIds
+      ? await deps.prisma.user.findMany({
+          where: {
+            brandwellUserId: { in: input.value.targetBrandwellUserIds },
+            members: { some: { organizationId: mapping.rakazoWorkspaceId } },
+          },
+          select: { id: true, brandwellUserId: true },
+        })
+      : [];
+    if (
+      input.value.targetBrandwellUserIds &&
+      targets.length !== input.value.targetBrandwellUserIds.length
+    ) {
+      return c.json(
+        { error: "Every notification recipient must be a current AIMEE workspace member" },
+        409,
+      );
+    }
     const dedupeKey = `brandwell-notify:${requestKey.value}`;
     const existing = await deps.prisma.brandwellClientNotification.findUnique({
       where: {
@@ -1423,6 +1597,7 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
             body: input.value.body,
             severity: input.value.severity,
             requiresAction: input.value.requiresAction,
+            targetUserIds: targets.map((target) => target.id),
             actionType: input.value.actionType,
             actionTarget: input.value.actionTarget,
           },
@@ -2535,12 +2710,30 @@ function clientNotificationInput(body: Record<string, unknown> | null):
         body: string;
         severity: string;
         requiresAction: boolean;
+        targetBrandwellUserIds: string[] | null;
         actionType: string | null;
         actionTarget: string | null;
       };
     }
   | { ok: false; error: string } {
   if (!body) return { ok: false, error: "A JSON request body is required" };
+  let targetBrandwellUserIds: string[] | null = null;
+  if (body.targetBrandwellUserIds !== undefined) {
+    const ids = body.targetBrandwellUserIds;
+    if (
+      !Array.isArray(ids) ||
+      ids.length < 1 ||
+      ids.length > 100 ||
+      ids.some((id) => typeof id !== "string" || !/^[A-Za-z0-9._:-]{1,160}$/.test(id)) ||
+      new Set(ids).size !== ids.length
+    ) {
+      return {
+        ok: false,
+        error: "targetBrandwellUserIds must contain 1 to 100 distinct user identifiers",
+      };
+    }
+    targetBrandwellUserIds = ids as string[];
+  }
   const title = typeof body.title === "string" ? body.title.trim() : "";
   const message = typeof body.body === "string" ? body.body.trim() : "";
   if (!title || title.length > 120) return { ok: false, error: "title is required" };
@@ -2567,6 +2760,7 @@ function clientNotificationInput(body: Record<string, unknown> | null):
       body: message,
       severity,
       requiresAction: body.requiresAction === true,
+      targetBrandwellUserIds,
       actionType,
       actionTarget,
     },

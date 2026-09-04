@@ -29,6 +29,25 @@ const notice = {
 };
 
 describe("BrandWell client notification delivery", () => {
+  it("sends a targeted Outreach notification only to its current workspace recipient", async () => {
+    const deliver = vi.fn().mockResolvedValue(undefined);
+    const prisma = {
+      brandwellClientNotification: {
+        findMany: vi
+          .fn()
+          .mockResolvedValue([
+            { ...notice, type: "OUTREACH_ENGAGEMENT", targetUserIds: ["user-2", "removed-user"] },
+          ]),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      bot: { findFirst: vi.fn().mockResolvedValue({ id: "bot-1", thread: { id: "thread-1" } }) },
+      member: { findMany: vi.fn().mockResolvedValue([{ userId: "user-1" }, { userId: "user-2" }]) },
+      notificationPreference: { findMany: vi.fn().mockResolvedValue([]) },
+    } as unknown as PrismaClient;
+    await deliverPendingBrandwellClientNotifications(prisma, deliver, { workerId: "worker-1" });
+    expect(deliver).toHaveBeenCalledTimes(1);
+    expect(deliver).toHaveBeenCalledWith(expect.objectContaining({ userId: "user-2" }));
+  });
   it("claims once, honors workspace preferences, and sends an actionable deep link", async () => {
     const updateMany = vi
       .fn()

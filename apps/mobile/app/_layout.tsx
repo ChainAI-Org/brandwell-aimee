@@ -1,9 +1,9 @@
-import { BRANDWELL_BRAND } from "@brandwell/aimee/brand-config";
+import { BRANDWELL_BRAND, brandwellOutreachNotificationUrl } from "@brandwell/aimee/brand-config";
 import * as Notifications from "expo-notifications";
 import { DarkTheme, Stack, ThemeProvider, useRouter } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
-import { View } from "react-native";
+import { Linking, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AvatarStyleProvider } from "../components/avatar-style";
 import { loadApiBase } from "../lib/api";
@@ -24,7 +24,9 @@ export default function Layout() {
     if (!ready) return;
     const open = (response: Notifications.NotificationResponse) => {
       const data = response.notification.request.content.data ?? {};
-      router.push(pushNotificationDestination(data) as never);
+      const outreachUrl = brandwellOutreachNotificationUrl(data.actionTarget);
+      if (outreachUrl) void Linking.openURL(outreachUrl);
+      else router.push(pushNotificationDestination(data) as never);
       void Notifications.clearLastNotificationResponseAsync();
     };
     const subscription = Notifications.addNotificationResponseReceivedListener(open);

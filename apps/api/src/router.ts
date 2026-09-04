@@ -2920,6 +2920,10 @@ export function createRouter(deps: RouterDeps) {
         const rows = await deps.prisma.brandwellClientNotification.findMany({
           where: {
             workspaceId: context.actor.workspaceId,
+            OR: [
+              { targetUserIds: { isEmpty: true } },
+              { targetUserIds: { has: context.actor.userId } },
+            ],
             ...(input.includeResolved ? {} : { resolvedAt: null }),
           },
           orderBy: [{ requiresAction: "desc" }, { readAt: "asc" }, { createdAt: "desc" }],
@@ -2929,7 +2933,14 @@ export function createRouter(deps: RouterDeps) {
       }),
       markRead: authed.notifications.markRead.handler(async ({ context, input }) => {
         const row = await deps.prisma.brandwellClientNotification.findFirst({
-          where: { id: input.notificationId, workspaceId: context.actor.workspaceId },
+          where: {
+            id: input.notificationId,
+            workspaceId: context.actor.workspaceId,
+            OR: [
+              { targetUserIds: { isEmpty: true } },
+              { targetUserIds: { has: context.actor.userId } },
+            ],
+          },
         });
         if (!row) throw new ORPCError("NOT_FOUND");
         const updated = row.readAt
@@ -2942,7 +2953,14 @@ export function createRouter(deps: RouterDeps) {
       }),
       resolve: authed.notifications.resolve.handler(async ({ context, input }) => {
         const row = await deps.prisma.brandwellClientNotification.findFirst({
-          where: { id: input.notificationId, workspaceId: context.actor.workspaceId },
+          where: {
+            id: input.notificationId,
+            workspaceId: context.actor.workspaceId,
+            OR: [
+              { targetUserIds: { isEmpty: true } },
+              { targetUserIds: { has: context.actor.userId } },
+            ],
+          },
         });
         if (!row) throw new ORPCError("NOT_FOUND");
         const updated = row.resolvedAt

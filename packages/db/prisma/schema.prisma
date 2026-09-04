@@ -1218,6 +1218,7 @@ model BrandwellAlert {
 }
 
 model BrandwellClientNotification {
+  targetUserIds              String[]     @default([])
   id                         String       @id @default(cuid())
   workspaceId                String
   workspace                  Organization @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -1247,6 +1248,7 @@ model BrandwellClientNotification {
   @@index([workspaceId, createdAt])
   @@index([workspaceId, resolvedAt, requiresAction])
   @@index([pushDeliveryStatus, pushDeliveryNextAt])
+  @@index([targetUserIds], type: Gin, map: "brandwell_client_notifications_target_users")
   @@map("brandwell_client_notifications")
 }
 
