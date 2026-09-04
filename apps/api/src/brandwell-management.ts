@@ -1496,7 +1496,10 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
               taskId: task.id,
               serviceIdentityId: bot.serviceIdentityId,
               status: "queued",
-              trigger: "brandwell_outreach_review",
+              trigger:
+                input.value.mode === "execute"
+                  ? "brandwell_outreach_action"
+                  : "brandwell_outreach_review",
               clientNonce,
             },
             select,
@@ -1505,7 +1508,10 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
             data: {
               workspaceId: bot.workspaceId,
               actorType: "brandwell_operator",
-              action: "outreach.followup.prepare",
+              action:
+                input.value.mode === "execute"
+                  ? "outreach.followup.execute"
+                  : "outreach.followup.prepare",
               resourceType: "run",
               resourceId: created.id,
               metadata: {
