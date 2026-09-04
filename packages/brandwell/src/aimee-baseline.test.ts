@@ -31,7 +31,8 @@ describe("AIMEE managed workspace baseline", () => {
   });
 
   it("provisions a GTM operating skill plus the native BrandWell skills and routines", () => {
-    expect(BRANDWELL_AIMEE_SKILLS.map((skill) => skill.name).slice(0, 6)).toEqual([
+    expect(BRANDWELL_AIMEE_SKILLS.map((skill) => skill.name).slice(0, 7)).toEqual([
+      "cold-email",
       "BrandWell GTM Operating System",
       "BrandWell Application Operator",
       "BrandWell Intent",
@@ -67,10 +68,10 @@ describe("AIMEE managed workspace baseline", () => {
       "BrandWell Link Prospecting",
       "BrandWell AI Citation Analysis",
     ]);
-    expect(BRANDWELL_AIMEE_SKILLS).toHaveLength(20);
-    expect(BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION).toBe(7);
-    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.key)).size).toBe(20);
-    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.name.toLowerCase())).size).toBe(20);
+    expect(BRANDWELL_AIMEE_SKILLS).toHaveLength(21);
+    expect(BRANDWELL_AIMEE_SKILL_BUNDLE_VERSION).toBe(8);
+    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.key)).size).toBe(21);
+    expect(new Set(BRANDWELL_AIMEE_SKILLS.map((item) => item.name.toLowerCase())).size).toBe(21);
     expect(JSON.stringify(BRANDWELL_AIMEE_VISIBILITY_SKILLS)).not.toMatch(/open[\s-]*seo/i);
   });
 
