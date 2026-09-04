@@ -85,7 +85,7 @@ function fixture() {
     prisma: prisma as unknown as PrismaClient,
     jobs: { enqueue } as never,
   });
-  const request = (body = input) =>
+  const request = (body: unknown = input) =>
     app.request("/internal/workspaces/workspace-1/outreach-followup", {
       method: "POST",
       headers,
@@ -95,6 +95,37 @@ function fixture() {
 }
 
 describe("Outreach native AIMEE handoff", () => {
+  it("passes a configured instruction to a normal run with existing action approvals", async () => {
+    const f = fixture();
+    const body = {
+      ...input,
+      mode: "execute",
+      instruction:
+        "View the profile, like the latest post, comment if relevant, then connect with: Glad to meet you.",
+      contact: { ...input.contact, details: { Role: "Founder" } },
+    };
+    expect((await f.request(body)).status).toBe(200);
+    expect((await f.request(body)).status).toBe(200);
+    expect(f.runCreate).toHaveBeenCalledTimes(1);
+    expect(f.runCreate.mock.calls[0]?.[0].data.trigger).toBe("brandwell_outreach_action");
+    const prompt = f.taskCreate.mock.calls[0]?.[0].data.prompt;
+    expect(prompt).toContain(body.instruction);
+    expect(prompt).toContain("existing action approval policy");
+    expect(prompt).toContain('"Role":"Founder"');
+    expect(prompt).toContain("untrusted data");
+  });
+
+  it("keeps custom preparation read only and rejects invalid execution requests", async () => {
+    const f = fixture();
+    expect((await f.request({ ...input, mode: "execute" })).status).toBe(400);
+    expect((await f.request({ ...input, instruction: "x".repeat(4001) })).status).toBe(400);
+    expect(
+      (await f.request({ ...input, mode: "review", instruction: "Draft a relevant comment" }))
+        .status,
+    ).toBe(200);
+    expect(f.runCreate.mock.calls[0]?.[0].data.trigger).toBe("brandwell_outreach_review");
+    expect(f.taskCreate.mock.calls[0]?.[0].data.prompt).toContain("Use read-only tools");
+  });
   it("creates one reviewed-preparation task and targets the assigned workspace employee", async () => {
     const f = fixture();
     expect((await f.request()).status).toBe(200);
