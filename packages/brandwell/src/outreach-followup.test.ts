@@ -17,6 +17,24 @@ const base = {
   },
 };
 
+describe("Link Builder qualification", () => {
+  it("accepts a publisher without an email only for placement review", () => {
+    const placement = {
+      ...base,
+      socialSignal: undefined,
+      placementTask: {
+        taskId: "b15e3b32-2be5-4d0f-9da7-cf1609b9167b",
+        opportunityId: "fa286c42-08e1-46c3-9956-d03e8cfbe1bf",
+      },
+    };
+    expect(parseBrandwellOutreachFollowup(placement).ok).toBe(true);
+    expect(parseBrandwellOutreachFollowup({ ...placement, placementTask: undefined }).ok).toBe(
+      false,
+    );
+    expect(parseBrandwellOutreachFollowup({ ...placement, mode: "execute" }).ok).toBe(false);
+  });
+});
+
 describe("SocialStreams handoff", () => {
   it("accepts a source-backed job signal without an email and produces review instructions", () => {
     const parsed = parseBrandwellOutreachFollowup(base);

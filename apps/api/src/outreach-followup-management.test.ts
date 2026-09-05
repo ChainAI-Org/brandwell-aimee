@@ -95,6 +95,23 @@ function fixture() {
 }
 
 describe("Outreach native AIMEE handoff", () => {
+  it("creates an idempotent Link Builder review task and refuses execute mode", async () => {
+    const f = fixture();
+    const body = {
+      ...input,
+      mode: "review",
+      placementTask: {
+        taskId: "b15e3b32-2be5-4d0f-9da7-cf1609b9167b",
+        opportunityId: "115e3b32-2be5-4d0f-9da7-cf1609b9167b",
+      },
+    };
+    expect((await f.request(body)).status).toBe(200);
+    expect((await f.request(body)).status).toBe(200);
+    expect(f.taskCreate).toHaveBeenCalledTimes(1);
+    expect(f.runCreate.mock.calls[0]?.[0].data.trigger).toBe("brandwell_link_builder_review");
+    expect(f.taskCreate.mock.calls[0]?.[0].data.prompt).toContain("brandwell_link_builder_task");
+    expect((await f.request({ ...body, mode: "execute" })).status).toBe(400);
+  });
   it("creates one review task for a social job with no email", async () => {
     const f = fixture();
     const body = {

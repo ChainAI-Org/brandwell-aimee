@@ -76,6 +76,29 @@ async function eventsFrom(
 }
 
 describe("BrandWell native connector", () => {
+  it("signs placement mutations and refuses project overrides", async () => {
+    let sent: RequestInit | undefined;
+    const connector = new BrandwellNativeConnector(activePrisma(), {
+      apiBaseUrl: "https://portal.example.test",
+      serviceToken: SERVICE_TOKEN,
+      fetch: async (_url, init) => {
+        sent = init;
+        return new Response(JSON.stringify({ status: "claimed" }));
+      },
+    });
+    const args = { id: "b15e3b32-2be5-4d0f-9da7-cf1609b9167b", action: "claim" };
+    await eventsFrom(connector, "brandwell_link_builder_task", args);
+    expect(JSON.parse(String(sent?.body))).toMatchObject({
+      tool: "link_builder_task",
+      arguments: args,
+      agent_intake_source: "aimee",
+    });
+    expect(sent?.headers).toHaveProperty("x-brandwell-idempotency-key");
+    expect(
+      (await eventsFrom(connector, "brandwell_link_builder_task", { ...args, client_id: 99 }))[0]
+        ?.type,
+    ).toBe("error");
+  });
   it("binds social review actions to the executing employee and rejects identity overrides", async () => {
     let sent: RequestInit | undefined;
     let target: unknown;

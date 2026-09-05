@@ -2,6 +2,25 @@ import { describe, expect, it } from "vitest";
 import { reviewPreparationToolAllowed } from "./review-tools.js";
 
 describe("review preparation tools", () => {
+  it("allows placement coordination only for Link Builder review tasks", () => {
+    for (const name of [
+      "brandwell_link_builder_update",
+      "brandwell_link_builder_task",
+      "brandwell_link_builder_verify",
+    ]) {
+      expect(reviewPreparationToolAllowed(name, false)).toBe(false);
+      expect(reviewPreparationToolAllowed(name, false, false, true)).toBe(true);
+    }
+    for (const name of [
+      "brandwell_link_builder_add",
+      "brandwell_socialstreams_queue_outreach",
+      "shell",
+      "computer_act",
+      "email_send",
+    ]) {
+      expect(reviewPreparationToolAllowed(name, false, false, true)).toBe(false);
+    }
+  });
   it("allows social review state only in a SocialStreams review task", () => {
     expect(reviewPreparationToolAllowed("brandwell_socialstreams_update_opportunity", false)).toBe(
       false,

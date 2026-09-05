@@ -13,6 +13,7 @@ import {
   redactConnectorPayload,
   sanitizeConnectorError,
 } from "./connector-safety.js";
+import { LINK_BUILDER_CONNECTOR_TOOLS } from "./link-builder-tools.js";
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
@@ -62,6 +63,7 @@ const RankwellArticleOptionsSchema = z
   .strict();
 
 const ToolDefinitions = [
+  ...LINK_BUILDER_CONNECTOR_TOOLS,
   {
     name: "brandwell_socialstreams_update_opportunity",
     description:

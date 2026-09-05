@@ -187,12 +187,12 @@ Workflow:
     workflow: `Goal: build a qualified prospect list and a truthful outreach angle for a page, tool, study, template, dataset, or expert point of view that deserves a reference.
 
 Workflow:
-1. Call brandwell_visibility_get_project and confirm the target asset, audience, market, proof, and why a third party would cite it.
-2. Use the stored Company Project competitors and Search Console queries to build five to ten prospecting searches. Call brandwell_visibility_get_serp_results for the strongest patterns. Useful patterns include topic resources, category tools, alternatives, statistics, guides, examples, templates, associations, directories, and local partners.
-3. Call brandwell_visibility_get_backlinks_overview for the most relevant competitor or target page when its link pattern can reveal prospect types. Use brandwell_visibility_get_domain_overview only to qualify important domains.
-4. Inspect candidate pages and qualify topical fit, audience overlap, editorial relevance, freshness, linking pattern, and contact path. Reject scraped lists, link farms, irrelevant directories, paid-link schemes, and sites with no credible connection to the asset.
-5. Record the prospect URL, source query, evidence, recommended asset, suggested angle, contact path source, and confidence. Do not guess an email address or person.
-6. Return a prioritized prospect table and concise draft messages. Drafts must use only verified claims and must not be sent without explicit approval.`,
+1. Call brandwell_link_builder_workspace and brandwell_link_builder_suggestions. Prioritize GSC pages with traction, then Rankwell articles. A new article is a suggestion only; never start paid research merely because it exists.
+2. Read brandwell_link_builder_sources for saved AI-cited pages and backlinks. Import selected evidence with brandwell_link_builder_import or record a known publisher with brandwell_link_builder_add. If more research is needed, prepare a few specific listicle, alternative, resource, or digital PR searches for the user to review in Link Builder.
+3. Qualify topical fit, audience, freshness, editorial responsibility and contact evidence. A domain contact is not automatically the author. Never invent an email or label an unverified address as verified.
+4. Claim the due task with brandwell_link_builder_task. Read brandwell_link_builder_details and update the current version with brandwell_link_builder_update. Respect campaign pauses, declines, suppression and the follow-up limit. Record replies, commitments and the next action before completing or snoozing the task.
+5. Draft the next publisher follow-up for approval. Link Builder preparation does not authorize sending, paid discovery, free-account grants or campaign enrollment. The user can set the offer later.
+6. Use brandwell_link_builder_verify to confirm the exact target link or brand mention. Inspect anchor, relationship attributes and retained history. Unavailable pages are not lost links. Follow up on a missing commitment or repair a verified placement that changed. A placement does not prove an AI citation or a ranking gain.`,
   }),
   skill({
     key: "brandwell-ai-citation-analysis",

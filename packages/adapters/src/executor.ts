@@ -952,9 +952,16 @@ export function createRunExecutor(deps: ExecutorDeps) {
           return approvalRulesPromise;
         };
         const socialReview = run.trigger === "brandwell_socialstreams_review";
-        const reviewPreparation = run.trigger === "brandwell_outreach_review" || socialReview;
+        const placementReview = run.trigger === "brandwell_link_builder_review";
+        const reviewPreparation =
+          run.trigger === "brandwell_outreach_review" || socialReview || placementReview;
         const reviewToolAllowed = (name: string) =>
-          reviewPreparationToolAllowed(name, readOnlyConnectorTools.has(name), socialReview);
+          reviewPreparationToolAllowed(
+            name,
+            readOnlyConnectorTools.has(name),
+            socialReview,
+            placementReview,
+          );
         const tools = [...builtins, ...exposedConnectorTools].filter(
           (tool) => !reviewPreparation || reviewToolAllowed(tool.name),
         );

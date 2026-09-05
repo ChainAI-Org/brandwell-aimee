@@ -13,10 +13,17 @@ export function reviewPreparationToolAllowed(
   name: string,
   readOnlyConnector: boolean,
   socialReview = false,
+  placementReview = false,
 ): boolean {
   return (
     REVIEW_TOOLS.has(name) ||
     readOnlyConnector ||
-    (socialReview && name === "brandwell_socialstreams_update_opportunity")
+    (socialReview && name === "brandwell_socialstreams_update_opportunity") ||
+    (placementReview &&
+      [
+        "brandwell_link_builder_update",
+        "brandwell_link_builder_task",
+        "brandwell_link_builder_verify",
+      ].includes(name))
   );
 }
