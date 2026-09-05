@@ -76,6 +76,56 @@ async function eventsFrom(
 }
 
 describe("BrandWell native connector", () => {
+  it("uses the executing employee identity for an approved social queue operation", async () => {
+    let sent: RequestInit | undefined;
+    const connector = new BrandwellNativeConnector(activePrisma(), {
+      apiBaseUrl: "https://portal.example.test",
+      serviceToken: SERVICE_TOKEN,
+      fetch: async (_url, init) => {
+        sent = init;
+        return new Response(JSON.stringify({ preview: { decisions: [] } }));
+      },
+    });
+    await eventsFrom(connector, "brandwell_socialstreams_queue_outreach", {
+      record_id: "b15e3b32-2be5-4d0f-9da7-cf1609b9167b",
+      campaign_id: "ecec7644-2c7b-48e5-a988-4e52d5d6ab0a",
+      confirm: false,
+    });
+    expect(JSON.parse(String(sent?.body))).toMatchObject({
+      assigned_employee: "bot-aimee",
+      confirm: false,
+      agent_intake_source: "aimee",
+    });
+    expect(sent?.headers).toHaveProperty("x-brandwell-idempotency-key");
+    const invalid = await eventsFrom(connector, "brandwell_socialstreams_queue_outreach", {
+      record_id: "b15e3b32-2be5-4d0f-9da7-cf1609b9167b",
+      campaign_id: "ecec7644-2c7b-48e5-a988-4e52d5d6ab0a",
+      assigned_employee: "another-employee",
+    });
+    expect(invalid[0]?.type).toBe("error");
+  });
+  it("binds SocialStreams reads to the signed project endpoint", async () => {
+    let sent: RequestInit | undefined;
+    const connector = new BrandwellNativeConnector(activePrisma(), {
+      apiBaseUrl: "https://portal.example.test",
+      serviceToken: SERVICE_TOKEN,
+      fetch: async (_url, init) => {
+        sent = init;
+        return new Response(JSON.stringify({ records: [] }));
+      },
+    });
+    expect(
+      await eventsFrom(connector, "brandwell_socialstreams_get_opportunities", {
+        record_type: "job",
+        unclaimed: true,
+      }),
+    ).toEqual([{ type: "result", data: { records: [] } }]);
+    expect(JSON.parse(String(sent?.body))).toEqual({
+      tool: "get_social_opportunities",
+      arguments: { record_type: "job", unclaimed: true, limit: 25 },
+    });
+    expect(sent?.headers).toHaveProperty("x-brandwell-signature");
+  });
   it("requires a strong control-plane service token", () => {
     expect(
       () =>

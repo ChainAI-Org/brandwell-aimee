@@ -95,6 +95,24 @@ function fixture() {
 }
 
 describe("Outreach native AIMEE handoff", () => {
+  it("creates one review task for a social job with no email", async () => {
+    const f = fixture();
+    const body = {
+      ...input,
+      contact: { ...input.contact, email: "" },
+      mode: "review",
+      socialSignal: {
+        recordId: "b15e3b32-2be5-4d0f-9da7-cf1609b9167b",
+        type: "job",
+        sourceUrl: "https://www.linkedin.com/jobs/view/123456/",
+      },
+    };
+    expect((await f.request(body)).status).toBe(200);
+    expect((await f.request(body)).status).toBe(200);
+    expect(f.taskCreate).toHaveBeenCalledTimes(1);
+    expect(f.taskCreate.mock.calls[0]?.[0].data.prompt).toContain("SocialStreams opportunity");
+    expect(f.runCreate.mock.calls[0]?.[0].data.trigger).toBe("brandwell_outreach_review");
+  });
   it("passes a configured instruction to a normal run with existing action approvals", async () => {
     const f = fixture();
     const body = {
