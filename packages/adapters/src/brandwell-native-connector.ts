@@ -63,6 +63,20 @@ const RankwellArticleOptionsSchema = z
 
 const ToolDefinitions = [
   {
+    name: "brandwell_socialstreams_queue_outreach",
+    description:
+      "Preview or, only after the user approves the contact and campaign, queue a validated SocialStreams contact into existing Outreach. The opportunity must be assigned to this AIMEE employee. Call with confirm=false first and review the returned campaign and decision. Confirmation can trigger emails under the campaign schedule.",
+    readOnly: false,
+    endpoint: "/internal/aimee/socialstreams/queue",
+    schema: z
+      .object({
+        record_id: z.string().uuid(),
+        campaign_id: z.string().uuid(),
+        confirm: z.boolean().default(false),
+      })
+      .strict(),
+  },
+  {
     name: "brandwell_intent_search",
     description:
       "Search this client's BrandWell buyer-intent topics and profiles. Results are limited to the current workspace.",
@@ -789,6 +803,9 @@ export class BrandwellNativeConnector implements ConnectorProvider {
       const { endpoint, body } = requestFor(definition, parsed);
       const serialized = JSON.stringify({
         ...body,
+        ...(definition.name === "brandwell_socialstreams_queue_outreach"
+          ? { assigned_employee: context.botId || "" }
+          : {}),
         ...(definition.readOnly ? {} : { agent_intake_source: "aimee" }),
       });
       const timestamp = this.now().toISOString();
