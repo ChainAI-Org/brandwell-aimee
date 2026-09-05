@@ -76,6 +76,36 @@ async function eventsFrom(
 }
 
 describe("BrandWell native connector", () => {
+  it("binds social review actions to the executing employee and rejects identity overrides", async () => {
+    let sent: RequestInit | undefined;
+    let target: unknown;
+    const connector = new BrandwellNativeConnector(activePrisma(), {
+      apiBaseUrl: "https://portal.example.test",
+      serviceToken: SERVICE_TOKEN,
+      fetch: async (url, init) => {
+        target = url;
+        sent = init;
+        return new Response(JSON.stringify({ outreach_status: "claimed_by_aimee" }));
+      },
+    });
+    await eventsFrom(connector, "brandwell_socialstreams_update_opportunity", {
+      record_id: "b15e3b32-2be5-4d0f-9da7-cf1609b9167b",
+      action: "claim",
+    });
+    expect(String(target)).toContain("/internal/aimee/socialstreams/update");
+    expect(JSON.parse(String(sent?.body))).toMatchObject({
+      assigned_employee: "bot-aimee",
+      action: "claim",
+      agent_intake_source: "aimee",
+    });
+    expect(sent?.headers).toHaveProperty("x-brandwell-idempotency-key");
+    const invalid = await eventsFrom(connector, "brandwell_socialstreams_update_opportunity", {
+      record_id: "b15e3b32-2be5-4d0f-9da7-cf1609b9167b",
+      action: "complete",
+      assigned_employee: "another-bot",
+    });
+    expect(invalid[0]?.type).toBe("error");
+  });
   it("uses the executing employee identity for an approved social queue operation", async () => {
     let sent: RequestInit | undefined;
     const connector = new BrandwellNativeConnector(activePrisma(), {
