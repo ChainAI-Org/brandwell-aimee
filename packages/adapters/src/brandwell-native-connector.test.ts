@@ -76,6 +76,28 @@ async function eventsFrom(
 }
 
 describe("BrandWell native connector", () => {
+  it("binds SocialStreams reads to the signed project endpoint", async () => {
+    let sent: RequestInit | undefined;
+    const connector = new BrandwellNativeConnector(activePrisma(), {
+      apiBaseUrl: "https://portal.example.test",
+      serviceToken: SERVICE_TOKEN,
+      fetch: async (_url, init) => {
+        sent = init;
+        return new Response(JSON.stringify({ records: [] }));
+      },
+    });
+    expect(
+      await eventsFrom(connector, "brandwell_socialstreams_get_opportunities", {
+        record_type: "job",
+        unclaimed: true,
+      }),
+    ).toEqual([{ type: "result", data: { records: [] } }]);
+    expect(JSON.parse(String(sent?.body))).toEqual({
+      tool: "get_social_opportunities",
+      arguments: { record_type: "job", unclaimed: true, limit: 25 },
+    });
+    expect(sent?.headers).toHaveProperty("x-brandwell-signature");
+  });
   it("requires a strong control-plane service token", () => {
     expect(
       () =>
