@@ -63,6 +63,19 @@ const RankwellArticleOptionsSchema = z
 
 const ToolDefinitions = [
   {
+    name: "brandwell_socialstreams_update_opportunity",
+    description:
+      "Claim an unassigned SocialStreams opportunity for this AIMEE employee, or mark your assigned opportunity reviewed, skipped, or complete. Claim before doing work so teammates do not duplicate it. This changes review state only and does not send outreach.",
+    readOnly: false,
+    endpoint: "/internal/aimee/socialstreams/update",
+    schema: z
+      .object({
+        record_id: z.string().uuid(),
+        action: z.enum(["claim", "review", "skip", "complete"]),
+      })
+      .strict(),
+  },
+  {
     name: "brandwell_socialstreams_queue_outreach",
     description:
       "Preview or, only after the user approves the contact and campaign, queue a validated SocialStreams contact into existing Outreach. The opportunity must be assigned to this AIMEE employee. Call with confirm=false first and review the returned campaign and decision. Confirmation can trigger emails under the campaign schedule.",
@@ -803,7 +816,10 @@ export class BrandwellNativeConnector implements ConnectorProvider {
       const { endpoint, body } = requestFor(definition, parsed);
       const serialized = JSON.stringify({
         ...body,
-        ...(definition.name === "brandwell_socialstreams_queue_outreach"
+        ...([
+          "brandwell_socialstreams_queue_outreach",
+          "brandwell_socialstreams_update_opportunity",
+        ].includes(definition.name)
           ? { assigned_employee: context.botId || "" }
           : {}),
         ...(definition.readOnly ? {} : { agent_intake_source: "aimee" }),
