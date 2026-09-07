@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { reviewPreparationToolAllowed } from "./review-tools.js";
+import { reviewPreparationToolAllowed, socialReviewUpdateAllowed } from "./review-tools.js";
 
 describe("review preparation tools", () => {
+  it("binds review updates to the persisted opportunity and denies new claims", () => {
+    const recordId = "b15e3b32-2be5-4d0f-9da7-cf1609b9167b";
+    for (const action of ["review", "skip", "complete"]) {
+      expect(socialReviewUpdateAllowed({ record_id: recordId, action }, recordId)).toBe(true);
+      expect(socialReviewUpdateAllowed({ record_id: "another-record", action }, recordId)).toBe(
+        false,
+      );
+    }
+    expect(socialReviewUpdateAllowed({ record_id: recordId, action: "claim" }, recordId)).toBe(
+      false,
+    );
+    expect(socialReviewUpdateAllowed({ record_id: recordId, action: "review" }, null)).toBe(false);
+    expect(socialReviewUpdateAllowed({ action: "review" }, recordId)).toBe(false);
+  });
   it("allows social review state only in a SocialStreams review task", () => {
     expect(reviewPreparationToolAllowed("brandwell_socialstreams_update_opportunity", false)).toBe(
       false,

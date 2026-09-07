@@ -20,3 +20,14 @@ export function reviewPreparationToolAllowed(
     (socialReview && name === "brandwell_socialstreams_update_opportunity")
   );
 }
+
+export function socialReviewUpdateAllowed(
+  args: Record<string, unknown>,
+  socialRecordId: string | null | undefined,
+): boolean {
+  return (
+    Boolean(socialRecordId) &&
+    args.record_id === socialRecordId &&
+    ["review", "skip", "complete"].includes(String(args.action))
+  );
+}

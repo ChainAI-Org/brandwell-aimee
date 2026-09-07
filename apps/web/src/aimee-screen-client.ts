@@ -8,115 +8,85 @@ export function renderAimeeScreenClient(nonce: string) {
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>AIMEE computer</title>
     <style>
-      html,
-      body,
-      #screen-frame {
-        width: 100%;
-        height: 100%;
-        margin: 0;
-        border: 0;
-        overflow: hidden;
-        background: #090611;
+      html, body, #screen-viewport {
+        width: 100%; height: 100%; margin: 0; border: 0;
+        overflow: hidden; background: #090611;
       }
-
       #screen-status {
-        position: fixed;
-        inset: 0;
-        z-index: 2;
-        display: grid;
-        place-items: center;
-        padding: 24px;
-        color: #d8cdf7;
+        position: fixed; inset: 0; z-index: 2; display: grid;
+        place-items: center; padding: 24px; color: #d8cdf7;
         background: #090611;
         font: 500 14px/1.5 Inter, ui-sans-serif, system-ui, sans-serif;
         text-align: center;
       }
-
-      #screen-status[hidden] {
-        display: none;
-      }
+      #screen-status[hidden] { display: none; }
     </style>
     <script type="module" nonce="${nonce}">
-      const frame = document.getElementById("screen-frame");
+      const viewport = document.getElementById("screen-viewport");
       const status = document.getElementById("screen-status");
-      const providerView = new URL("./vnc.html", window.location.href);
-      providerView.search = window.location.search;
+      const params = new URLSearchParams(window.location.search);
+      const moduleUrl = new URL("./core/rfb.js", window.location.href);
+      const socketUrl = new URL("./websockify", window.location.href);
+      socketUrl.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      let client;
+      let retry;
+      let disposed = false;
 
       function reportState(state) {
         window.parent.postMessage({ type: "${AIMEE_SCREEN_STATE_MESSAGE}", state }, "*");
       }
-
       function setStatus(message, state) {
         status.textContent = message;
         status.hidden = !message;
         reportState(state);
       }
-
-      function applyAimeeSkin() {
-        const doc = frame.contentDocument;
-        if (!doc?.documentElement) return;
-        doc.title = "AIMEE computer";
-
-        const skin = doc.createElement("style");
-        skin.id = "aimee-screen-skin";
-        skin.textContent = \`
-          html, body {
-            width: 100% !important;
-            height: 100% !important;
-            margin: 0 !important;
-            overflow: hidden !important;
-            background: #090611 !important;
-          }
-          #noVNC_control_bar_anchor,
-          #noVNC_hint_anchor,
-          #noVNC_status,
-          #noVNC_connect_dlg,
-          #noVNC_fallback_error,
-          #noVNC_transition {
-            display: none !important;
-          }
-          #noVNC_container {
-            width: 100vw !important;
-            height: 100vh !important;
-            margin: 0 !important;
-            overflow: hidden !important;
-            background: #090611 !important;
-          }
-        \`;
-        doc.head.append(skin);
-
-        const providerStatus = doc.getElementById("noVNC_status");
-        const syncStatus = () => {
-          const value = providerStatus?.textContent?.trim().toLowerCase() || "";
-          const connected = value.includes("connected") && !value.includes("disconnected");
-          if (connected) setStatus("", "connected");
-          else if (value.includes("fail") || value.includes("error") || value.includes("closed")) {
-            setStatus(
-              "The computer connection was lost. AIMEE is trying to reconnect.",
-              "disconnected",
-            );
-          } else {
-            setStatus("Connecting to the AIMEE computer...", "connecting");
-          }
-        };
-        if (providerStatus) {
-          new MutationObserver(syncStatus).observe(providerStatus, {
-            childList: true,
-            characterData: true,
-            subtree: true,
+      function connect(RFB) {
+        if (disposed) return;
+        clearTimeout(retry);
+        viewport.replaceChildren();
+        setStatus("Connecting to the AIMEE computer...", "connecting");
+        let accessExpired = false;
+        try {
+          client = new RFB(viewport, socketUrl.toString(), {
+            credentials: { password: params.get("password") || undefined },
+            shared: true,
           });
+          client.viewOnly = params.get("view_only") !== "false";
+          client.scaleViewport = true;
+          client.resizeSession = false;
+          client.background = "#090611";
+          client.addEventListener("connect", () => setStatus("", "connected"));
+          client.addEventListener("disconnect", () => {
+            if (disposed || accessExpired) return;
+            setStatus("The computer connection was lost. AIMEE is trying to reconnect.", "disconnected");
+            retry = setTimeout(() => connect(RFB), 3000);
+          });
+          client.addEventListener("credentialsrequired", () => {
+            accessExpired = true;
+            setStatus("Reopen the computer to refresh its access.", "disconnected");
+          });
+          client.addEventListener("securityfailure", () => {
+            accessExpired = true;
+            setStatus("Reopen the computer to refresh its access.", "disconnected");
+          });
+        } catch {
+          setStatus("The computer could not connect. Close and reopen it to try again.", "disconnected");
         }
-        syncStatus();
       }
-
       reportState("connecting");
-      frame.addEventListener("load", applyAimeeSkin);
-      frame.src = providerView.toString();
+      import(moduleUrl.toString()).then(({ default: RFB }) => connect(RFB)).catch(() => {
+        setStatus("The computer could not load. Close and reopen it to try again.", "disconnected");
+      });
+      window.addEventListener("pagehide", () => {
+        disposed = true;
+        clearTimeout(retry);
+        client?.disconnect();
+      });
     </script>
   </head>
   <body>
     <div id="screen-status" role="status">Connecting to the AIMEE computer...</div>
-    <iframe id="screen-frame" title="AIMEE computer"></iframe>
+    <div id="screen-viewport" aria-label="AIMEE computer screen"></div>
   </body>
 </html>`;
 }

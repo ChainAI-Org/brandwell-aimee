@@ -20,7 +20,7 @@ import {
 
 const webPort = Number(process.env.WEB_PORT ?? 5173);
 
-function attachNovncProxy(server: ViteDevServer | PreviewServer, secret: string) {
+export function attachNovncProxy(server: ViteDevServer | PreviewServer, secret: string) {
   server.middlewares.use((req, res, next) => {
     if (!req.url?.startsWith("/novnc/")) {
       next();

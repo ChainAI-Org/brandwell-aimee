@@ -483,6 +483,8 @@ model Run {
   leaseExpiresAt    DateTime?
   checkpoint        String?
   clientNonce       String?
+  socialRecordId    String?
+  retryNonces       String[]                  @default([])
   sourceMessageId   String?
   sourceMessage     Message?                  @relation("RunSourceMessage", fields: [sourceMessageId], references: [id], onDelete: SetNull)
   routineId         String?

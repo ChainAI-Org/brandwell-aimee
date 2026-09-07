@@ -90,10 +90,13 @@ export function isAimeeScreenClientPath(requestedPath: string) {
 function remoteTargetPath(target: URL, requestedPath: string) {
   const requested = new URL(requestedPath, "https://screen.invalid");
   const path = requested.pathname || target.pathname || "/";
-  if (path === target.pathname || path === "/websockify") {
-    return `${path}${target.search}`;
-  }
-  return `${path}${requested.search}`;
+  // Nested noVNC pages, assets, and sockets use the same sealed provider session.
+  // Browser parameters may add cache hints but cannot replace its credentials.
+  const params = new URLSearchParams(requested.search);
+  for (const name of new Set(target.searchParams.keys())) params.delete(name);
+  for (const [name, value] of target.searchParams) params.append(name, value);
+  const query = params.toString();
+  return `${path}${query ? `?${query}` : ""}`;
 }
 
 function openScreenTarget(
