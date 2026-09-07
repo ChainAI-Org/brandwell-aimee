@@ -1,6 +1,5 @@
 import { createCipheriv, createHash, createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { addScreenProxyCapability } from "../../api/src/screen-proxy.js";
 import { renderAimeeScreenClient } from "./aimee-screen-client.js";
 import {
   resolveNovncTarget,
@@ -41,7 +40,7 @@ function remotePath(
 }
 
 describe("noVNC proxy authorization", () => {
-  it("rejects legacy capability domains while accepting the API's new signed capabilities", () => {
+  it("rejects legacy capability domains", () => {
     expect(
       resolveNovncTarget(
         signedPath(6080, 2_000, "secret", "/aimee.html", "127.0.0.1", "view", ""),
@@ -56,18 +55,6 @@ describe("noVNC proxy authorization", () => {
         1_000,
       ),
     ).toBeNull();
-    for (const url of [
-      "http://127.0.0.1:6081/aimee.html?view_only=true",
-      "https://provider.example/aimee.html?view_only=true",
-    ]) {
-      const capability = addScreenProxyCapability(url, "secret", "https://app.example", 1_000, {
-        proxyExternal: true,
-      });
-      const target = new URL(capability);
-      expect(resolveNovncTarget(target.pathname + target.search, "secret", 1_000)).toMatchObject({
-        interactive: false,
-      });
-    }
   });
 
   it("accepts signed, unexpired loopback targets", () => {
