@@ -32,6 +32,12 @@ describe("Link Builder qualification", () => {
       false,
     );
     expect(parseBrandwellOutreachFollowup({ ...placement, mode: "execute" }).ok).toBe(false);
+    expect(
+      parseBrandwellOutreachFollowup({
+        ...placement,
+        placementTask: { ...placement.placementTask, taskId: "-".repeat(36) },
+      }).ok,
+    ).toBe(false);
   });
 });
 

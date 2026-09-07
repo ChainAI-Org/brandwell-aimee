@@ -46,12 +46,13 @@ export function parseBrandwellOutreachFollowup(
     )
       return invalid;
     const task = body.placementTask as Record<string, unknown>;
-    if (
-      !/^[a-f0-9-]{36}$/i.test(String(task.taskId || "")) ||
-      !/^[a-f0-9-]{36}$/i.test(String(task.opportunityId || ""))
-    )
+    const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+    if (!uuid.test(String(task.taskId || "")) || !uuid.test(String(task.opportunityId || "")))
       return invalid;
-    placementTask = { taskId: String(task.taskId), opportunityId: String(task.opportunityId) };
+    placementTask = {
+      taskId: String(task.taskId).toLowerCase(),
+      opportunityId: String(task.opportunityId).toLowerCase(),
+    };
   }
   let socialSignal: BrandwellOutreachFollowupInput["socialSignal"];
   if (body.socialSignal !== undefined) {

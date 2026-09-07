@@ -1,6 +1,6 @@
 import type { PrismaClient } from "@rakazo/db";
 
-export const BRANDWELL_READINESS_MIGRATION = "20260831011000_brandwell_production_readiness";
+export const BRANDWELL_READINESS_MIGRATION = "20260907120000_link_builder_run_scope";
 export const BRANDWELL_WORKER_HEARTBEAT_INTERVAL_MS = 15_000;
 export const BRANDWELL_WORKER_HEARTBEAT_MAX_AGE_MS = 45_000;
 

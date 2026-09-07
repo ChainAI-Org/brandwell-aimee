@@ -73,6 +73,34 @@ describeIntegration("run executor lifecycle", () => {
     expect(attempts[0]).toMatchObject({ fence: 8, status: "completed" });
   });
 
+  it("preserves the placement assignment when a worker recovers an expired run", async () => {
+    const coordinationScope = {
+      kind: "link_builder",
+      taskId: "b15e3b32-2be5-4d0f-9da7-cf1609b9167b",
+      opportunityId: "115e3b32-2be5-4d0f-9da7-cf1609b9167b",
+    };
+    const seeded = await seedRun("placement-scope", "Review the assigned placement", {
+      status: "running",
+      leaseOwner: "previous-placement-worker",
+      leaseFence: 3,
+      leaseExpiresAt: new Date(Date.now() - 60_000),
+    });
+    await handles.prisma.run.update({
+      where: { id: seeded.run.id },
+      data: { trigger: "brandwell_link_builder_review", coordinationScope },
+    });
+
+    await handles.executor.continueRun(seeded.run.id, "placement-recovery-worker");
+
+    expect(
+      await handles.prisma.run.findUniqueOrThrow({ where: { id: seeded.run.id } }),
+    ).toMatchObject({
+      status: "completed",
+      leaseFence: 4,
+      coordinationScope,
+    });
+  });
+
   it.each(["completed", "cancelled"])("does not rerun a %s run", async (status) => {
     const seeded = await seedRun(`terminal-${status}`, "write a destination record", {
       status,

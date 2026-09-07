@@ -63,6 +63,9 @@ describe("production readiness", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(readinessDataSource.latestWorkerHeartbeat).toHaveBeenCalledWith(REVISION);
+    expect(readinessDataSource.migrationApplied).toHaveBeenCalledWith(
+      "20260907120000_link_builder_run_scope",
+    );
     expect(body).toEqual({
       ok: true,
       service: "aimee",
