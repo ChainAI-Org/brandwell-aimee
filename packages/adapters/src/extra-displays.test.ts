@@ -13,6 +13,7 @@ import {
   parseReleasedExtraDisplay,
   releaseExtraDisplayCommand,
 } from "./extra-displays.js";
+import { stopPrimaryControlScreenCommand } from "./primary-control-screen.js";
 
 describe("extra display ports", () => {
   it("keeps the vendor primary on index 0 and shifts extra screens by two", () => {
@@ -54,6 +55,16 @@ describe("extra display ports", () => {
     expect(() => parseExtraDisplayViewPassword("no password\n")).toThrow(
       ComputerScreenUnavailableError,
     );
+  });
+
+  it("stops primary control inside the registry lock after lease validation and before reuse", () => {
+    const cleanup = stopPrimaryControlScreenCommand();
+    const command = releaseExtraDisplayCommand("writer", "run-2:2", cleanup);
+    expect(command.indexOf("flock 9")).toBeLessThan(command.indexOf(cleanup));
+    expect(command.indexOf("RAKAZO_SCREEN_RELEASE=stale")).toBeLessThan(command.indexOf(cleanup));
+    expect(command).toContain(`if [ "$index" -eq 0 ]; then\n${cleanup}\nfi`);
+    expect(command.indexOf(cleanup)).toBeLessThan(command.indexOf('rm -f "$slot"'));
+    expect(releaseExtraDisplayCommand("writer", "run-2:2")).not.toContain(cleanup);
   });
 
   it("lets Daytona download extra-display screenshots without command-output truncation", () => {

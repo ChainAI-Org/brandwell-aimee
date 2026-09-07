@@ -1,6 +1,6 @@
 import { AIMEE_SCREEN_STATE_MESSAGE } from "./lib/screen-connection.js";
 
-export function renderAimeeScreenClient(nonce: string) {
+export function renderAimeeScreenClient(nonce: string, interactive = false) {
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -51,7 +51,7 @@ export function renderAimeeScreenClient(nonce: string) {
             credentials: { password: params.get("password") || undefined },
             shared: true,
           });
-          client.viewOnly = params.get("view_only") !== "false";
+          client.viewOnly = ${interactive ? "false" : "true"};
           client.scaleViewport = true;
           client.resizeSession = false;
           client.background = "#090611";

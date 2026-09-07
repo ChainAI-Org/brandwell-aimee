@@ -53,7 +53,7 @@ function resolveLocalTarget(match: RegExpMatchArray, secret: string, now: number
   if (!isAllowedTargetName(hostname)) return null;
   if (!Number.isInteger(port) || port < 1024 || port > 65_535 || expiresAt < now) return null;
   const expected = createHmac("sha256", secret)
-    .update(`${hostname}:${port}:${policy}:${expiresAt}`)
+    .update(`aimee-screen-proxy-v2:${hostname}:${port}:${policy}:${expiresAt}`)
     .digest("base64url");
   const suppliedBytes = Buffer.from(signature);
   const expectedBytes = Buffer.from(expected);
@@ -113,7 +113,7 @@ function openScreenTarget(
       createHash("sha256").update(secret).digest(),
       sealed.subarray(0, 12),
     );
-    decipher.setAAD(Buffer.from(`${policy}:${expiresAt}`));
+    decipher.setAAD(Buffer.from(`aimee-screen-proxy-v2:${policy}:${expiresAt}`));
     decipher.setAuthTag(sealed.subarray(12, 28));
     const target = new URL(
       Buffer.concat([decipher.update(sealed.subarray(28)), decipher.final()]).toString("utf8"),

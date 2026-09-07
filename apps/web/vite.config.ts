@@ -47,7 +47,7 @@ export function attachNovncProxy(server: ViteDevServer | PreviewServer, secret: 
         "content-type": "text/html; charset=utf-8",
         "x-content-type-options": "nosniff",
       });
-      res.end(renderAimeeScreenClient(nonce));
+      res.end(renderAimeeScreenClient(nonce, target.interactive));
       return;
     }
     const headers = {

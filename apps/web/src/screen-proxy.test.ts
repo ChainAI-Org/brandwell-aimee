@@ -1,5 +1,7 @@
 import { createCipheriv, createHash, createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import { addScreenProxyCapability } from "../../api/src/screen-proxy.js";
+import { renderAimeeScreenClient } from "./aimee-screen-client.js";
 import {
   resolveNovncTarget,
   safeProxyHeaders,
@@ -14,9 +16,10 @@ function signedPath(
   rest = "/embed.html",
   hostname = "127.0.0.1",
   policy: "view" | "control" = "view",
+  domain = "aimee-screen-proxy-v2:",
 ) {
   const signature = createHmac("sha256", secret)
-    .update(`${hostname}:${port}:${policy}:${expiresAt}`)
+    .update(`${domain}${hostname}:${port}:${policy}:${expiresAt}`)
     .digest("base64url");
   const target = Buffer.from(hostname).toString("base64url");
   return `/novnc/${target}/${port}/${policy}/${expiresAt}.${signature}${rest}`;
@@ -27,16 +30,46 @@ function remotePath(
   secret: string,
   url: string,
   policy: "view" | "control" = "view",
+  domain = "aimee-screen-proxy-v2:",
 ) {
   const iv = Buffer.alloc(12, 1);
   const cipher = createCipheriv("aes-256-gcm", createHash("sha256").update(secret).digest(), iv);
-  cipher.setAAD(Buffer.from(`${policy}:${expiresAt}`));
+  cipher.setAAD(Buffer.from(`${domain}${policy}:${expiresAt}`));
   const ciphertext = Buffer.concat([cipher.update(url, "utf8"), cipher.final()]);
   const token = Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString("base64url");
   return `/novnc/remote/${policy}/${expiresAt}.${token}/vnc.html`;
 }
 
 describe("noVNC proxy authorization", () => {
+  it("rejects legacy capability domains while accepting the API's new signed capabilities", () => {
+    expect(
+      resolveNovncTarget(
+        signedPath(6080, 2_000, "secret", "/aimee.html", "127.0.0.1", "view", ""),
+        "secret",
+        1_000,
+      ),
+    ).toBeNull();
+    expect(
+      resolveNovncTarget(
+        remotePath(2_000, "secret", "https://provider.example/vnc.html", "view", ""),
+        "secret",
+        1_000,
+      ),
+    ).toBeNull();
+    for (const url of [
+      "http://127.0.0.1:6081/aimee.html?view_only=true",
+      "https://provider.example/aimee.html?view_only=true",
+    ]) {
+      const capability = addScreenProxyCapability(url, "secret", "https://app.example", 1_000, {
+        proxyExternal: true,
+      });
+      const target = new URL(capability);
+      expect(resolveNovncTarget(target.pathname + target.search, "secret", 1_000)).toMatchObject({
+        interactive: false,
+      });
+    }
+  });
+
   it("accepts signed, unexpired loopback targets", () => {
     expect(resolveNovncTarget(signedPath(49152, 2_000, "secret"), "secret", 1_000)).toEqual({
       hostname: "127.0.0.1",
@@ -52,7 +85,7 @@ describe("noVNC proxy authorization", () => {
     expect(resolveNovncTarget(signedPath(49152, 999, "secret"), "secret", 1_000)).toBeNull();
   });
 
-  it("binds server-enforced view mode while allowing required noVNC paths", () => {
+  it("binds the signed view policy while allowing required noVNC paths", () => {
     const viewOnly = signedPath(49152, 2_000, "secret", "/embed.html?view_only=true");
     expect(resolveNovncTarget(viewOnly, "secret", 1_000)?.path).toBe("/embed.html?view_only=true");
     expect(
@@ -101,6 +134,18 @@ describe("noVNC proxy authorization", () => {
       path: "/aimee.html?view_only=false",
       interactive: true,
     });
+  });
+
+  it("renders the signed view policy even if a remote viewer changes the browser query", () => {
+    const view = remotePath(2_000, "secret", "https://provider.example/vnc.html").replace(
+      "/vnc.html",
+      "/aimee.html?view_only=false",
+    );
+    const resolved = resolveNovncTarget(view, "secret", 1_000);
+    expect(resolved).toMatchObject({ interactive: false });
+    const html = renderAimeeScreenClient("test-nonce", resolved!.interactive);
+    expect(html).toContain("client.viewOnly = true;");
+    expect(html).not.toContain('params.get("view_only")');
   });
 
   it("keeps encrypted external Box targets bound to their view/control policy", () => {
