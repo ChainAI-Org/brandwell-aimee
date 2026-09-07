@@ -4,7 +4,12 @@ import { placementReviewToolScopeError, reviewPreparationToolAllowed } from "./r
 describe("placement review assignment", () => {
   const taskId = "b15e3b32-2be5-4d0f-9da7-cf1609b9167b";
   const opportunityId = "115e3b32-2be5-4d0f-9da7-cf1609b9167b";
-  const scope = { kind: "link_builder", taskId, opportunityId };
+  const scope = {
+    kind: "link_builder",
+    taskId,
+    opportunityId,
+    requestKey: "link-builder-request-1",
+  };
 
   it("binds placement reads, updates and checks to the immutable assignment", () => {
     for (const tool of ["details", "update", "verify"]) {
@@ -27,6 +32,10 @@ describe("placement review assignment", () => {
       null,
       {},
       [],
+      { kind: "link_builder", taskId, opportunityId },
+      { ...scope, requestKey: "short" },
+      { ...scope, requestKey: "cycle with spaces" },
+      { ...scope, requestKey: "x".repeat(161) },
       { ...scope, taskId: "-".repeat(36) },
       { ...scope, kind: "other" },
     ]) {

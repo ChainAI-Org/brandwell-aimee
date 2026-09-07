@@ -78,6 +78,7 @@ describeIntegration("run executor lifecycle", () => {
       kind: "link_builder",
       taskId: "b15e3b32-2be5-4d0f-9da7-cf1609b9167b",
       opportunityId: "115e3b32-2be5-4d0f-9da7-cf1609b9167b",
+      requestKey: "link-builder-request-1",
     };
     const seeded = await seedRun("placement-scope", "Review the assigned placement", {
       status: "running",

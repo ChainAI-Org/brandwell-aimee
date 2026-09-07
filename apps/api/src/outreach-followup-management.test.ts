@@ -112,6 +112,7 @@ describe("Outreach native AIMEE handoff", () => {
     expect(f.runCreate.mock.calls[0]?.[0].data.coordinationScope).toEqual({
       kind: "link_builder",
       ...body.placementTask,
+      requestKey: headers["x-idempotency-key"],
     });
     expect(f.taskCreate.mock.calls[0]?.[0].data.prompt).toContain("brandwell_link_builder_task");
     expect((await f.request({ ...body, mode: "execute" })).status).toBe(400);

@@ -1527,7 +1527,13 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
                     ? "brandwell_outreach_action"
                     : "brandwell_outreach_review",
               ...(input.value.placementTask
-                ? { coordinationScope: { kind: "link_builder", ...input.value.placementTask } }
+                ? {
+                    coordinationScope: {
+                      kind: "link_builder",
+                      ...input.value.placementTask,
+                      requestKey: key.value,
+                    },
+                  }
                 : {}),
               clientNonce,
             },

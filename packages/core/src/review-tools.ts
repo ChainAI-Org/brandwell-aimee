@@ -41,6 +41,7 @@ export function placementReviewToolScopeError(
   const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
   if (
     assignment.kind !== "link_builder" ||
+    !/^[A-Za-z0-9._:-]{8,160}$/.test(String(assignment.requestKey || "")) ||
     !uuid.test(String(assignment.taskId || "")) ||
     !uuid.test(String(assignment.opportunityId || ""))
   )

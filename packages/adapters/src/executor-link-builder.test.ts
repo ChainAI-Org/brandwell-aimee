@@ -19,7 +19,12 @@ describe("managed Link Builder worker execution", () => {
       status: "queued",
       trigger: "brandwell_link_builder_review",
       workloadType: "general",
-      coordinationScope: { kind: "link_builder", taskId, opportunityId },
+      coordinationScope: {
+        kind: "link_builder",
+        taskId,
+        opportunityId,
+        requestKey: "link-builder-request-1",
+      },
       checkpoint: null,
       leaseFence: 0,
       serviceIdentityId: "service-test",
@@ -55,6 +60,7 @@ describe("managed Link Builder worker execution", () => {
     const effects: Array<Record<string, unknown>> = [];
     const prisma = {
       run: {
+        findFirst: vi.fn(async () => run),
         findUnique: vi.fn(async () => run),
         findUniqueOrThrow: vi.fn(async () => ({ ...run, status: "leased", startedAt: null })),
         updateMany: vi.fn(async ({ data }) => {
@@ -151,6 +157,11 @@ describe("managed Link Builder worker execution", () => {
         });
         if (request.tool === "link_builder_details")
           return Response.json({ opportunity: { id: opportunityId, version: 1 } });
+        expect(request.placement_assignment).toEqual({
+          task_id: taskId,
+          opportunity_id: opportunityId,
+          request_key: "link-builder-request-1",
+        });
         if (request.tool === "link_builder_task") {
           if (request.arguments.action === "claim")
             return Response.json({ id: taskId, status: "claimed", claim_token: claimToken });

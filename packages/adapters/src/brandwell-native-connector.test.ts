@@ -47,6 +47,7 @@ function context(overrides: Partial<AdapterContext> = {}): AdapterContext {
 
 function activePrisma() {
   return {
+    run: { findFirst: vi.fn(async () => ({ trigger: "user", coordinationScope: null })) },
     brandwellAiWorkspace: {
       findUnique: vi.fn(async () => ({
         brandwellCustomerId: "customer-acme",
@@ -76,6 +77,48 @@ async function eventsFrom(
 }
 
 describe("BrandWell native connector", () => {
+  it("signs the persisted preparation cycle without accepting model-supplied assignment", async () => {
+    const prisma = activePrisma();
+    const taskId = "b15e3b32-2be5-4d0f-9da7-cf1609b9167b";
+    const opportunityId = "115e3b32-2be5-4d0f-9da7-cf1609b9167b";
+    vi.mocked(prisma.run.findFirst).mockResolvedValue({
+      trigger: "brandwell_link_builder_review",
+      coordinationScope: {
+        kind: "link_builder",
+        taskId,
+        opportunityId,
+        requestKey: "cycle-request-1",
+      },
+    } as never);
+    let body: Record<string, unknown> | undefined;
+    const connector = new BrandwellNativeConnector(prisma, {
+      apiBaseUrl: "https://portal.example.test",
+      serviceToken: SERVICE_TOKEN,
+      fetch: async (_url, init) => {
+        body = JSON.parse(String(init?.body));
+        return Response.json({ status: "claimed" });
+      },
+    });
+    await eventsFrom(connector, "brandwell_link_builder_task", { id: taskId, action: "claim" });
+    expect(body?.placement_assignment).toEqual({
+      task_id: taskId,
+      opportunity_id: opportunityId,
+      request_key: "cycle-request-1",
+    });
+    expect(prisma.run.findFirst).toHaveBeenCalledWith({
+      where: { id: "run-1", workspaceId: "workspace-acme" },
+      select: { trigger: true, coordinationScope: true },
+    });
+    expect(
+      (
+        await eventsFrom(connector, "brandwell_link_builder_task", {
+          id: taskId,
+          action: "claim",
+          placement_assignment: { request_key: "other-cycle" },
+        })
+      )[0]?.type,
+    ).toBe("error");
+  });
   it("signs placement mutations and refuses project overrides", async () => {
     let sent: RequestInit | undefined;
     const connector = new BrandwellNativeConnector(activePrisma(), {
