@@ -474,6 +474,7 @@ model Run {
   serviceIdentity   BrandwellServiceIdentity? @relation(fields: [serviceIdentityId], references: [id], onDelete: SetNull)
   status            String
   trigger           String
+  coordinationScope Json?
   workloadType      String                    @default("general")
   modelProvider     String?
   modelId           String?

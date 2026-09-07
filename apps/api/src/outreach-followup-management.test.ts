@@ -91,10 +91,66 @@ function fixture() {
       headers,
       body: JSON.stringify(body),
     });
-  return { request, taskCreate, runCreate, enqueue, userFind, botFind };
+  return { app, request, taskCreate, runCreate, runFind, enqueue, userFind, botFind };
 }
 
 describe("Outreach native AIMEE handoff", () => {
+  it("creates an idempotent Link Builder review task and refuses execute mode", async () => {
+    const f = fixture();
+    const body = {
+      ...input,
+      mode: "review",
+      placementTask: {
+        taskId: "b15e3b32-2be5-4d0f-9da7-cf1609b9167b",
+        opportunityId: "115e3b32-2be5-4d0f-9da7-cf1609b9167b",
+      },
+    };
+    expect((await f.request(body)).status).toBe(200);
+    expect((await f.request(body)).status).toBe(200);
+    expect(f.taskCreate).toHaveBeenCalledTimes(1);
+    expect(f.runCreate.mock.calls[0]?.[0].data.trigger).toBe("brandwell_link_builder_review");
+    expect(f.runCreate.mock.calls[0]?.[0].data.coordinationScope).toEqual({
+      kind: "link_builder",
+      ...body.placementTask,
+      requestKey: headers["x-idempotency-key"],
+    });
+    expect(f.taskCreate.mock.calls[0]?.[0].data.prompt).toContain("brandwell_link_builder_task");
+    expect((await f.request({ ...body, mode: "execute" })).status).toBe(400);
+  });
+  it("reads one run in its workspace without exposing prompts or runtime errors", async () => {
+    const f = fixture();
+    f.runFind.mockResolvedValueOnce({
+      id: "run-1",
+      taskId: "task-1",
+      botId: "bot-1",
+      threadId: "thread-1",
+      status: "failed",
+      trigger: "brandwell_link_builder_review",
+    } as never);
+    const response = await f.app.request("/internal/workspaces/workspace-1/runs/run-1", {
+      headers,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ run: { id: "run-1", status: "failed" } });
+    expect(f.runFind).toHaveBeenCalledWith({
+      where: { id: "run-1", workspaceId: "workspace-1" },
+      select: expect.objectContaining({ taskId: true, status: true, coordinationScope: true }),
+    });
+    const select = (f.runFind.mock.calls[0] as unknown as [{ select: Record<string, unknown> }])[0]
+      .select;
+    expect(select).not.toHaveProperty("error");
+    expect(select).not.toHaveProperty("checkpoint");
+    expect(select).not.toHaveProperty("task");
+  });
+
+  it("does not return a missing or cross-workspace run", async () => {
+    const f = fixture();
+    expect(
+      (await f.app.request("/internal/workspaces/workspace-1/runs/foreign-run", { headers }))
+        .status,
+    ).toBe(404);
+    expect((await f.app.request("/internal/workspaces/workspace-1/runs/run-1")).status).toBe(401);
+  });
   it("creates one review task for a social job with no email", async () => {
     const f = fixture();
     const body = {

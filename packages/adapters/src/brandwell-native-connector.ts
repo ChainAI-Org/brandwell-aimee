@@ -13,6 +13,7 @@ import {
   redactConnectorPayload,
   sanitizeConnectorError,
 } from "./connector-safety.js";
+import { LINK_BUILDER_CONNECTOR_TOOLS } from "./link-builder-tools.js";
 
 const REQUEST_TIMEOUT_MS = 20_000;
 const MAX_RESPONSE_BYTES = 1_000_000;
@@ -62,6 +63,7 @@ const RankwellArticleOptionsSchema = z
   .strict();
 
 const ToolDefinitions = [
+  ...LINK_BUILDER_CONNECTOR_TOOLS,
   {
     name: "brandwell_socialstreams_update_opportunity",
     description:
@@ -814,8 +816,36 @@ export class BrandwellNativeConnector implements ConnectorProvider {
           .digest("hex")}`;
       }
       const { endpoint, body } = requestFor(definition, parsed);
+      let placementAssignment: Record<string, string> | undefined;
+      if (
+        !definition.readOnly &&
+        definition.name.startsWith("brandwell_link_builder_") &&
+        context.runId
+      ) {
+        const run = await this.prisma.run.findFirst({
+          where: { id: context.runId, workspaceId: context.workspaceId },
+          select: { trigger: true, coordinationScope: true },
+        });
+        if (!run) throw new Error("The Link Builder execution run is unavailable");
+        if (run.trigger === "brandwell_link_builder_review") {
+          const assignment = run.coordinationScope as Record<string, unknown> | null;
+          if (
+            assignment?.kind !== "link_builder" ||
+            typeof assignment.taskId !== "string" ||
+            typeof assignment.opportunityId !== "string" ||
+            typeof assignment.requestKey !== "string"
+          )
+            throw new Error("This Link Builder run has no valid dispatch assignment");
+          placementAssignment = {
+            task_id: assignment.taskId,
+            opportunity_id: assignment.opportunityId,
+            request_key: assignment.requestKey,
+          };
+        }
+      }
       const serialized = JSON.stringify({
         ...body,
+        ...(placementAssignment ? { placement_assignment: placementAssignment } : {}),
         ...([
           "brandwell_socialstreams_queue_outreach",
           "brandwell_socialstreams_update_opportunity",

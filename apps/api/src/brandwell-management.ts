@@ -735,6 +735,29 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     return c.json({ runs });
   });
 
+  app.get("/internal/workspaces/:id/runs/:runId", async (c) => {
+    const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
+    if (!mapping) return c.json({ error: "Workspace not found" }, 404);
+    const run = await deps.prisma.run.findFirst({
+      where: { id: c.req.param("runId"), workspaceId: mapping.rakazoWorkspaceId },
+      select: {
+        id: true,
+        taskId: true,
+        botId: true,
+        threadId: true,
+        status: true,
+        trigger: true,
+        coordinationScope: true,
+        createdAt: true,
+        updatedAt: true,
+        startedAt: true,
+        completedAt: true,
+      },
+    });
+    if (!run) return c.json({ error: "Run not found" }, 404);
+    return c.json({ run });
+  });
+
   app.get("/internal/workspaces/:id/routines", async (c) => {
     const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
     if (!mapping) return c.json({ error: "Workspace not found" }, 404);
@@ -1496,11 +1519,22 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
               taskId: task.id,
               serviceIdentityId: bot.serviceIdentityId,
               status: "queued",
-              trigger: input.value.socialSignal
-                ? "brandwell_socialstreams_review"
-                : input.value.mode === "execute"
-                  ? "brandwell_outreach_action"
-                  : "brandwell_outreach_review",
+              trigger: input.value.placementTask
+                ? "brandwell_link_builder_review"
+                : input.value.socialSignal
+                  ? "brandwell_socialstreams_review"
+                  : input.value.mode === "execute"
+                    ? "brandwell_outreach_action"
+                    : "brandwell_outreach_review",
+              ...(input.value.placementTask
+                ? {
+                    coordinationScope: {
+                      kind: "link_builder",
+                      ...input.value.placementTask,
+                      requestKey: key.value,
+                    },
+                  }
+                : {}),
               clientNonce,
             },
             select,
