@@ -79,6 +79,15 @@ describe("managed AIMEE workspace navigation", () => {
     expect(home).toContain('"Connects when opened"');
   });
 
+  it("refreshes dashboard activity without overlapping requests and cleans up on navigation", () => {
+    expect(home).toContain("await load();");
+    expect(home).toContain(
+      "if (active) refreshTimer = window.setTimeout(() => void refresh(), 15_000)",
+    );
+    expect(home).toContain("window.clearTimeout(refreshTimer)");
+    expect(home).toContain("if (!active) return;");
+  });
+
   it("shows live screen health instead of presenting saved state as a live connection", () => {
     expect(shell).toContain("computerPanelStatusLabel(computer?.state, screenConnectionState)");
     expect(shell).toContain("event.source === previewScreenFrame.current?.contentWindow");

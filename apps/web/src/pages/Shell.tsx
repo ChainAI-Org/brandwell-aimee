@@ -115,6 +115,7 @@ import {
 import { BuiButton, BuiCard, SuccessPop } from "../components/beautiful-ui/primitives";
 import { BrandwellLogo } from "../components/brandwell/BrandwellLogo";
 import { ComputerMaintenanceActions } from "../components/ComputerMaintenanceActions";
+import { RunFailureNotice } from "../components/RunFailureNotice";
 import { SkillDraftCard } from "../components/teach/SkillDraftCard";
 import { TeachCaptureOverlay } from "../components/teach/TeachCaptureOverlay";
 import { TeachComputerSection } from "../components/teach/TeachComputerSection";
@@ -396,6 +397,8 @@ export function ShellPage() {
   const selectedThreadId = inGroup ? undefined : (searchParams.get("thread") ?? undefined);
   const managedWorkspace = Boolean(bootstrapMe?.brandwell);
   const managedDashboard = dashboardMode && managedWorkspace;
+  const managedDashboardRef = useRef(managedDashboard);
+  managedDashboardRef.current = managedDashboard;
   const active = inGroup ? undefined : (bots.find((b) => b.id === botId) ?? bots[0]);
   const activeGroup = groups.find((group) => group.id === groupId);
   const activeConversationKey = inGroup
@@ -504,11 +507,14 @@ export function ShellPage() {
         return;
       }
       const currentBotId = routeBotId.current;
-      if (!managedDashboard && (!currentBotId || !list.some((bot) => bot.id === currentBotId))) {
+      if (
+        !managedDashboardRef.current &&
+        (!currentBotId || !list.some((bot) => bot.id === currentBotId))
+      ) {
         navigate(firstThreadRoute(list, groupList), { replace: true });
       }
     },
-    [managedDashboard, navigate],
+    [navigate],
   );
 
   const refreshManagedChats = useCallback(async (id: string) => {
@@ -2634,6 +2640,7 @@ export function ShellPage() {
               ) : null}
             </div>
           </div>
+          <RunFailureNotice run={composerRunning ? null : (activeSnapshot?.run ?? null)} />
           <Transcript
             key={activeSnapshot?.threadId}
             scrollRef={messageScroll}

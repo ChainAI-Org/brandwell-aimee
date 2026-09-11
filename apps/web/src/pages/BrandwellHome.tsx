@@ -21,6 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { BuiButton, BuiCard, LoadingState } from "../components/beautiful-ui/primitives";
 import { BrandwellLogo } from "../components/brandwell/BrandwellLogo";
+import { managedRunAttention, runChatDestination } from "../lib/managed-run-status";
 import { rpc } from "../lib/rpc";
 
 type ManagedHomeState = {
@@ -100,6 +101,7 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
 
   useEffect(() => {
     let active = true;
+    let refreshTimer: number | undefined;
     async function load() {
       const bots = await rpc.bots.list();
       const bot =
@@ -124,11 +126,20 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
       });
       setError(null);
     }
-    void load().catch((reason: unknown) => {
-      if (active) setError(reason instanceof Error ? reason.message : "Could not load AIMEE.");
-    });
+    async function refresh() {
+      try {
+        await load();
+      } catch (reason) {
+        if (active) setError(reason instanceof Error ? reason.message : "Could not load AIMEE.");
+      } finally {
+        // Wait for this request to settle so slow connections do not overlap polls.
+        if (active) refreshTimer = window.setTimeout(() => void refresh(), 15_000);
+      }
+    }
+    void refresh();
     return () => {
       active = false;
+      window.clearTimeout(refreshTimer);
     };
   }, [me.brandwell?.primaryBotId]);
 
@@ -140,12 +151,8 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
       null,
     [state?.routines],
   );
-  const needsAttention =
-    (state?.notifications.some((notice) => notice.requiresAction && !notice.resolvedAt) ?? false) ||
-    (state?.activeRuns.some((run) =>
-      ["waiting_input", "waiting_takeover", "failed"].includes(run.status),
-    ) ??
-      false);
+  const attentionDetail = state ? managedRunAttention(state) : null;
+  const needsAttention = attentionDetail !== null;
 
   const open = (view?: "computer" | "integrations" | "account" | "routines") => {
     if (!state) return;
@@ -264,8 +271,8 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
               >
                 <MetricCard
                   label="Employee status"
-                  value={needsAttention ? "Needs you" : statusLabel(state.bot.status)}
-                  detail={needsAttention ? "A run is waiting for input" : "Operating normally"}
+                  value={needsAttention ? "Needs attention" : statusLabel(state.bot.status)}
+                  detail={attentionDetail ?? "Operating normally"}
                   icon={needsAttention ? <AlertCircle size={18} /> : <CheckCircle2 size={18} />}
                   tone={needsAttention ? "warning" : "good"}
                 />
@@ -295,7 +302,7 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
                 <BuiCard className="mt-6 border border-[#4d3b24] p-5 md:p-6">
                   <SectionHeading
                     title="Needs attention"
-                    detail="AIMEE will continue as soon as the requested login or approval is complete"
+                    detail="Review requests and follow-up items from AIMEE"
                   />
                   <div
                     className="mt-4 grid min-w-0 gap-2"
@@ -346,7 +353,11 @@ export function BrandwellHome({ me, embedded = false }: { me: Me; embedded?: boo
                   />
                   <div className="mt-5 space-y-2">
                     {[...state.activeRuns, ...state.recentRuns].slice(0, 8).map((run) => (
-                      <ActivityRow key={run.runId} run={run} onOpen={() => open()} />
+                      <ActivityRow
+                        key={run.runId}
+                        run={run}
+                        onOpen={() => navigate(runChatDestination(run))}
+                      />
                     ))}
                     {state.activeRuns.length === 0 && state.recentRuns.length === 0 ? (
                       <EmptyState text="AIMEE activity will appear here as routines and requests run." />
@@ -452,7 +463,7 @@ function MetricCard({
       <div className="mt-5 truncate text-[21px] font-semibold tracking-[-0.02em] text-[#f7f7fa]">
         {value}
       </div>
-      <div className="mt-1.5 truncate text-[12.5px] text-[#8c8e98]">{detail}</div>
+      <div className="mt-1.5 text-[12.5px] leading-5 text-[#8c8e98]">{detail}</div>
     </BuiCard>
   );
 }
