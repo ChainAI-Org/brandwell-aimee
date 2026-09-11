@@ -4,6 +4,7 @@ import type {
   ThreadMessage,
   ThreadSnapshot,
 } from "@rakazo/contracts";
+import { RunTrigger } from "@rakazo/contracts";
 import { describe, expect, it } from "vitest";
 import {
   activeThreadRuns,
@@ -22,6 +23,15 @@ import {
 } from "./thread-events.js";
 
 describe("thread event reduction", () => {
+  it.each(RunTrigger.options)("preserves the %s trigger in live run events", (trigger) => {
+    const next = reduceThreadSnapshot(
+      snapshot([]),
+      event({ type: "run.started", seq: 4, runId: "run-1", payload: { trigger } }),
+    );
+    expect(next?.run?.trigger).toBe(trigger);
+    expect(next?.run?.status).toBe("running");
+  });
+
   it("prepends older pages in order, removes overlaps, and advances the history cursor", () => {
     const initial = snapshot([message("m-2", [], 2), message("m-3", [], 3)], 2);
 

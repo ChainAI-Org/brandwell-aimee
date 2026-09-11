@@ -19,7 +19,9 @@ export async function listWorkspaceRuns(
   const rows = await prisma.run.findMany({
     where: {
       workspaceId: actor.workspaceId,
-      userId: actor.userId,
+      // Managed employees execute under a service identity. Their assigned
+      // human can review that employee's runs, but not another employee's.
+      ...(actor.botId ? { botId: actor.botId } : { userId: actor.userId }),
       bot: { archivedAt: null },
       ...(filter === "active"
         ? { status: { in: [...ACTIVE_RUN_STATUSES] } }

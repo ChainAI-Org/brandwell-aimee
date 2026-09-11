@@ -13,6 +13,8 @@ import {
   ProductEventType,
   RunActivityRowSchema,
   RunSchema,
+  RunTrigger,
+  ThreadSnapshotSchema,
   UpdateBotInput,
   UpdateGroupInput,
 } from "./index.js";
@@ -130,14 +132,27 @@ describe("contracts", () => {
     expect(ProductEventType.options).toContain("bot.spawned");
   });
 
-  it("accepts bot-to-bot runs in thread snapshots and activity rows", () => {
+  it.each([
+    "user",
+    "routine",
+    "resume",
+    "follow_up",
+    "spawn",
+    "skill",
+    "bot_message",
+    "brandwell_support",
+    "brandwell_link_builder_review",
+    "brandwell_socialstreams_review",
+    "brandwell_outreach_action",
+    "brandwell_outreach_review",
+  ])("accepts %s runs in thread snapshots and activity rows", (trigger) => {
     const run = {
       id: "run-1",
       botId: "bot-1",
       threadId: "thread-1",
       taskId: "task-1",
       status: "running",
-      trigger: "bot_message",
+      trigger,
       routineId: null,
       modelProvider: null,
       modelId: null,
@@ -148,6 +163,15 @@ describe("contracts", () => {
     };
 
     expect(RunSchema.safeParse(run).success).toBe(true);
+    expect(
+      ThreadSnapshotSchema.safeParse({
+        threadId: run.threadId,
+        cursor: -1,
+        messages: [],
+        olderCursor: null,
+        run,
+      }).success,
+    ).toBe(true);
     expect(
       RunActivityRowSchema.safeParse({
         runId: run.id,
@@ -162,6 +186,12 @@ describe("contracts", () => {
         updatedAt: "2026-08-26T00:00:01.000Z",
       }).success,
     ).toBe(true);
+  });
+
+  it("rejects unsupported run triggers", () => {
+    expect(RunTrigger.safeParse("unknown_trigger").success).toBe(false);
+    expect(RunSchema.shape.trigger).toBe(RunTrigger);
+    expect(RunActivityRowSchema.shape.trigger).toBe(RunTrigger);
   });
 
   it("caps remote MCP headers", () => {

@@ -7,6 +7,7 @@ import type {
   ThreadMessagePage,
   ThreadSnapshot,
 } from "@rakazo/contracts";
+import { RunTrigger } from "@rakazo/contracts";
 import {
   isActive,
   isRunTerminalEvent,
@@ -17,15 +18,7 @@ import {
   subagentBlockFromPayload,
 } from "@rakazo/core";
 
-const runTriggers = new Set<Run["trigger"]>([
-  "user",
-  "routine",
-  "resume",
-  "follow_up",
-  "spawn",
-  "skill",
-  "bot_message",
-]);
+const runTriggers = new Set<Run["trigger"]>(RunTrigger.options);
 
 function runFromStartedEvent(event: ProductEvent, previous: Run | undefined): Run {
   const trigger = event.payload.trigger;

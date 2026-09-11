@@ -34,6 +34,22 @@ export const RunStatus = z.enum([
 ]);
 export type RunStatus = z.infer<typeof RunStatus>;
 
+export const RunTrigger = z.enum([
+  "user",
+  "routine",
+  "resume",
+  "follow_up",
+  "spawn",
+  "skill",
+  "bot_message",
+  "brandwell_support",
+  "brandwell_link_builder_review",
+  "brandwell_socialstreams_review",
+  "brandwell_outreach_action",
+  "brandwell_outreach_review",
+]);
+export type RunTrigger = z.infer<typeof RunTrigger>;
+
 export const EffectStatus = z.enum(["intended", "completed", "failed", "ambiguous", "reconciled"]);
 export type EffectStatus = z.infer<typeof EffectStatus>;
 

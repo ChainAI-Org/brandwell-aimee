@@ -1,5 +1,5 @@
 import * as z from "zod";
-import { Id, RunStatus } from "./ids.js";
+import { Id, RunStatus, RunTrigger } from "./ids.js";
 
 export const RunActivityRowSchema = z.object({
   runId: Id,
@@ -9,7 +9,7 @@ export const RunActivityRowSchema = z.object({
   groupName: z.string().nullable(),
   threadId: Id,
   status: RunStatus,
-  trigger: z.enum(["user", "routine", "resume", "follow_up", "spawn", "skill", "bot_message"]),
+  trigger: RunTrigger,
   promptSnippet: z.string(),
   updatedAt: z.string(),
 });
