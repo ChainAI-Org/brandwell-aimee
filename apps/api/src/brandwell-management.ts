@@ -22,6 +22,7 @@ import {
   hasMixedOneShotSchedule,
   isOneShotRoutineCrons,
   nextCronDateAcrossStrict,
+  redactSecrets,
 } from "@rakazo/core";
 import type { PrismaClient } from "@rakazo/db";
 import type { Context, Hono } from "hono";
@@ -736,26 +737,65 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
   });
 
   app.get("/internal/workspaces/:id/runs/:runId", async (c) => {
+    const operator = supportActor(c.req.header());
+    if (!operator.ok) return c.json({ error: operator.error }, 400);
     const mapping = await findWorkspaceMapping(deps.prisma, c.req.param("id"));
     if (!mapping) return c.json({ error: "Workspace not found" }, 404);
     const run = await deps.prisma.run.findFirst({
       where: { id: c.req.param("runId"), workspaceId: mapping.rakazoWorkspaceId },
       select: {
         id: true,
-        taskId: true,
         botId: true,
+        taskId: true,
         threadId: true,
         status: true,
         trigger: true,
         coordinationScope: true,
         createdAt: true,
-        updatedAt: true,
         startedAt: true,
         completedAt: true,
+        updatedAt: true,
+        error: true,
       },
     });
-    if (!run) return c.json({ error: "Run not found" }, 404);
-    return c.json({ run });
+    if (!run) return c.json({ error: "AIMEE run not found" }, 404);
+    const message = ["queued", "leased"].includes(run.status)
+      ? null
+      : await deps.prisma.message.findFirst({
+          where: {
+            runId: run.id,
+            threadId: run.threadId,
+            role: { in: ["bot", "assistant", "aimee"] },
+            ...(run.startedAt ? { createdAt: { gte: run.startedAt } } : {}),
+          },
+          orderBy: { seq: "desc" },
+          select: { id: true, blocks: true },
+        });
+    const safeText = (text: string) =>
+      redactSecrets(text, [deps.token]).replace(/\p{Cc}/gu, (character) =>
+        ["\n", "\r", "\t"].includes(character) ? character : "",
+      );
+    const safeBlocks = message
+      ? JSON.parse(redactSecrets(JSON.stringify(message.blocks), [deps.token]))
+      : null;
+    await deps.prisma.brandwellAuditLog.create({
+      data: {
+        workspaceId: mapping.rakazoWorkspaceId,
+        actorType: "brandwell_operator",
+        action: "run.inspect",
+        resourceType: "run",
+        resourceId: run.id,
+        metadata: operatorAuditMetadata(operator.value),
+      },
+    });
+    return c.json({
+      run: {
+        ...run,
+        error: run.error ? compactConversationText(safeText(run.error), 1_000) : null,
+        outcome: message ? safeText(sanitizedConversationText(safeBlocks)) || null : null,
+        messageId: message?.id ?? null,
+      },
+    });
   });
 
   app.get("/internal/workspaces/:id/routines", async (c) => {
@@ -1371,10 +1411,13 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
     if (!deps.jobs) return c.json({ error: "AIMEE job execution is not configured" }, 503);
     const operator = supportActor(c.req.header());
     if (!operator.ok) return c.json({ error: operator.error }, 400);
-    const run = await deps.prisma.run.findFirst({
+    const suppliedKey = c.req.header("x-idempotency-key");
+    const key = suppliedKey === undefined ? null : managementIdempotencyKey(suppliedKey);
+    if (key && !key.ok) return c.json({ error: key.error }, 400);
+    const retryNonce = key?.ok ? key.value : null;
+    const query = {
       where: {
         id: c.req.param("id"),
-        status: "failed",
         bot: {
           managedByBrandWell: true,
           managedStatus: "active",
@@ -1384,39 +1427,87 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
           },
         },
       },
-      select: { id: true, workspaceId: true, taskId: true, botId: true },
-    });
-    if (!run) return c.json({ error: "Failed AIMEE run not found" }, 404);
-    const reset = await deps.prisma.$transaction(async (tx) => {
-      const updated = await tx.run.updateMany({
-        where: { id: run.id, status: "failed" },
-        data: {
+      select: {
+        id: true,
+        workspaceId: true,
+        taskId: true,
+        botId: true,
+        status: true,
+        retryNonces: true,
+        updatedAt: true,
+      } as const,
+    };
+    let run = await deps.prisma.run.findFirst(query);
+    if (!run) return c.json({ error: "AIMEE run not found" }, 404);
+    let replayed = Boolean(retryNonce && run.retryNonces.includes(retryNonce));
+    if (!replayed && run.status !== "failed")
+      return c.json({ error: "Run is no longer retryable" }, 409);
+    if (!replayed) {
+      const pendingRun = run;
+      const reset = await deps.prisma.$transaction(async (tx) => {
+        const updated = await tx.run.updateMany({
+          where: { id: pendingRun.id, status: "failed", updatedAt: pendingRun.updatedAt },
+          data: {
+            status: "queued",
+            error: null,
+            startedAt: null,
+            completedAt: null,
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            checkpoint: null,
+            ...(retryNonce ? { retryNonces: { push: retryNonce } } : {}),
+          },
+        });
+        if (updated.count !== 1) return false;
+        await tx.task.update({ where: { id: pendingRun.taskId }, data: { status: "queued" } });
+        await tx.brandwellAuditLog.create({
+          data: {
+            workspaceId: pendingRun.workspaceId,
+            actorType: "brandwell_operator",
+            action: "run.retry",
+            resourceType: "run",
+            resourceId: pendingRun.id,
+            metadata: { botId: pendingRun.botId, ...operatorAuditMetadata(operator.value) },
+          },
+        });
+        return true;
+      });
+      if (reset) {
+        run = {
+          ...pendingRun,
           status: "queued",
-          error: null,
-          startedAt: null,
-          completedAt: null,
-          leaseOwner: null,
-          leaseExpiresAt: null,
-          checkpoint: null,
-        },
-      });
-      if (updated.count !== 1) return false;
-      await tx.task.update({ where: { id: run.taskId }, data: { status: "queued" } });
-      await tx.brandwellAuditLog.create({
-        data: {
-          workspaceId: run.workspaceId,
-          actorType: "brandwell_operator",
-          action: "run.retry",
-          resourceType: "run",
-          resourceId: run.id,
-          metadata: { botId: run.botId, ...operatorAuditMetadata(operator.value) },
-        },
-      });
-      return true;
+          retryNonces: retryNonce
+            ? [...pendingRun.retryNonces, retryNonce]
+            : pendingRun.retryNonces,
+        };
+      } else {
+        run = await deps.prisma.run.findFirst(query);
+        if (!run || !retryNonce || !run.retryNonces.includes(retryNonce))
+          return c.json({ error: "Run is no longer retryable" }, 409);
+        replayed = true;
+      }
+    }
+    if (run.status === "queued") {
+      try {
+        await deps.jobs.enqueue(runContinueJob(run.id));
+      } catch {
+        return c.json(
+          {
+            error: "The retry is saved but its worker dispatch needs a retry",
+            accepted: true,
+            runId: run.id,
+            status: "queued",
+          },
+          503,
+        );
+      }
+    }
+    return c.json({
+      ok: true,
+      runId: run.id,
+      status: run.status,
+      ...(retryNonce ? { replayed } : {}),
     });
-    if (!reset) return c.json({ error: "Run is no longer retryable" }, 409);
-    await deps.jobs.enqueue(runContinueJob(run.id)).catch(() => undefined);
-    return c.json({ ok: true, runId: run.id, status: "queued" });
   });
 
   app.post("/internal/workspaces/:id/outreach-followup", async (c) => {
@@ -1487,6 +1578,7 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
       id: true,
       botId: true,
       taskId: true,
+      threadId: true,
       status: true,
       task: { select: { prompt: true } },
     } as const;
@@ -1500,11 +1592,22 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
             replayed = true;
             return prior;
           }
+          const thread = input.value.socialSignal
+            ? await tx.thread.create({
+                data: {
+                  workspaceId: bot.workspaceId,
+                  botId: bot.id,
+                  userId: bot.userId,
+                  title: input.value.campaignName,
+                },
+                select: { id: true },
+              })
+            : bot.thread!;
           const task = await tx.task.create({
             data: {
               workspaceId: bot.workspaceId,
               botId: bot.id,
-              threadId: bot.thread!.id,
+              threadId: thread.id,
               userId: bot.userId,
               prompt,
               status: "queued",
@@ -1514,7 +1617,7 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
             data: {
               workspaceId: bot.workspaceId,
               botId: bot.id,
-              threadId: bot.thread!.id,
+              threadId: thread.id,
               userId: bot.userId,
               taskId: task.id,
               serviceIdentityId: bot.serviceIdentityId,
@@ -1536,6 +1639,7 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
                   }
                 : {}),
               clientNonce,
+              socialRecordId: input.value.socialSignal?.recordId ?? null,
             },
             select,
           });
@@ -1586,6 +1690,7 @@ export function mountBrandwellManagementRoutes(app: Hono, deps: BrandwellManagem
       taskId: run.taskId,
       runId: run.id,
       botId: run.botId,
+      threadId: run.threadId,
       status: run.status,
       replayed,
     });

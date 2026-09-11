@@ -41,7 +41,7 @@ export function addScreenProxyCapability(
     const policy = parsed.searchParams.get("view_only") === "false" ? "control" : "view";
     const destination = `${parsed.pathname}${parsed.search}`;
     const signature = createHmac("sha256", secret)
-      .update(`${parsed.hostname}:${parsed.port}:${policy}:${expiresAt}`)
+      .update(`aimee-screen-proxy-v2:${parsed.hostname}:${parsed.port}:${policy}:${expiresAt}`)
       .digest("base64url");
     const origin = new URL(proxyOrigin).origin;
     return `${origin}/novnc/${target}/${parsed.port}/${policy}/${expiresAt}.${signature}${destination}`;
@@ -69,7 +69,7 @@ function sealScreenTarget(
 ) {
   const iv = randomBytes(12);
   const cipher = createCipheriv(SCREEN_PROXY_CIPHER, screenProxyKey(secret), iv);
-  cipher.setAAD(Buffer.from(`${policy}:${expiresAt}`));
+  cipher.setAAD(Buffer.from(`aimee-screen-proxy-v2:${policy}:${expiresAt}`));
   const ciphertext = Buffer.concat([cipher.update(url, "utf8"), cipher.final()]);
   return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString("base64url");
 }

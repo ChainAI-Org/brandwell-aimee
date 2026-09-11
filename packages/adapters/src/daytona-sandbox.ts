@@ -57,6 +57,16 @@ import {
   releaseExtraDisplayCommand,
   screenControlKey,
 } from "./extra-displays.js";
+import {
+  ensurePrimaryControlScreenCommand,
+  PRIMARY_CONTROL_PORT,
+  stopPrimaryControlScreenCommand,
+} from "./primary-control-screen.js";
+import {
+  ensurePrimaryReadonlyScreenCommand,
+  PRIMARY_READONLY_PORT,
+  stopPrimaryReadonlyScreenCommand,
+} from "./primary-readonly-screen.js";
 
 const DAYTONA_FALLBACK_DISPLAY = ":0";
 const DAYTONA_SCREEN_TTL_SECONDS = 3_600;
@@ -238,12 +248,20 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     const layout = await this.resolveLayout(sandbox, screenKey, context.screenLeaseId);
     if (layout.isPrimary) {
       await this.ensureDesktop(sandbox);
-      const preview = await this.screenPreview(sandbox, screenKey, layout.viewPort);
+      const password = request.interactive
+        ? await this.ensurePrimaryControlScreen(sandbox, layout.display, request.controlToken)
+        : await this.ensurePrimaryReadonlyScreen(sandbox, layout.display);
+      const preview = await this.screenPreview(
+        sandbox,
+        screenKey,
+        request.interactive ? PRIMARY_CONTROL_PORT : PRIMARY_READONLY_PORT,
+      );
       const url = new URL(preview.url);
       url.pathname = "/aimee.html";
       url.searchParams.set("autoconnect", "true");
       url.searchParams.set("resize", "scale");
       url.searchParams.set("view_only", request.interactive ? "false" : "true");
+      if (password) url.searchParams.set("password", password);
       return {
         url: url.toString(),
         mimeType: "text/html",
@@ -264,6 +282,7 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       url.searchParams.set("autoconnect", "true");
       url.searchParams.set("resize", "scale");
       url.searchParams.set("password", password);
+      url.searchParams.set("view_only", "false");
       return {
         url: url.toString(),
         mimeType: "text/html",
@@ -295,6 +314,14 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     const layout = await this.resolveLayout(sandbox, screenKey, context.screenLeaseId);
     if (layout.isPrimary) {
       await this.ensureDesktop(sandbox);
+      if (interactive) {
+        await this.ensurePrimaryControlScreen(sandbox, layout.display, controlToken);
+      } else if (controlToken) {
+        const result = await sandbox.process.executeCommand(
+          stopPrimaryControlScreenCommand(controlToken),
+        );
+        if (result.exitCode !== 0) throw new Error("primary control stream could not stop");
+      }
       return;
     }
     await this.ensureExtraDisplay(sandbox, layout);
@@ -521,7 +548,13 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     const sandbox = this.boxes.get(id) ?? (await this.box(computer).catch(() => undefined));
     if (!sandbox) return;
     const released = await sandbox.process
-      .executeCommand(releaseExtraDisplayCommand(screenKey, context.screenLeaseId))
+      .executeCommand(
+        releaseExtraDisplayCommand(
+          screenKey,
+          context.screenLeaseId,
+          stopPrimaryControlScreenCommand(),
+        ),
+      )
       .catch(() => undefined);
     const index = released ? parseReleasedExtraDisplay(released.result) : undefined;
     if (index === undefined) return;
@@ -553,6 +586,8 @@ export class DaytonaSandboxProvider implements SandboxProvider {
       ),
     );
     this.forget(id);
+    await sandbox.process.executeCommand(stopPrimaryControlScreenCommand()).catch(() => undefined);
+    await sandbox.process.executeCommand(stopPrimaryReadonlyScreenCommand()).catch(() => undefined);
     await sandbox.computerUse.stop().catch(() => undefined);
     await sandbox.stop(120);
   }
@@ -878,6 +913,39 @@ export class DaytonaSandboxProvider implements SandboxProvider {
     if (result.exitCode !== 0) {
       throw new ComputerScreenUnavailableError(undefined, {
         cause: daytonaDisplayCommandError("start", result),
+      });
+    }
+    return parseExtraDisplayViewPassword(result.result ?? "");
+  }
+
+  private async ensurePrimaryReadonlyScreen(sandbox: Sandbox, display: string): Promise<string> {
+    const result = await sandbox.process.executeCommand(
+      ensurePrimaryReadonlyScreenCommand(display, randomBytes(9).toString("base64url")),
+    );
+    if (result.exitCode !== 0) {
+      throw new ComputerScreenUnavailableError(undefined, {
+        cause: new Error("Daytona primary read-only screen could not start"),
+      });
+    }
+    return parseExtraDisplayViewPassword(result.result ?? "");
+  }
+
+  private async ensurePrimaryControlScreen(
+    sandbox: Sandbox,
+    display: string,
+    controlToken?: string,
+  ): Promise<string> {
+    if (!controlToken) throw new Error("interactive screen requires a control token");
+    const result = await sandbox.process.executeCommand(
+      ensurePrimaryControlScreenCommand(
+        display,
+        controlToken,
+        randomBytes(9).toString("base64url"),
+      ),
+    );
+    if (result.exitCode !== 0) {
+      throw new ComputerScreenUnavailableError(undefined, {
+        cause: new Error("Daytona primary control screen could not start"),
       });
     }
     return parseExtraDisplayViewPassword(result.result ?? "");
