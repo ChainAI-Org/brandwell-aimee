@@ -93,7 +93,7 @@ describe("desktop sandbox write containment without O_NOFOLLOW", () => {
     expect(await readFile(outside, "utf8")).toBe("before");
   });
 
-  it("keeps writes on the opened inode when the final name is replaced after lstat", async () => {
+  it("keeps writes contained when the final name is replaced after lstat", async () => {
     const { root, desktop, computer } = await fixture("swap-link");
     const target = path.join(computer.providerRef, "result.txt");
     const displaced = path.join(computer.providerRef, "result-original.txt");
@@ -112,15 +112,17 @@ describe("desktop sandbox write containment without O_NOFOLLOW", () => {
       path: "result.txt",
       content: new TextEncoder().encode("after"),
     });
-    if (process.platform === "win32") {
-      await expect(write).rejects.toThrow("Path escapes the computer workspace");
-    } else {
+    // Linux can verify the displaced inode through /proc/self/fd. Other
+    // platforms reject a changed pathname before writing.
+    if (process.platform === "linux") {
       await write;
+    } else {
+      await expect(write).rejects.toThrow("Path escapes the computer workspace");
     }
     expect(swapped).toBe(true);
     expect(await readFile(outside, "utf8")).toBe("outside-before");
     expect(await readFile(displaced, "utf8")).toBe(
-      process.platform === "win32" ? "inside-before" : "after",
+      process.platform === "linux" ? "after" : "inside-before",
     );
   });
 
