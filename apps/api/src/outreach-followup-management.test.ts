@@ -73,6 +73,8 @@ function fixture() {
     user: { findFirst: userFind },
     bot: { findFirst: botFind },
     run: { findFirst: runFind },
+    message: { findFirst: vi.fn(async () => null) },
+    brandwellAuditLog: { create: vi.fn() },
     $transaction: vi.fn(async (callback) =>
       callback({
         run: { findFirst: runFind, create: runCreate },
@@ -97,6 +99,7 @@ function fixture() {
     });
   return {
     app,
+    prisma,
     request,
     taskCreate,
     runCreate,
@@ -131,7 +134,7 @@ describe("Outreach native AIMEE handoff", () => {
     expect(f.taskCreate.mock.calls[0]?.[0].data.prompt).toContain("brandwell_link_builder_task");
     expect((await f.request({ ...body, mode: "execute" })).status).toBe(400);
   });
-  it("reads one run in its workspace without exposing prompts or runtime errors", async () => {
+  it("reads one run in its workspace without exposing prompts or raw runtime errors", async () => {
     const f = fixture();
     f.runFind.mockResolvedValueOnce({
       id: "run-1",
@@ -140,21 +143,29 @@ describe("Outreach native AIMEE handoff", () => {
       threadId: "thread-1",
       status: "failed",
       trigger: "brandwell_link_builder_review",
+      error: "Computer unavailable (token management-secret)",
     } as never);
     const response = await f.app.request("/internal/workspaces/workspace-1/runs/run-1", {
       headers,
     });
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ run: { id: "run-1", status: "failed" } });
+    const payload = await response.json();
+    expect(payload).toMatchObject({ run: { id: "run-1", status: "failed", outcome: null } });
+    // Runtime errors reach operators only after secret redaction and control-character stripping.
+    expect(payload.run.error).not.toContain("management-secret");
+    expect(payload.run.error).not.toContain("");
+    expect(payload.run.error).toContain("Computer unavailable");
     expect(f.runFind).toHaveBeenCalledWith({
       where: { id: "run-1", workspaceId: "workspace-1" },
       select: expect.objectContaining({ taskId: true, status: true, coordinationScope: true }),
     });
     const select = (f.runFind.mock.calls[0] as unknown as [{ select: Record<string, unknown> }])[0]
       .select;
-    expect(select).not.toHaveProperty("error");
     expect(select).not.toHaveProperty("checkpoint");
     expect(select).not.toHaveProperty("task");
+    expect(f.prisma.brandwellAuditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ action: "run.inspect" }) }),
+    );
   });
 
   it("does not return a missing or cross-workspace run", async () => {
