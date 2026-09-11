@@ -29,6 +29,7 @@ function fixture() {
     id: string;
     botId: string;
     taskId: string;
+    threadId: string;
     status: string;
     task: { prompt: string };
   } | null = null;
@@ -43,12 +44,14 @@ function fixture() {
       id: "run-1",
       botId: data.botId,
       taskId: data.taskId,
+      threadId: data.threadId,
       status: data.status,
       task: { prompt },
     };
     return saved;
   });
   const userFind = vi.fn(async () => ({ id: "member-1" }));
+  const threadCreate = vi.fn(async () => ({ id: "social-thread-1" }));
   const botFind = vi.fn(async () => ({
     id: "bot-1",
     workspaceId: "workspace-1",
@@ -74,6 +77,7 @@ function fixture() {
       callback({
         run: { findFirst: runFind, create: runCreate },
         task: { create: taskCreate },
+        thread: { create: threadCreate },
         brandwellAuditLog: { create: vi.fn() },
       }),
     ),
@@ -91,7 +95,17 @@ function fixture() {
       headers,
       body: JSON.stringify(body),
     });
-  return { app, request, taskCreate, runCreate, runFind, enqueue, userFind, botFind };
+  return {
+    app,
+    request,
+    taskCreate,
+    runCreate,
+    runFind,
+    threadCreate,
+    enqueue,
+    userFind,
+    botFind,
+  };
 }
 
 describe("Outreach native AIMEE handoff", () => {
@@ -163,11 +177,32 @@ describe("Outreach native AIMEE handoff", () => {
         sourceUrl: "https://www.linkedin.com/jobs/view/123456/",
       },
     };
-    expect((await f.request(body)).status).toBe(200);
-    expect((await f.request(body)).status).toBe(200);
+    const first = await f.request(body);
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ threadId: "social-thread-1", replayed: false });
+    const replay = await f.request(body);
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ threadId: "social-thread-1", replayed: true });
     expect(f.taskCreate).toHaveBeenCalledTimes(1);
+    expect(f.threadCreate).toHaveBeenCalledTimes(1);
+    expect(f.threadCreate).toHaveBeenCalledWith({
+      data: {
+        workspaceId: "workspace-1",
+        botId: "bot-1",
+        userId: "employee-user",
+        title: body.campaignName,
+      },
+      select: { id: true },
+    });
+    expect(f.taskCreate.mock.calls[0]?.[0].data.threadId).toBe("social-thread-1");
+    expect(f.runCreate.mock.calls[0]?.[0].data.threadId).toBe("social-thread-1");
+    expect(f.runCreate.mock.calls[0]?.[0].data.socialRecordId).toBe(body.socialSignal.recordId);
     expect(f.taskCreate.mock.calls[0]?.[0].data.prompt).toContain("SocialStreams opportunity");
     expect(f.runCreate.mock.calls[0]?.[0].data.trigger).toBe("brandwell_socialstreams_review");
+    expect((await f.request({ ...body, instruction: "Changed review instructions" })).status).toBe(
+      409,
+    );
+    expect(f.threadCreate).toHaveBeenCalledTimes(1);
   });
   it("passes a configured instruction to a normal run with existing action approvals", async () => {
     const f = fixture();
@@ -181,6 +216,7 @@ describe("Outreach native AIMEE handoff", () => {
     expect((await f.request(body)).status).toBe(200);
     expect((await f.request(body)).status).toBe(200);
     expect(f.runCreate).toHaveBeenCalledTimes(1);
+    expect(f.threadCreate).not.toHaveBeenCalled();
     expect(f.runCreate.mock.calls[0]?.[0].data.trigger).toBe("brandwell_outreach_action");
     const prompt = f.taskCreate.mock.calls[0]?.[0].data.prompt;
     expect(prompt).toContain(body.instruction);
@@ -208,6 +244,7 @@ describe("Outreach native AIMEE handoff", () => {
       taskId: "task-1",
       runId: "run-1",
       botId: "bot-1",
+      threadId: "thread-1",
       replayed: true,
     });
     expect(f.taskCreate).toHaveBeenCalledTimes(1);

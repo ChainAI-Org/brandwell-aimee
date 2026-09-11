@@ -77,6 +77,7 @@ import {
   isToolPauseResult,
   replaceCompletedExternalEffectResult,
   resolveDuplicateEffectGate,
+  restoreApprovedToolInput,
   settleUncertainEffect,
   uncertainEffectResult,
 } from "./approval-effect.js";
@@ -1071,7 +1072,12 @@ export function createRunExecutor(deps: ExecutorDeps) {
               error: `Approved request ${nextApprovedTool} must be replayed before ${name}.`,
             };
           }
-          args = approvedEffectReplays.take(name) ?? args;
+          const restored = restoreApprovedToolInput(approvedEffectReplays, name, args, {
+            socialReview,
+            socialRecordId: run.socialRecordId,
+          });
+          if (!restored.ok) return { error: restored.error };
+          args = restored.args;
           if (placementReview) {
             const scopeError = placementReviewToolScopeError(name, args, run.coordinationScope);
             if (scopeError) return { error: scopeError };
