@@ -20,7 +20,7 @@ import {
 
 const webPort = Number(process.env.WEB_PORT ?? 5173);
 
-function attachNovncProxy(server: ViteDevServer | PreviewServer, secret: string) {
+export function attachNovncProxy(server: ViteDevServer | PreviewServer, secret: string) {
   server.middlewares.use((req, res, next) => {
     if (!req.url?.startsWith("/novnc/")) {
       next();
@@ -47,7 +47,7 @@ function attachNovncProxy(server: ViteDevServer | PreviewServer, secret: string)
         "content-type": "text/html; charset=utf-8",
         "x-content-type-options": "nosniff",
       });
-      res.end(renderAimeeScreenClient(nonce));
+      res.end(renderAimeeScreenClient(nonce, target.interactive));
       return;
     }
     const headers = {

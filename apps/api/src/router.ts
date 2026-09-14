@@ -101,6 +101,7 @@ import {
 } from "@rakazo/db";
 import { createAgentSkillsService } from "./agent-skills.js";
 import { createOwnedArtifact, getOwnedArtifact, getWorkspaceArtifact } from "./artifacts.js";
+import { connectLeasedComputerScreen } from "./computer-screen-session.js";
 import {
   executionBlocksUserTakeover,
   resolveBusyBotName,
@@ -1506,7 +1507,8 @@ export function createRouter(deps: RouterDeps) {
         ) {
           return { url: null };
         }
-        const session = await deps.sandbox.connectScreen(
+        const session = await connectLeasedComputerScreen(
+          deps,
           toComputerRef(bot.computer),
           {
             view: "stream",
@@ -1524,6 +1526,8 @@ export function createRouter(deps: RouterDeps) {
             bot.id,
             "screen",
           ),
+          bot.id,
+          bot.computer.id,
         );
         if (!session.url) return { url: null };
         scheduleComputerSleep(deps.jobs, bot.computer.id);

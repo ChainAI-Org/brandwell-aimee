@@ -10,6 +10,8 @@ describe("customer computer screen routing", () => {
       router.indexOf("heartbeat: authed.computer.heartbeat.handler"),
     );
     expect(screenHandler).toContain("{ proxyExternal: true }");
+    expect(screenHandler).toContain("await connectLeasedComputerScreen(");
+    expect(screenHandler).not.toContain("await deps.sandbox.connectScreen(");
     expect(screenHandler).not.toContain('bot.computer.kind === "box"');
   });
 });

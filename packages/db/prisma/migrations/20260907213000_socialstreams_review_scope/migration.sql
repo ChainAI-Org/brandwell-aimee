@@ -1,0 +1,2 @@
+ALTER TABLE "runs" ADD COLUMN "socialRecordId" TEXT;
+ALTER TABLE "runs" ADD COLUMN "retryNonces" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];

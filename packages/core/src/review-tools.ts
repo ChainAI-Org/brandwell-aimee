@@ -59,3 +59,14 @@ export function placementReviewToolScopeError(
     return "This run can only coordinate its assigned placement task.";
   return null;
 }
+
+export function socialReviewUpdateAllowed(
+  args: Record<string, unknown>,
+  socialRecordId: string | null | undefined,
+): boolean {
+  return (
+    Boolean(socialRecordId) &&
+    args.record_id === socialRecordId &&
+    ["review", "skip", "complete"].includes(String(args.action))
+  );
+}

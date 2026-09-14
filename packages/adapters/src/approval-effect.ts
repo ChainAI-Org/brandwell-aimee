@@ -1,4 +1,5 @@
 import type { AgentToolExecutionResult } from "@rakazo/adapter-kit";
+import { socialReviewUpdateAllowed } from "@rakazo/core";
 
 export type ApprovalPausedToolResult = AgentToolExecutionResult & { terminate: true };
 
@@ -11,6 +12,26 @@ export interface ApprovedEffectReplayQueue {
   nextToolName(): string | undefined;
   take(toolName: string): Record<string, unknown> | undefined;
   assertDrained(): void;
+}
+
+export function restoreApprovedToolInput(
+  queue: ApprovedEffectReplayQueue,
+  name: string,
+  supplied: Record<string, unknown>,
+  review: { socialReview: boolean; socialRecordId?: string | null },
+): { ok: true; args: Record<string, unknown> } | { ok: false; error: string } {
+  const args = queue.take(name) ?? supplied;
+  if (
+    review.socialReview &&
+    name === "brandwell_socialstreams_update_opportunity" &&
+    !socialReviewUpdateAllowed(args, review.socialRecordId)
+  ) {
+    return {
+      ok: false,
+      error: "This review can only update its assigned SocialStreams opportunity.",
+    };
+  }
+  return { ok: true, args };
 }
 
 export function createApprovedEffectReplayQueue(

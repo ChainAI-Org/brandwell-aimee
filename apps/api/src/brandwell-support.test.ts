@@ -72,6 +72,48 @@ const actor = {
 };
 
 describe("BrandWell operator computer support", () => {
+  it("does not issue a capability if an operator lease is released during provider startup", async () => {
+    const ready = Promise.withResolvers<void>();
+    const auditCreate = vi.fn(async () => ({ id: "audit-1" }));
+    const prisma = {
+      bot: {
+        findFirst: vi.fn(async () =>
+          resource({
+            controlHolder: "user",
+            controlLeaseId: "lease-old",
+            controlLeaseExpiresAt: future,
+            controlBotId: "bot-1",
+          }),
+        ),
+      },
+      computer: { findFirst: vi.fn(async () => null) },
+      computerExecutionLease: { findUnique: vi.fn(async () => null) },
+      brandwellSupportSession: { findFirst: vi.fn(async () => ({ id: "support-1" })) },
+      brandwellAuditLog: { create: auditCreate },
+    };
+    const harness = deps(prisma);
+    harness.connectScreen.mockImplementationOnce(async () => {
+      await ready.promise;
+      return { url: "https://provider.example/aimee.html?password=private" };
+    });
+    const pending = getBrandwellSupportScreen(harness.value, {
+      workspaceId: "workspace-1",
+      botId: "bot-1",
+      actor,
+    });
+    await vi.waitFor(() => expect(harness.connectScreen).toHaveBeenCalledOnce());
+    expect(prisma.computer.findFirst).not.toHaveBeenCalled();
+    ready.resolve();
+    expect(await pending).toEqual({ url: null, interactive: false });
+    expect(harness.setScreenControl).toHaveBeenCalledWith(
+      expect.anything(),
+      false,
+      expect.anything(),
+      "lease-old",
+    );
+    expect(auditCreate).not.toHaveBeenCalled();
+  });
+
   it("creates one auditable operator lease without displacing active AIMEE work", async () => {
     const computerUpdateMany = vi.fn(async () => ({ count: 1 }));
     const sessionCreate = vi.fn(async ({ data }) => ({

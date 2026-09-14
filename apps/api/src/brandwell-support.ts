@@ -18,6 +18,7 @@ import {
 } from "@rakazo/adapters";
 import { ACTIVE_RUN_STATUSES } from "@rakazo/core";
 import type { PrismaClient, ThreadEvents } from "@rakazo/db";
+import { connectLeasedComputerScreen } from "./computer-screen-session.js";
 import { executionBlocksUserTakeover } from "./computer-status.js";
 import { addScreenProxyCapability } from "./screen-proxy.js";
 
@@ -300,7 +301,8 @@ export async function getBrandwellSupportScreen(
     : null;
   const interactive = Boolean(session);
   const context = await supportScreenContext(deps.prisma, resource, input.actor);
-  const screen = await deps.sandbox.connectScreen(
+  const screen = await connectLeasedComputerScreen(
+    deps,
     toComputerRef(resource.computer),
     {
       view: "stream",
@@ -308,8 +310,24 @@ export async function getBrandwellSupportScreen(
       controlToken: interactive ? (resource.computer.controlLeaseId ?? undefined) : undefined,
     },
     context,
+    resource.id,
+    resource.computer.id,
+    async () =>
+      Boolean(
+        await deps.prisma.brandwellSupportSession.findFirst({
+          where: {
+            id: session!.id,
+            workspaceId: input.workspaceId,
+            computerId: resource.computer.id,
+            controlLeaseId: resource.computer.controlLeaseId,
+            operatorReference: input.actor.reference,
+            status: "active",
+          },
+          select: { id: true },
+        }),
+      ),
   );
-  if (!screen.url) return { url: null, interactive };
+  if (!screen.url) return { url: null, interactive: false };
   await auditSupportAction(deps.prisma, {
     workspaceId: input.workspaceId,
     actor: input.actor,

@@ -918,6 +918,9 @@ describe("BrandWell management API authentication", () => {
             workspaceId: "workspace-1",
             taskId: "task-1",
             botId: "bot-1",
+            status: "failed",
+            retryNonces: [],
+            updatedAt: new Date("2026-09-07T12:00:00Z"),
           })),
         },
         $transaction: vi.fn(async (callback) =>
@@ -938,7 +941,7 @@ describe("BrandWell management API authentication", () => {
     expect(await response.json()).toEqual({ ok: true, runId: "run-1", status: "queued" });
     expect(runUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: "run-1", status: "failed" },
+        where: { id: "run-1", status: "failed", updatedAt: new Date("2026-09-07T12:00:00Z") },
         data: expect.objectContaining({ status: "queued", error: null }),
       }),
     );

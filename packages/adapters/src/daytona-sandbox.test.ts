@@ -5,6 +5,8 @@ import {
   type DaytonaSandboxSdk,
   managedDesktopBrandingCommand,
 } from "./daytona-sandbox.js";
+import { stopPrimaryControlScreenCommand } from "./primary-control-screen.js";
+import { stopPrimaryReadonlyScreenCommand } from "./primary-readonly-screen.js";
 
 const context = {
   operationId: "test",
@@ -141,17 +143,105 @@ describe("DaytonaSandboxProvider", () => {
 
     const [screen, interactiveScreen] = await Promise.all([
       provider.connectScreen(computer, { view: "stream", interactive: false }, context),
-      provider.connectScreen(computer, { view: "stream", interactive: true }, context),
+      provider.connectScreen(
+        computer,
+        { view: "stream", interactive: true, controlToken: "lease-1" },
+        context,
+      ),
     ]);
     expect(screen.url).toContain("/aimee.html");
+    expect(screen.url).toContain("6081-preview");
     expect(screen.url).toContain("view_only=true");
+    expect(screen.url).toContain("password=test-view-password");
     await screen.close();
+    expect(interactiveScreen.url).toContain("6096-preview");
     expect(interactiveScreen.url).toContain("view_only=false");
-    expect(fixture.getSignedPreviewUrl).toHaveBeenCalledTimes(1);
+    expect(fixture.getSignedPreviewUrl).toHaveBeenCalledTimes(2);
 
     await provider.stop(computer, context);
-    expect(fixture.expireSignedPreviewUrl).toHaveBeenCalledWith(6080, "preview-token");
+    expect(fixture.expireSignedPreviewUrl).toHaveBeenCalledWith(6096, "preview-token");
+    expect(fixture.expireSignedPreviewUrl).toHaveBeenCalledWith(6081, "preview-token");
+    expect(fixture.executeCommand).toHaveBeenCalledWith(stopPrimaryReadonlyScreenCommand());
+    expect(fixture.executeCommand).toHaveBeenCalledWith(stopPrimaryControlScreenCommand());
     expect(fixture.stop).toHaveBeenCalledWith(120);
+  });
+
+  it("does not issue a writable capability when the primary passive viewer fails", async () => {
+    const fixture = daytonaFixture({ readonlyScreenFails: true });
+    const provider = new DaytonaSandboxProvider({ apiKey: "test-key" }, fixture.client);
+    const computer = await provider.provision({ botId: "bot-a", homePath: "/unused" }, context);
+
+    await expect(
+      provider.connectScreen(computer, { view: "stream", interactive: false }, context),
+    ).rejects.toThrow();
+    expect(fixture.getSignedPreviewUrl).not.toHaveBeenCalled();
+
+    const control = await provider.connectScreen(
+      computer,
+      { view: "stream", interactive: true, controlToken: "lease-1" },
+      context,
+    );
+    expect(control.url).toContain("6096-preview");
+    expect(control.url).toContain("view_only=false");
+    expect(fixture.getSignedPreviewUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it("expires released primary capabilities without stopping another session's shared viewer", async () => {
+    const fixture = daytonaFixture();
+    const provider = new DaytonaSandboxProvider({ apiKey: "test-key" }, fixture.client);
+    const computer = await provider.provision({ botId: "bot-a", homePath: "/unused" }, context);
+    await provider.connectScreen(computer, { view: "stream", interactive: false }, context);
+    await provider.connectScreen(
+      computer,
+      { view: "stream", interactive: true, controlToken: "lease-1" },
+      context,
+    );
+
+    await provider.releaseScreen(computer, context);
+    expect(fixture.expireSignedPreviewUrl).toHaveBeenCalledWith(6096, "preview-token");
+    expect(fixture.expireSignedPreviewUrl).toHaveBeenCalledWith(6081, "preview-token");
+    expect(fixture.executeCommand).not.toHaveBeenCalledWith(stopPrimaryReadonlyScreenCommand());
+    expect(
+      fixture.executeCommand.mock.calls.some(
+        ([command]) =>
+          command.includes("RAKAZO_SCREEN_RELEASE=") &&
+          command.includes(stopPrimaryControlScreenCommand()),
+      ),
+    ).toBe(true);
+
+    await provider.stop(computer, context);
+    expect(fixture.executeCommand).toHaveBeenCalledWith(stopPrimaryReadonlyScreenCommand());
+  });
+
+  it("requires a lease for primary control and preserves passive access when control expires", async () => {
+    const fixture = daytonaFixture();
+    const provider = new DaytonaSandboxProvider({ apiKey: "test-key" }, fixture.client);
+    const computer = await provider.provision({ botId: "bot-a", homePath: "/unused" }, context);
+    await expect(
+      provider.connectScreen(computer, { view: "stream", interactive: true }, context),
+    ).rejects.toThrow("control token");
+    expect(fixture.getSignedPreviewUrl).not.toHaveBeenCalled();
+    const passive = await provider.connectScreen(
+      computer,
+      { view: "stream", interactive: false },
+      context,
+    );
+    const control = await provider.connectScreen(
+      computer,
+      { view: "stream", interactive: true, controlToken: "lease-1" },
+      context,
+    );
+    expect(control.url).toContain("password=test-view-password");
+    await provider.setScreenControl(computer, false, context, "lease-1");
+    expect(fixture.executeCommand).toHaveBeenCalledWith(stopPrimaryControlScreenCommand("lease-1"));
+    expect(fixture.executeCommand).not.toHaveBeenCalledWith(stopPrimaryReadonlyScreenCommand());
+    const passiveAfter = await provider.connectScreen(
+      computer,
+      { view: "stream", interactive: false },
+      context,
+    );
+    expect(passiveAfter.url).toBe(passive.url);
+    expect(fixture.getSignedPreviewUrl.mock.calls.map(([port]) => port)).toEqual([6081, 6096]);
   });
 
   it("replaces the provider desktop with the managed AIMEE identity and application dock", () => {
@@ -342,7 +432,8 @@ describe("DaytonaSandboxProvider", () => {
       { view: "stream", interactive: false },
       researcher,
     );
-    expect(writerView.url).toContain("6080-preview");
+    expect(writerView.url).toContain("6081-preview");
+    expect(writerView.url).toContain("password=test-view-password");
     expect(researcherView.url).toContain("6082-preview");
     expect(researcherView.url).toContain("password=test-view-password");
     expect(fixture.computerUse.start).toHaveBeenCalledTimes(1);
@@ -373,6 +464,7 @@ describe("DaytonaSandboxProvider", () => {
       researcher,
     );
     expect(researcherControl.url).toContain("6083-preview");
+    expect(researcherControl.url).toContain("view_only=false");
     expect(researcherControl.url).not.toContain("6082-preview");
     expect(
       fixture.executeCommand.mock.calls.some(([command]) =>
@@ -384,7 +476,14 @@ describe("DaytonaSandboxProvider", () => {
   });
 });
 
-function daytonaFixture(options: { id?: string; state?: string; prepareFails?: boolean } = {}) {
+function daytonaFixture(
+  options: {
+    id?: string;
+    state?: string;
+    prepareFails?: boolean;
+    readonlyScreenFails?: boolean;
+  } = {},
+) {
   const files = new Map<string, Buffer>();
   const modes = new Map<string, string>();
   const id = options.id ?? "daytona-box";
@@ -397,6 +496,11 @@ function daytonaFixture(options: { id?: string; state?: string; prepareFails?: b
       if (command.includes("/tmp/.X11-unix/X*")) return { exitCode: 0, result: ":0\n" };
       if (options.prepareFails && command.includes("mkdir -p -- ")) {
         return { exitCode: 1, result: "could not create Daytona workspace" };
+      }
+      if (command.includes("RAKAZO_SCREEN_PASSWORD=")) {
+        return options.readonlyScreenFails && command.includes("AIMEE_PRIMARY_READONLY")
+          ? { exitCode: 1, result: "primary passive screen port is already in use" }
+          : { exitCode: 0, result: "RAKAZO_SCREEN_PASSWORD=test-view-password\n" };
       }
       if (command.startsWith("chmod 700 -- ")) {
         for (const match of command.matchAll(/'([^']+)'/g)) modes.set(match[1]!, "0755");
@@ -440,8 +544,8 @@ function daytonaFixture(options: { id?: string; state?: string; prepareFails?: b
   const takeFullScreen = vi.fn(async () => ({
     screenshot: Buffer.from([1, 2, 3]).toString("base64"),
   }));
-  const getSignedPreviewUrl = vi.fn(async (_port: number) => ({
-    url: "https://6080-preview.proxy.daytona.test",
+  const getSignedPreviewUrl = vi.fn(async (port: number) => ({
+    url: `https://${port}-preview.proxy.daytona.test`,
     token: "preview-token",
   }));
   const sandbox = {
